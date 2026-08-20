@@ -1,0 +1,31 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'docker-compose.prod.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to VM
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          command_timeout: 60m
+          script: |
+            set -e
+            cd ~/cake-pos
+            git fetch origin main
+            git reset --hard origin/main
+            docker compose -p cake-pos -f docker-compose.prod.yml up -d --build
+            if docker compose -p cake-pos -f docker-compose.prod.yml ps --services | grep -qx app; then
+              docker compose -p cake-pos -f docker-compose.prod.yml exec -T app php artisan migrate --force
+              docker compose -p cake-pos -f docker-compose.prod.yml exec -T app php artisan config:clear
+            fi

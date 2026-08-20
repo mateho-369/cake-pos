@@ -1,0 +1,49 @@
+# ── Production VM stack ───────────────────────────────────────────────────────
+# Database: Aiven MySQL (external — no local mysql container)
+# Config:   backend/.env (gitignored) AND a root-level .env for ${VAR}
+#           interpolation of MinIO credentials (portfolio bug #6).
+# Start:    docker compose -f docker-compose.prod.yml up -d --build
+#           (full stack, no --no-deps — portfolio bug #9)
+#
+# Laravel `app` + nginx join this file when the backend is written.
+# Until then this compose still boots MinIO so photos have a home.
+
+services:
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "127.0.0.1:9000:9000"
+    environment:
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_CORS_ORIGINS:-*}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+
+  minio-init:
+    image: minio/mc:latest
+    # Root .env interpolates these (portfolio bug #6). Switch to env_file: ./backend/.env
+    # once Laravel lands — and keep the two files in lockstep.
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 "$${AWS_ACCESS_KEY_ID}" "$${AWS_SECRET_ACCESS_KEY}" &&
+        mc mb --ignore-existing local/cake-pos &&
+        mc anonymous set download local/cake-pos/products
+
+volumes:
+  minio-data:
