@@ -79,6 +79,17 @@ npm run deploy:sale    # apps/sale/wrangler.jsonc  → sale.yourdomain.com
 
 Attach each custom domain to its corresponding Worker in Cloudflare. They are separate deployments and must not be combined into one origin.
 
+The npm-workspace directories map directly to the requested one-repository architecture:
+
+```text
+project-cake-pos/
+├── apps/sale/    → logical sale-frontend  → sale.yourdomain.com
+├── apps/admin/   → logical admin-frontend → admin.yourdomain.com
+└── backend/      → reserved for Laravel   → api.yourdomain.com (future)
+```
+
+`backend/` is intentionally not scaffolded yet because the blueprint defers Laravel until it is explicitly requested.
+
 ## Sale Terminal feature coverage
 
 - Mandatory staff login with a large 4-digit glass PIN pad and email/password fallback
@@ -122,6 +133,7 @@ apps/
     wrangler.jsonc       Separate sale Worker deployment
 docs/
   DEPLOYMENT_ARCHITECTURE.md
+  PHASE1_VERIFICATION.md
   POS_RESEARCH.md
 ```
 
