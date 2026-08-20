@@ -15,8 +15,8 @@ export default function AdminLoginPage() {
   if (user?.role === 'admin') return <Navigate to="/" replace />
   if (user) {
     return (
-      <div className="app-shell grid place-items-center px-5">
-        <div className="glass-strong max-w-md p-7 text-center">
+      <div className="login-shell">
+        <div className="login-card glass-strong text-center">
           <p className="font-semibold">This console is for the owner.</p>
           <p className="mt-2 text-sm" style={{ color: 'var(--ink-3)' }}>
             Signed in as {user.name} ({user.role}). Use the sale terminal instead.
@@ -47,9 +47,9 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <div className="app-shell grid place-items-center px-5">
+    <div className="login-shell">
       <motion.div
-        className="glass-strong specular relative w-full max-w-[420px] p-7 sm:p-8"
+        className="login-card glass-strong specular relative"
         initial={{ y: 16, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ type: 'spring', stiffness: 340, damping: 28 }}

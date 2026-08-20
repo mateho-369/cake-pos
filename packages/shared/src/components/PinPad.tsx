@@ -28,26 +28,26 @@ export default function PinPad({
 
   return (
     <div>
-      <div className="mb-6 flex justify-center gap-3">
+      <div className="mb-4 flex justify-center gap-2.5">
         {[0, 1, 2, 3].map((i) => (
           <span
             key={i}
-            className="h-3.5 w-3.5 rounded-full transition-all"
+            className="h-3 w-3 rounded-full transition-all"
             style={{
-              background: i < value.length ? 'linear-gradient(180deg, #F9A8D4, #F472B6)' : 'rgba(59,10,31,0.12)',
+              background: i < value.length ? 'linear-gradient(180deg, #F9A8D4, #F472B6)' : 'rgba(59,10,31,0.14)',
               transform: i < value.length ? 'scale(1.15)' : 'scale(1)',
               boxShadow: i < value.length ? '0 6px 14px rgba(244,114,182,0.45)' : 'none',
             }}
           />
         ))}
       </div>
-      <div className="mx-auto grid max-w-[280px] grid-cols-3 gap-3">
+      <div className="mx-auto grid w-full max-w-[240px] grid-cols-3 gap-2.5">
         {keys.map((key) => {
           if (key === '') return <span key="empty" />
           if (key === 'del') {
             return (
               <button key="del" type="button" className="pin-key" onClick={back} aria-label="Delete" disabled={disabled}>
-                <Delete size={22} className="mx-auto" />
+                <Delete size={20} className="mx-auto" />
               </button>
             )
           }

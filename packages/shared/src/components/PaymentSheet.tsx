@@ -59,7 +59,7 @@ export default function PaymentSheet({
           onClick={onClose}
         >
           <motion.div
-            className="sheet w-full max-w-md rounded-t-[28px] p-5 sm:rounded-[28px]"
+            className="sheet w-full max-w-md rounded-t-[28px] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:rounded-[28px]"
             initial={{ y: 48 }}
             animate={{ y: 0 }}
             exit={{ y: 48 }}
@@ -128,11 +128,11 @@ export default function PaymentSheet({
             ) : (
               <div className="text-center">
                 <div className="mx-auto w-fit rounded-[24px] bg-white p-3 shadow-sm">
-                  <KhqrCode seed={`${state.settings.khqrAccount}-${total}`} size={200} />
+                  <KhqrCode seed={`${settings.khqrAccount}-${total}`} size={180} />
                 </div>
-                <p className="mt-3 text-sm font-semibold">{state.settings.khqrMerchantName}</p>
+                <p className="mt-3 text-sm font-semibold">{settings.khqrMerchantName}</p>
                 <p className="text-xs" style={{ color: 'var(--ink-3)' }}>
-                  {state.settings.khqrAccount}
+                  {settings.khqrAccount}
                 </p>
                 <p className="mt-2 text-xs" style={{ color: 'var(--ink-3)' }}>
                   Customer scans · cashier confirms when paid

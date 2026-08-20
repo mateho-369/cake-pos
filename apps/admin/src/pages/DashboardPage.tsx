@@ -30,7 +30,7 @@ export default function DashboardPage() {
       <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--pink-deep)' }}>
         Bloom
       </p>
-      <h1 className="mt-1 text-3xl font-semibold tracking-tight">Good morning</h1>
+      <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Good morning</h1>
       <p className="mt-1 text-sm" style={{ color: 'var(--ink-3)' }}>
         Five-minute check-in. Sell the cakes that are closest to best-before first.
       </p>

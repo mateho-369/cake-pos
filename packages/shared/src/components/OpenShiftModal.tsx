@@ -27,9 +27,9 @@ export default function OpenShiftModal({
   }
 
   return (
-    <div className="app-shell grid place-items-center px-5">
+    <div className="login-shell">
       <motion.div
-        className="glass-strong specular w-full max-w-md p-7"
+        className="login-card glass-strong specular"
         initial={{ y: 16, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ type: 'spring', stiffness: 320, damping: 28 }}

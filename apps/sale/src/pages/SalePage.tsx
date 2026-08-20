@@ -68,8 +68,8 @@ export default function SalePage() {
   if (!user) return <Navigate to="/login" replace />
   if (loadError) {
     return (
-      <div className="app-shell grid place-items-center px-5">
-        <div className="glass-strong p-6 text-center">
+      <div className="login-shell">
+        <div className="glass-strong login-card text-center">
           <p className="font-semibold">Could not reach the API</p>
           <p className="mt-2 text-sm" style={{ color: 'var(--ink-3)' }}>{loadError}</p>
         </div>
@@ -78,7 +78,7 @@ export default function SalePage() {
   }
   if (shift === undefined || !settings) {
     return (
-      <div className="app-shell grid place-items-center">
+      <div className="login-shell">
         <p style={{ color: 'var(--ink-3)' }}>Opening Bloom…</p>
       </div>
     )
@@ -129,25 +129,30 @@ export default function SalePage() {
     }
   }
 
+  const openPay = (method: PaymentMethod) => {
+    setPayMethod(method)
+    setPayOpen(true)
+  }
+
   const CartBody = (
-    <>
-      <div className="flex items-center justify-between px-1">
-        <h2 className="text-lg font-semibold tracking-tight">Ticket</h2>
+    <div className="sale-cart-body">
+      <div className="flex items-center justify-between">
+        <h2 className="text-base font-semibold tracking-tight">Ticket</h2>
         {cart.length > 0 && (
-          <button type="button" className="text-xs font-medium" style={{ color: 'var(--pink-deep)' }} onClick={() => setCart([])}>
+          <button type="button" className="text-xs font-semibold" style={{ color: 'var(--pink-deep)' }} onClick={() => setCart([])}>
             Clear
           </button>
         )}
       </div>
-      <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+      <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-0.5">
         {cart.length === 0 && (
-          <p className="px-1 py-10 text-center text-sm" style={{ color: 'var(--ink-3)' }}>
+          <p className="px-1 py-8 text-center text-sm" style={{ color: 'var(--ink-3)' }}>
             Tap a cake to add it.
           </p>
         )}
         {cart.map((line) => (
-          <div key={line.productId} className="glass-soft flex items-center gap-3 p-2">
-            <img src={line.imageUrl} alt="" className="h-12 w-12 rounded-xl object-cover" />
+          <div key={line.productId} className="glass-soft flex items-center gap-2.5 p-2">
+            <img src={line.imageUrl} alt="" className="h-11 w-11 shrink-0 rounded-xl object-cover" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold">{line.name}</p>
               <p className="price text-sm">{money(line.unitPrice * line.quantity)}</p>
@@ -156,82 +161,48 @@ export default function SalePage() {
           </div>
         ))}
       </div>
-      <div className="mt-3">
-        <Horizon className="mb-3 opacity-70" />
-        <div className="flex items-end justify-between">
+      <div className="mt-3 shrink-0">
+        <Horizon className="mb-3 opacity-80" />
+        <div className="flex items-end justify-between gap-3">
           <span className="text-sm" style={{ color: 'var(--ink-3)' }}>
             {count} item{count === 1 ? '' : 's'}
           </span>
-          <span className="price text-3xl">{money(subtotal)}</span>
+          <span className="price text-[1.85rem] leading-none">{money(subtotal)}</span>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            className="btn-glass"
-            disabled={!cart.length}
-            onClick={() => {
-              setPayMethod('cash')
-              setPayOpen(true)
-            }}
-          >
+          <button type="button" className="btn-glass" disabled={!cart.length} onClick={() => openPay('cash')}>
             Cash
           </button>
-          <button
-            type="button"
-            className="btn-pink btn-pink-ring"
-            disabled={!cart.length}
-            onClick={() => {
-              setPayMethod('khqr')
-              setPayOpen(true)
-            }}
-          >
+          <button type="button" className="btn-pink btn-pink-ring" disabled={!cart.length} onClick={() => openPay('khqr')}>
             KHQR
           </button>
         </div>
       </div>
-    </>
+    </div>
   )
 
   return (
-    <div className="app-shell flex flex-col">
-      <header className="glass relative mx-3 mt-3 flex items-center gap-3 rounded-[22px] px-3 py-2.5 sm:mx-4 sm:px-4">
-        <div className="hidden sm:block">
-          <Logo size={32} />
-        </div>
-        <div className="min-w-0 sm:hidden">
-          <p className="truncate text-sm font-semibold">{user.name.split(' ')[0]}</p>
-          <p className="text-[0.65rem]" style={{ color: 'var(--ink-3)' }}>
-            Shift {duration(shift.openedAt)}
-          </p>
-        </div>
+    <div className="sale-shell">
+      <header className="sale-top glass">
+        <Logo size={32} compact />
         <div className="hidden min-w-0 sm:block">
-          <p className="truncate text-sm font-semibold">{user.name}</p>
-          <p className="text-[0.7rem]" style={{ color: 'var(--ink-3)' }}>
-            Shift open · {duration(shift.openedAt)}
+          <p className="truncate text-sm font-semibold leading-tight">{user.name}</p>
+          <p className="text-[0.68rem] leading-tight" style={{ color: 'var(--ink-3)' }}>
+            Shift · {duration(shift.openedAt)}
           </p>
         </div>
-        <label className="glass-soft relative ml-auto flex min-w-0 flex-1 items-center gap-2 rounded-full px-3 py-2 sm:max-w-xs">
-          <Search size={16} style={{ color: 'var(--ink-3)' }} />
-          <input
-            className="w-full bg-transparent text-sm outline-none"
-            placeholder="Search cakes"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+        <label className="sale-search glass-soft">
+          <Search size={15} style={{ color: 'var(--ink-3)', flexShrink: 0 }} />
+          <input placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
-        <button
-          type="button"
-          className="grid h-10 w-10 place-items-center rounded-full"
-          onClick={() => void logout()}
-          aria-label="Log out"
-        >
+        <button type="button" className="grid h-10 w-10 shrink-0 place-items-center rounded-full" onClick={() => void logout()} aria-label="Log out">
           <LogOut size={18} />
         </button>
       </header>
 
-      <div className="relative mx-3 mt-3 flex min-h-0 flex-1 gap-3 sm:mx-4 sm:mb-4">
-        <section className="relative flex min-w-0 flex-1 flex-col">
-          <div className="scroll-hide mb-3 flex gap-2 overflow-x-auto pb-1">
+      <div className="sale-main">
+        <section className="sale-catalog">
+          <div className="sale-pills scroll-hide">
             <button type="button" className={`pill ${categoryId === 'all' ? 'pill-active' : ''}`} onClick={() => setCategoryId('all')}>
               All
             </button>
@@ -246,51 +217,47 @@ export default function SalePage() {
               </button>
             ))}
           </div>
-          <div className="scroll-hide grid min-h-0 flex-1 grid-cols-2 content-start gap-3 overflow-y-auto pb-28 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 lg:pb-8">
+          <div className="sale-grid scroll-hide">
             {visible.map((p) => (
               <ProductCard key={p.id} product={p} onAdd={add} />
             ))}
           </div>
-          <button type="button" className="fab lg:bottom-6" onClick={() => setAddOpen(true)} aria-label="Add cake">
-            <Plus size={26} />
+          <button type="button" className="fab" onClick={() => setAddOpen(true)} aria-label="Add cake">
+            <Plus size={24} />
           </button>
         </section>
 
-        <aside className="glass hidden w-[380px] shrink-0 flex-col rounded-[26px] p-4 lg:flex">{CartBody}</aside>
+        <aside className="sale-cart glass">{CartBody}</aside>
       </div>
 
-      <div className="lg:hidden">
-        <button
-          type="button"
-          className="glass mx-3 mb-3 flex w-[calc(100%-1.5rem)] items-center justify-between rounded-[22px] px-4 py-3"
-          onClick={() => setMobileCart(true)}
-        >
-          <span className="inline-flex items-center gap-2 text-sm font-medium">
-            <ShoppingBag size={16} /> {count} in ticket
-          </span>
-          <span className="price text-xl">{money(subtotal)}</span>
-        </button>
-      </div>
+      <button type="button" className="sale-dock glass" onClick={() => setMobileCart(true)}>
+        <span className="inline-flex items-center gap-2 text-sm font-semibold">
+          <ShoppingBag size={16} /> {count} in ticket
+        </span>
+        <span className="price text-xl leading-none">{money(subtotal)}</span>
+      </button>
 
       <AnimatePresence>
         {mobileCart && (
           <motion.div
-            className="fixed inset-0 z-30 lg:hidden"
-            style={{ background: 'rgba(59,10,31,0.28)' }}
+            className="mobile-only fixed inset-0 z-30"
+            style={{ background: 'rgba(59,10,31,0.32)' }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setMobileCart(false)}
           >
             <motion.div
-              className="sheet absolute inset-x-0 bottom-0 flex max-h-[86%] flex-col rounded-t-[28px] p-4"
-              initial={{ y: 40 }}
+              className="sheet absolute inset-x-0 bottom-0 flex flex-col rounded-t-[28px] p-4 pb-6"
+              style={{ height: 'min(78dvh, 640px)' }}
+              initial={{ y: 48 }}
               animate={{ y: 0 }}
-              exit={{ y: 40 }}
+              exit={{ y: 48 }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="mb-2 flex justify-end">
-                <button type="button" className="btn-glass h-9 w-9 !p-0" onClick={() => setMobileCart(false)} aria-label="Close cart">
+              <div className="mx-auto mb-3 h-1 w-10 rounded-full" style={{ background: 'rgba(59,10,31,0.14)' }} />
+              <div className="mb-1 flex justify-end">
+                <button type="button" className="btn-glass h-9 w-9 !min-h-0 !p-0" onClick={() => setMobileCart(false)} aria-label="Close cart">
                   <X size={16} />
                 </button>
               </div>

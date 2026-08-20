@@ -44,23 +44,23 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="app-shell relative grid place-items-center overflow-hidden px-5">
+    <div className="login-shell">
       <motion.div
-        className="glass-strong specular relative w-full max-w-[420px] p-7 sm:p-8"
-        initial={{ y: 18, opacity: 0, scale: 0.97 }}
-        animate={{ y: 0, opacity: 1, scale: 1 }}
+        className="login-card glass-strong specular relative"
+        initial={{ y: 14, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
         transition={{ type: 'spring', stiffness: 340, damping: 28 }}
       >
-        <div className="absolute inset-x-8 top-0 overflow-hidden rounded-b-full">
+        <div className="absolute inset-x-10 top-0 overflow-hidden rounded-b-full">
           <Horizon />
         </div>
         <Logo />
-        <h1 className="mt-6 text-[1.85rem] font-semibold tracking-tight">Welcome back</h1>
+        <h1 className="mt-5 text-[1.65rem] font-semibold tracking-tight">Welcome back</h1>
         <p className="mt-1 text-sm" style={{ color: 'var(--ink-3)' }}>
-          {mode === 'pin' ? 'Enter your 4-digit PIN to start selling.' : 'Owner or email login.'}
+          {mode === 'pin' ? 'Enter your 4-digit PIN to start selling.' : 'Email and password login.'}
         </p>
 
-        <div className="mt-5 mb-6 flex gap-2">
+        <div className="mt-4 mb-5 flex gap-2">
           <button type="button" className={`pill ${mode === 'pin' ? 'pill-active' : ''}`} onClick={() => setMode('pin')}>
             PIN pad
           </button>
@@ -93,10 +93,10 @@ export default function LoginPage() {
           </p>
         )}
 
-        <p className="mt-6 text-center text-[0.72rem] leading-relaxed" style={{ color: 'var(--ink-4)' }}>
-          Demo cashier PIN {DEMO.cashierPin} · owner {DEMO.adminEmail} / {DEMO.adminPassword}
+        <p className="mt-5 text-center text-[0.7rem] leading-relaxed" style={{ color: 'var(--ink-4)' }}>
+          Demo PIN {DEMO.cashierPin}
           <br />
-          Token stays in memory — refresh signs you out. No Telegram auto-login.
+          Owner {DEMO.adminEmail} / {DEMO.adminPassword}
         </p>
       </motion.div>
     </div>
