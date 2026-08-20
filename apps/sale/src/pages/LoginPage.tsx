@@ -44,9 +44,9 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="login-shell">
+    <div className="auth-shell">
       <motion.div
-        className="login-card glass-strong specular relative"
+        className="auth-card sale-login glass-strong relative"
         initial={{ y: 14, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ type: 'spring', stiffness: 340, damping: 28 }}
@@ -55,12 +55,12 @@ export default function LoginPage() {
           <Horizon />
         </div>
         <Logo />
-        <h1 className="mt-5 text-[1.65rem] font-semibold tracking-tight">Welcome back</h1>
-        <p className="mt-1 text-sm" style={{ color: 'var(--ink-3)' }}>
-          {mode === 'pin' ? 'Enter your 4-digit PIN to start selling.' : 'Email and password login.'}
+        <h1>Welcome back</h1>
+        <p className="text-[0.8rem]" style={{ color: 'var(--ink-3)' }}>
+          4-digit PIN to start selling.
         </p>
 
-        <div className="mt-4 mb-5 flex gap-2">
+        <div className="mt-3 mb-4 flex gap-2">
           <button type="button" className={`pill ${mode === 'pin' ? 'pill-active' : ''}`} onClick={() => setMode('pin')}>
             PIN pad
           </button>

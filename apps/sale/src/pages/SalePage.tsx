@@ -68,8 +68,8 @@ export default function SalePage() {
   if (!user) return <Navigate to="/login" replace />
   if (loadError) {
     return (
-      <div className="login-shell">
-        <div className="glass-strong login-card text-center">
+      <div className="auth-shell">
+        <div className="auth-card glass-strong text-center">
           <p className="font-semibold">Could not reach the API</p>
           <p className="mt-2 text-sm" style={{ color: 'var(--ink-3)' }}>{loadError}</p>
         </div>
@@ -78,7 +78,7 @@ export default function SalePage() {
   }
   if (shift === undefined || !settings) {
     return (
-      <div className="login-shell">
+      <div className="auth-shell">
         <p style={{ color: 'var(--ink-3)' }}>Opening Bloom…</p>
       </div>
     )
@@ -257,7 +257,7 @@ export default function SalePage() {
             >
               <div className="mx-auto mb-3 h-1 w-10 rounded-full" style={{ background: 'rgba(59,10,31,0.14)' }} />
               <div className="mb-1 flex justify-end">
-                <button type="button" className="btn-glass h-9 w-9 !min-h-0 !p-0" onClick={() => setMobileCart(false)} aria-label="Close cart">
+                <button type="button" className="btn-icon" onClick={() => setMobileCart(false)} aria-label="Close cart">
                   <X size={16} />
                 </button>
               </div>

@@ -71,10 +71,10 @@ export default function PaymentSheet({
                 <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--pink-deep)' }}>
                   Charge
                 </p>
-                <p className="price text-3xl">{money(total)}</p>
+                <p className="price text-2xl">{money(total)}</p>
               </div>
-              <button type="button" className="btn-glass h-10 w-10 !p-0" onClick={onClose} aria-label="Close">
-                <X size={18} />
+              <button type="button" className="btn-icon" onClick={onClose} aria-label="Close">
+                <X size={16} />
               </button>
             </div>
 
@@ -108,7 +108,7 @@ export default function PaymentSheet({
                 </div>
                 <div className="mb-3 grid grid-cols-3 gap-2">
                   {keys.map((k) => (
-                    <button key={k} type="button" className="pin-key !aspect-auto h-12 !rounded-2xl !text-lg" onClick={() => press(k)}>
+                    <button key={k} type="button" className="num-key" onClick={() => press(k)}>
                       {k}
                     </button>
                   ))}

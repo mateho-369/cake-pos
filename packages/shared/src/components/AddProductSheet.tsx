@@ -97,15 +97,15 @@ export default function AddProductSheet({
                 </p>
                 <h2 className="text-xl font-semibold tracking-tight">New cake</h2>
               </div>
-              <button type="button" className="btn-glass h-10 w-10 !p-0" onClick={onClose} aria-label="Close">
-                <X size={18} />
+              <button type="button" className="btn-icon" onClick={onClose} aria-label="Close">
+                <X size={16} />
               </button>
             </div>
 
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              className="relative mb-4 flex h-44 w-full items-center justify-center overflow-hidden rounded-[22px]"
+              className="relative mb-3 flex h-32 w-full items-center justify-center overflow-hidden rounded-2xl"
               style={{ background: 'rgba(255,255,255,0.5)', boxShadow: 'inset 0 0 0 1px rgba(59,10,31,0.06)' }}
             >
               {imageUrl ? (
