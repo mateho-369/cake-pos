@@ -2,50 +2,52 @@
 
 Point of sale for a cake shop that bakes fresh every 2–3 days. Liquid Glass pink, iPad-first, PIN login, KHQR by cashier confirm.
 
-Phase 1 is the **Sale Terminal** and **Admin Control**. There is no public signup, no customer storefront, and no Laravel backend yet (that lands when asked). Data lives in `localStorage` so you can ring up real tickets today.
+Three **separate origins** in production. No cookies, no Sanctum SPA sessions.
 
-## Apps
+| Host | App |
+|---|---|
+| `sale.yourdomain.com` | Sale terminal |
+| `admin.yourdomain.com` | Admin control |
+| `api.yourdomain.com` | Shared API (Laravel later; mock API today) |
 
-| App | Route | Who |
-|---|---|---|
-| Sale Terminal | `/` | Cashiers — PIN pad, product grid, cart, cash / KHQR |
-| Admin Control | `/admin` | Owner — dashboard, products, employees, shifts, reports |
-
-Same origin in this preview so mock data is shared. Production can split into two Cloudflare Workers in front of the same Laravel API.
-
-## Stack (same as Field Notes / portfolio)
-
-React 19 · TypeScript · Vite 7 · Tailwind 4 · Cloudflare Workers (`worker/index.js` same-origin proxy) · MinIO · Aiven MySQL · a **new** GCP VM, not the portfolio one.
+Auth is a **Bearer token** in `Authorization`, returned on login, held in React state (memory only — refresh signs you out), attached to every API call. Each frontend reads `VITE_API_URL` at build time. The API sends CORS for the two frontend origins and allows the `Authorization` header.
 
 ## Demo logins
 
 | Role | How |
 |---|---|
-| Cashier Dara | PIN `2468` |
+| Cashier Dara | PIN `2468` on the sale app |
 | Cashier Malis | PIN `1357` |
-| Owner Sophea | `owner@bloom.bakery` / `bloom1234` (Admin Control, or email tab on the terminal) |
+| Owner Sophea | `owner@bloom.bakery` / `bloom1234` on the **admin** app |
 
-Telegram Mini App: the terminal loads `telegram-web-app.js` and calls `ready()` + `expand()`. It never reads `initData` for auth.
+Telegram Mini App (sale only): `ready()` + `expand()`. Never `initData` for auth.
 
 ## Local
 
 ```bash
 npm install
-npm run dev
+npm run dev:api      # mock API on :8080
+npm run dev:sale     # sale terminal on :5173  (proxies /api → :8080)
+npm run dev:admin    # admin control on :5174
 ```
 
-Optional data services (MySQL + MinIO, for when Laravel arrives):
+Leave `VITE_API_URL` unset locally so the browser calls same-origin `/api` (Vite proxy). Do not point the client at `http://127.0.0.1:8080` — preview browsers are not the sandbox.
+
+Production builds:
 
 ```bash
-docker compose up -d
+VITE_API_URL=https://api.yourdomain.com/api npm run build:sale
+VITE_API_URL=https://api.yourdomain.com/api npm run build:admin
+npx wrangler deploy -c wrangler.sale.jsonc
+npx wrangler deploy -c wrangler.admin.jsonc
 ```
 
-## Design
+## Why not cookies
 
-Blush wash `#FDF2F6`, frosted glass, pink `#F472B6` / `#BE185D`, signature blue `#3B82F6` horizon line, ink `#3B0A1F`, Poppins, 20–28px corners. Cakes near `best_before` glow coral so cashiers sell them first.
+Sale, admin, and API are different subdomains. Cookie + SameSite + CORS across those origins is the class of bug that ate hours on the portfolio project (419 CSRF, unreadable `XSRF-TOKEN`). Bearer tokens skip all of that.
 
 ## What is deliberately not here
 
-- Laravel 12 + Sanctum — write when requested
-- Customer self-order storefront / Telegram identity for customers (Phase 2)
+- Laravel 12 — write when requested; the mock API is the contract
+- Customer self-order storefront (Phase 2)
 - Realtime Bakong KHQR — MVP is static QR + cashier confirm

@@ -9,3 +9,4 @@
 7. `imagefttext()` first argument is `$image` (unused until receipt images).
 8. VM clone: `git fetch` + `git reset --hard origin/main`. No local commits.
 9. Auto-deploy rebuilds the full stack (`up -d --build`), no `--no-deps`.
+10. Sale, admin, and API are **three origins**. Auth is Bearer tokens, never cookies / Sanctum SPA sessions. `VITE_API_URL` is required in production. CORS allowlist is the two frontend hosts and must include `Authorization`.

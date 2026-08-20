@@ -1,56 +1,50 @@
 # Production notes (POS)
 
-This stack copies the Field Notes / portfolio infrastructure: Cloudflare Worker
-for the SPA, Docker Compose on a **new** GCP e2-micro VM (not shared with the
-portfolio), Aiven MySQL (a **new** service), MinIO for cake photos.
+Three origins, Bearer tokens, no cookie sessions.
 
-Laravel is not in the repo yet. When it is, follow the same sequence as the
-portfolio `docs/production.md`, with these POS-specific rules baked in from day 1.
-
-## Same-origin Worker
-
-`worker/index.js` proxies `/api`, `/sanctum`, `/up` to the VM. Do **not** set
-`VITE_API_URL`. Browser requests stay on the Worker origin so Sanctum CSRF
-cookies are readable.
-
-Add a Cloudflare **Cache Rule: bypass `/api/*`**. Cloudflare otherwise caches
-by file extension and will freeze endpoints such as `/api/.../og-image.png`.
-
-## Two env files
-
-| File | Read by |
+| Host | What |
 |---|---|
-| `.env` at repo root | `docker compose` `${VAR}` interpolation (MinIO root user) |
-| `backend/.env` | Laravel via `env_file:` |
+| `sale.yourdomain.com` | Cloudflare Worker, sale SPA |
+| `admin.yourdomain.com` | Cloudflare Worker, admin SPA |
+| `api.yourdomain.com` | Laravel on the VM (when written) / mock API in dev |
 
-They must carry the **same** `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`.
+## Auth
 
-## Deploy on the VM
+Login returns `{ token, user }`. Frontends keep `token` in React state and send:
 
-Never `git pull`. Never make local commits on the VM.
-
-```bash
-git fetch origin main
-git reset --hard origin/main
-docker compose -f docker-compose.prod.yml up -d --build
+```
+Authorization: Bearer <token>
 ```
 
-Use `up -d --build` for the **full** stack. Do not pass `--no-deps`.
-Do not `docker compose restart app` — `restart` does not reload `env_file`.
+No `credentials: 'include'`. No `/sanctum/csrf-cookie`. No `SESSION_DOMAIN`. Refreshing the tab signs the cashier out — that is intended for a POS.
 
-## PHP-FPM
+## CORS (API)
 
-Alpine PHP images default `clear_env = yes`. The Laravel Dockerfile must
-`RUN echo "clear_env = no" >>` the real `www.conf` (find it with
-`docker run --rm <image> find / -iname www.conf`).
+Allow only the two frontend origins. Echoing `*` while sending `Authorization` is not enough in some browsers; set the exact origins.
 
-## TRUSTED_PROXIES
+```
+Access-Control-Allow-Origin: https://sale.yourdomain.com
+  (or https://admin.yourdomain.com — reflect the request Origin if it is on the allowlist)
+Access-Control-Allow-Headers: Authorization, Content-Type, Accept
+Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
+```
 
-The Worker forwards `CF-Connecting-IP`. Set `TRUSTED_PROXIES` on the VM to
-the addresses that actually reach nginx (or Cloudflare's published ranges).
-Do **not** set `*` while port 8080 is reachable from the internet.
+Do **not** set `Access-Control-Allow-Credentials: true`.
 
-## KHQR
+`CORS_ORIGINS=https://sale.yourdomain.com,https://admin.yourdomain.com`
 
-MVP is a static QR the customer scans by hand; the cashier confirms receipt.
-Bakong realtime comes later.
+## Frontends
+
+Build with the API origin baked in:
+
+```
+VITE_API_URL=https://api.yourdomain.com/api
+```
+
+Workers (`wrangler.sale.jsonc`, `wrangler.admin.jsonc`) serve static assets only. They do **not** proxy `/api`.
+
+## Laravel (when written)
+
+Sanctum **token** auth (`createToken` / `auth:sanctum`), not stateful SPA cookies. Same CORS allowlist. Same JSON contract as `api/server.ts`.
+
+VM, Aiven, MinIO, `clear_env = no`, YAML-list `minio-init`, root `.env` interpolation, `git fetch` + `reset --hard` — still apply. See `docs/lessons-learned.md`.

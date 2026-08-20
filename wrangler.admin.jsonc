@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cake-pos-admin",
+  "compatibility_date": "2026-08-03",
+  "main": "workers/assets.js",
+  "assets": {
+    "directory": "./apps/admin/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  }
+}
