@@ -16,19 +16,33 @@ type AuthContextValue = {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
+const AUTH_STORAGE_KEY = 'atelier.authToken'
+
+function readStoredToken() {
+  try {
+    const storedToken = sessionStorage.getItem(AUTH_STORAGE_KEY)
+    if (storedToken) setAccessToken(storedToken)
+    return storedToken
+  } catch {
+    return null
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState<string | null>(null)
+  const [token, setToken] = useState<string | null>(readStoredToken)
   const [employee, setEmployee] = useState<Employee | null>(null)
 
   const signIn = async (email: string, password: string) => {
     const result = await login(email, password)
+    setAccessToken(result.token)
+    try { sessionStorage.setItem(AUTH_STORAGE_KEY, result.token) } catch { /* Storage may be unavailable in a restricted webview. */ }
     setToken(result.token)
     setEmployee(result.employee as Employee)
   }
 
   const signOut = () => {
     logout()
+    try { sessionStorage.removeItem(AUTH_STORAGE_KEY) } catch { /* Storage may be unavailable in a restricted webview. */ }
     setToken(null)
     setEmployee(null)
   }

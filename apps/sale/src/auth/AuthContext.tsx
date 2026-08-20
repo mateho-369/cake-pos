@@ -17,14 +17,26 @@ type AuthContextValue = {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
+const AUTH_STORAGE_KEY = 'atelier.authToken'
 const demoMode = import.meta.env.DEV || import.meta.env.VITE_DEMO_MODE === 'true'
 
+function readStoredToken() {
+  try {
+    const storedToken = sessionStorage.getItem(AUTH_STORAGE_KEY)
+    if (storedToken) setAccessToken(storedToken)
+    return storedToken
+  } catch {
+    return null
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState<string | null>(null)
+  const [token, setToken] = useState<string | null>(readStoredToken)
   const [employee, setEmployee] = useState<Employee | null>(null)
 
   const acceptAuth = (nextToken: string, nextEmployee: Employee) => {
     setAccessToken(nextToken)
+    try { sessionStorage.setItem(AUTH_STORAGE_KEY, nextToken) } catch { /* Storage may be unavailable in a restricted webview. */ }
     setToken(nextToken)
     setEmployee(nextEmployee)
   }
@@ -42,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInWithPin = async (pin: string) => {
     if (demoMode) {
       await new Promise((resolve) => window.setTimeout(resolve, 350))
-      if (pin !== '1234') throw new Error('Incorrect PIN. Use 1234 for this demo.')
+      if (pin !== '1234') throw new Error('auth.incorrectPin')
       acceptAuth('demo-sale-bearer-token', { id: 2, name: 'Sophea Chan', role: 'cashier' })
       return
     }
@@ -52,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = () => {
     logout()
+    try { sessionStorage.removeItem(AUTH_STORAGE_KEY) } catch { /* Storage may be unavailable in a restricted webview. */ }
     setToken(null)
     setEmployee(null)
   }

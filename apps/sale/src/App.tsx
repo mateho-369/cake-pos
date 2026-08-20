@@ -9,157 +9,23 @@ import ShiftModal from './components/ShiftModal'
 import QuickAddModal from './components/QuickAddModal'
 import SuccessOverlay from './components/SuccessOverlay'
 import { initialProducts, type CartItem, type Product } from './data'
+import { useTranslation } from './lib/i18n'
 
 type Shift = { startedAt: string; openingCash: number }
 type Success = { total: number; method: PaymentMethod; orderNumber: number }
-
-export default function App() {
-  const { token } = useAuth()
-  const [isTelegram, setIsTelegram] = useState(false)
-
-  useEffect(() => {
-    const webApp = window.Telegram?.WebApp
-    if (!webApp) return
-    webApp.ready()
-    webApp.expand()
-    webApp.setHeaderColor?.('#FDF2F6')
-    webApp.setBackgroundColor?.('#FDF2F6')
-    setIsTelegram(true)
-  }, [])
-
-  return <div className={isTelegram ? 'telegram-app' : ''}>{token ? <SaleTerminal /> : <LoginScreen />}</div>
-}
-
+export default function App() { const { token } = useAuth(); const [isTelegram, setIsTelegram] = useState(false); useEffect(() => { const webApp = window.Telegram?.WebApp; if (!webApp) return; webApp.ready(); webApp.expand(); webApp.setHeaderColor?.('#FDF2F6'); webApp.setBackgroundColor?.('#FDF2F6'); setIsTelegram(true) }, []); return <div className={isTelegram ? 'telegram-app' : ''}>{token ? <SaleTerminal /> : <LoginScreen />}</div> }
 function SaleTerminal() {
-  const [products, setProducts] = useState(initialProducts)
-  const [cart, setCart] = useState<CartItem[]>([])
-  const [category, setCategory] = useState('All')
-  const [query, setQuery] = useState('')
-  const [payment, setPayment] = useState<PaymentMethod>('cash')
-  const [tendered, setTendered] = useState('')
-  const [khqrConfirmed, setKhqrConfirmed] = useState(false)
-  const [shift, setShift] = useState<Shift | null>(null)
-  const [shiftModal, setShiftModal] = useState(true)
-  const [shiftMode, setShiftMode] = useState<'open' | 'close'>('open')
-  const [cashSales, setCashSales] = useState(0)
-  const [quickAdd, setQuickAdd] = useState(false)
-  const [mobileCart, setMobileCart] = useState(false)
-  const [success, setSuccess] = useState<Success | null>(null)
-  const [orderNumber, setOrderNumber] = useState(1049)
-  const [toast, setToast] = useState<string | null>(null)
-
-  const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0), [cart])
-  const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0)
-  const expectedCash = (shift?.openingCash || 0) + cashSales
-
-  const visibleProducts = useMemo(() => products.filter((product) => {
-    const matchesCategory = category === 'All' || product.category === category
-    const matchesQuery = `${product.name} ${product.category}`.toLowerCase().includes(query.toLowerCase())
-    return matchesCategory && matchesQuery && product.stock > 0
-  }).sort((a, b) => freshnessPriority(a) - freshnessPriority(b)), [products, category, query])
-
-  useEffect(() => {
-    if (!success) return
-    const timeout = window.setTimeout(() => setSuccess(null), 2400)
-    return () => window.clearTimeout(timeout)
-  }, [success])
-
-  useEffect(() => {
-    if (!toast) return
-    const timeout = window.setTimeout(() => setToast(null), 2600)
-    return () => window.clearTimeout(timeout)
-  }, [toast])
-
-  const addToCart = (product: Product) => {
-    if (!shift) {
-      setShiftMode('open')
-      setShiftModal(true)
-      return
-    }
-    setCart((current) => {
-      const existing = current.find((item) => item.product.id === product.id)
-      if (existing) return current.map((item) => item.product.id === product.id ? { ...item, quantity: Math.min(product.stock, item.quantity + 1) } : item)
-      return [...current, { product, quantity: 1 }]
-    })
-  }
-
-  const changeQuantity = (productId: number, delta: number) => {
-    setCart((current) => current.map((item) => item.product.id === productId ? { ...item, quantity: item.quantity + delta } : item).filter((item) => item.quantity > 0))
-  }
-
-  const changePayment = (method: PaymentMethod) => {
-    setPayment(method)
-    if (method === 'cash') setKhqrConfirmed(false)
-    else setTendered('')
-  }
-
-  const completePayment = () => {
-    const orderTotal = subtotal
-    if (payment === 'cash') setCashSales((current) => current + orderTotal)
-    setProducts((current) => current.map((product) => {
-      const sold = cart.find((item) => item.product.id === product.id)?.quantity || 0
-      return sold ? { ...product, stock: Math.max(0, product.stock - sold) } : product
-    }))
-    setSuccess({ total: orderTotal, method: payment, orderNumber })
-    setOrderNumber((current) => current + 1)
-    setCart([])
-    setTendered('')
-    setKhqrConfirmed(false)
-    setPayment('cash')
-    setMobileCart(false)
-  }
-
-  const openShiftAction = () => {
-    if (shift && cart.length) {
-      setToast('Complete or clear the current order before closing the shift')
-      return
-    }
-    setShiftMode(shift ? 'close' : 'open')
-    setShiftModal(true)
-  }
-
-  const confirmShift = (amount: number) => {
-    if (shiftMode === 'open') {
-      const startedAt = new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' }).format(new Date())
-      setShift({ openingCash: amount, startedAt })
-      setToast(`Shift opened with $${amount.toFixed(2)} cash`)
-    } else {
-      const variance = amount - expectedCash
-      setShift(null)
-      setCashSales(0)
-      setToast(`Shift closed · ${variance === 0 ? 'drawer balanced' : `${variance > 0 ? '+' : '−'}$${Math.abs(variance).toFixed(2)} variance`}`)
-    }
-    setShiftModal(false)
-  }
-
-  const addQuickProduct = (product: Product) => {
-    setProducts((current) => [product, ...current])
-    setQuickAdd(false)
-    setCategory('All')
-    setToast(`${product.name} published to the sale menu`)
-  }
-
-  return (
-    <main className="sale-terminal">
-      <TerminalHeader shiftOpen={Boolean(shift)} shiftStartedAt={shift?.startedAt} onShift={openShiftAction} query={query} onQuery={setQuery} cartCount={cartCount} onCart={() => setMobileCart(true)} />
-      {!shift && <button className="shift-gate-banner" onClick={openShiftAction}><span><Clock3 size={17} /></span><div><strong>Open your shift to start selling</strong><small>Count the opening drawer first</small></div><b>Open shift</b></button>}
-      <div className="terminal-layout">
-        <ProductGrid products={visibleProducts} category={category} onCategory={setCategory} onAdd={addToCart} cart={cart} query={query} onQuery={setQuery} />
-        <CartPanel orderNumber={orderNumber} cart={cart} subtotal={subtotal} onQuantity={changeQuantity} onRemove={(id) => setCart((current) => current.filter((item) => item.product.id !== id))} onClear={() => setCart([])} payment={payment} onPayment={changePayment} tendered={tendered} onTendered={setTendered} khqrConfirmed={khqrConfirmed} onKhqrConfirmed={setKhqrConfirmed} onComplete={completePayment} shiftOpen={Boolean(shift)} mobileOpen={mobileCart} onMobileClose={() => setMobileCart(false)} />
-      </div>
-
-      <button className="quick-add-fab" onClick={() => setQuickAdd(true)} aria-label="Quick add cake"><Plus size={25} /><span>Quick add</span></button>
-      {cartCount > 0 && <button className="mobile-cart-dock" onClick={() => setMobileCart(true)}><span><ShoppingBag size={18} /><i>{cartCount}</i><b>View order</b></span><strong>${subtotal.toFixed(2)}</strong></button>}
-      {mobileCart && <button className="mobile-cart-backdrop" aria-label="Close cart" onClick={() => setMobileCart(false)} />}
-
-      <ShiftModal open={shiftModal} mode={shiftMode} expectedCash={expectedCash} openingCash={shift?.openingCash || 0} cashSales={cashSales} onClose={() => setShiftModal(false)} onConfirm={confirmShift} />
-      <QuickAddModal open={quickAdd} onClose={() => setQuickAdd(false)} onAdd={addQuickProduct} />
-      {success && <SuccessOverlay total={success.total} method={success.method} orderNumber={success.orderNumber} />}
-      {toast && <div className="sale-toast"><span>{toast}</span><button onClick={() => setToast(null)}><X size={15} /></button></div>}
-    </main>
-  )
+  const { t } = useTranslation(); const [products, setProducts] = useState(initialProducts); const [cart, setCart] = useState<CartItem[]>([]); const [category, setCategory] = useState('All'); const [query, setQuery] = useState(''); const [payment, setPayment] = useState<PaymentMethod>('cash'); const [tendered, setTendered] = useState(''); const [khqrConfirmed, setKhqrConfirmed] = useState(false); const [shift, setShift] = useState<Shift | null>(null); const [shiftModal, setShiftModal] = useState(true); const [shiftMode, setShiftMode] = useState<'open' | 'close'>('open'); const [cashSales, setCashSales] = useState(0); const [quickAdd, setQuickAdd] = useState(false); const [mobileCart, setMobileCart] = useState(false); const [success, setSuccess] = useState<Success | null>(null); const [orderNumber, setOrderNumber] = useState(1049); const [toast, setToast] = useState<string | null>(null)
+  const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0), [cart]); const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0); const expectedCash = (shift?.openingCash || 0) + cashSales
+  const visibleProducts = useMemo(() => products.filter((product) => { const matchesCategory = category === 'All' || product.category === category; const matchesQuery = `${product.name} ${product.category}`.toLowerCase().includes(query.toLowerCase()); return matchesCategory && matchesQuery && product.stock > 0 }).sort((a, b) => freshnessPriority(a) - freshnessPriority(b)), [products, category, query])
+  useEffect(() => { if (!success) return; const timeout = window.setTimeout(() => setSuccess(null), 2400); return () => window.clearTimeout(timeout) }, [success]); useEffect(() => { if (!toast) return; const timeout = window.setTimeout(() => setToast(null), 2600); return () => window.clearTimeout(timeout) }, [toast])
+  const addToCart = (product: Product) => { if (!shift) { setShiftMode('open'); setShiftModal(true); return } setCart((current) => { const existing = current.find((item) => item.product.id === product.id); if (existing) return current.map((item) => item.product.id === product.id ? { ...item, quantity: Math.min(product.stock, item.quantity + 1) } : item); return [...current, { product, quantity: 1 }] }) }
+  const changeQuantity = (productId: number, delta: number) => setCart((current) => current.map((item) => item.product.id === productId ? { ...item, quantity: item.quantity + delta } : item).filter((item) => item.quantity > 0))
+  const changePayment = (method: PaymentMethod) => { setPayment(method); if (method === 'cash') setKhqrConfirmed(false); else setTendered('') }
+  const completePayment = () => { const orderTotal = subtotal; if (payment === 'cash') setCashSales((current) => current + orderTotal); setProducts((current) => current.map((product) => { const sold = cart.find((item) => item.product.id === product.id)?.quantity || 0; return sold ? { ...product, stock: Math.max(0, product.stock - sold) } : product })); setSuccess({ total: orderTotal, method: payment, orderNumber }); setOrderNumber((current) => current + 1); setCart([]); setTendered(''); setKhqrConfirmed(false); setPayment('cash'); setMobileCart(false) }
+  const openShiftAction = () => { if (shift && cart.length) { setToast(t('sale.completeOrderFirst')); return } setShiftMode(shift ? 'close' : 'open'); setShiftModal(true) }
+  const confirmShift = (amount: number) => { if (shiftMode === 'open') { const startedAt = new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' }).format(new Date()); setShift({ openingCash: amount, startedAt }); setToast(t('sale.shiftOpenedWith', { amount: amount.toFixed(2) })) } else { const variance = amount - expectedCash; setShift(null); setCashSales(0); setToast(variance === 0 ? t('sale.shiftClosedBalanced') : t('sale.shiftClosedVariance', { sign: variance > 0 ? '+' : '−', amount: Math.abs(variance).toFixed(2) })) } setShiftModal(false) }
+  const addQuickProduct = (product: Product) => { setProducts((current) => [product, ...current]); setQuickAdd(false); setCategory('All'); setToast(t('sale.productPublished', { name: product.name })) }
+  return <main className="sale-terminal"><TerminalHeader shiftOpen={Boolean(shift)} shiftStartedAt={shift?.startedAt} onShift={openShiftAction} query={query} onQuery={setQuery} cartCount={cartCount} onCart={() => setMobileCart(true)} />{!shift && <button className="shift-gate-banner" onClick={openShiftAction}><span><Clock3 size={17} /></span><div><strong>{t('sale.shiftGate')}</strong><small>{t('sale.countDrawer')}</small></div><b>{t('sale.openShift')}</b></button>}<div className="terminal-layout"><ProductGrid products={visibleProducts} category={category} onCategory={setCategory} onAdd={addToCart} cart={cart} query={query} onQuery={setQuery} /><CartPanel orderNumber={orderNumber} cart={cart} subtotal={subtotal} onQuantity={changeQuantity} onRemove={(id) => setCart((current) => current.filter((item) => item.product.id !== id))} onClear={() => setCart([])} payment={payment} onPayment={changePayment} tendered={tendered} onTendered={setTendered} khqrConfirmed={khqrConfirmed} onKhqrConfirmed={setKhqrConfirmed} onComplete={completePayment} shiftOpen={Boolean(shift)} mobileOpen={mobileCart} onMobileClose={() => setMobileCart(false)} /></div><button className="quick-add-fab" onClick={() => setQuickAdd(true)} aria-label={t('sale.quickAddCake')}><Plus size={25} /><span>{t('sale.quickAdd')}</span></button>{cartCount > 0 && <button className="mobile-cart-dock" onClick={() => setMobileCart(true)}><span><ShoppingBag size={18} /><i>{cartCount}</i><b>{t('sale.viewOrder')}</b></span><strong>${subtotal.toFixed(2)}</strong></button>}{mobileCart && <button className="mobile-cart-backdrop" aria-label={t('sale.closeCart')} onClick={() => setMobileCart(false)} />}<ShiftModal open={shiftModal} mode={shiftMode} expectedCash={expectedCash} openingCash={shift?.openingCash || 0} cashSales={cashSales} onClose={() => setShiftModal(false)} onConfirm={confirmShift} /><QuickAddModal open={quickAdd} onClose={() => setQuickAdd(false)} onAdd={addQuickProduct} />{success && <SuccessOverlay total={success.total} method={success.method} orderNumber={success.orderNumber} />}{toast && <div className="sale-toast"><span>{toast}</span><button onClick={() => setToast(null)} aria-label={t('sale.toastClose')}><X size={15} /></button></div>}</main>
 }
-
-function freshnessPriority(product: Product) {
-  return product.freshness === 'today' ? 0 : product.freshness === 'tomorrow' ? 1 : 2
-}
+function freshnessPriority(product: Product) { return product.freshness === 'today' ? 0 : product.freshness === 'tomorrow' ? 1 : 2 }
