@@ -1,6 +1,6 @@
 # Cake POS
 
-Phase 1 of a professional point-of-sale system for a fresh-cake shop. The repository currently contains the **Admin Control** frontend prototype: a responsive React + TypeScript + Vite application with operational dashboard, sales, catalog, FEFO freshness controls, waste tracking, team access, shifts, reports, and settings.
+Phase 1 of a professional point-of-sale system for a fresh-cake shop. The repository contains two independent React + TypeScript + Vite frontends: **Admin Control** for owner operations and **Sale Terminal** for employee checkout. Both share the same cross-origin API convention and in-memory Bearer-token authentication pattern.
 
 ## Applications and production origins
 
@@ -47,17 +47,19 @@ The API may echo only one of these exact allowlisted origins:
 
 A suitable Laravel `config/cors.php` policy is documented in [`docs/DEPLOYMENT_ARCHITECTURE.md`](docs/DEPLOYMENT_ARCHITECTURE.md).
 
-## Run the Admin Control app
+## Run the frontends
 
 ```bash
 npm install
-npm run dev
+npm run dev:admin   # Admin Control on 0.0.0.0:4173
+npm run dev:sale    # Sale Terminal on 0.0.0.0:4174
 ```
 
-The Vite server binds to `0.0.0.0:4173`. Development mode opens the operational prototype with fixture data. Production builds show the real admin login unless `VITE_DEMO_MODE=true` is intentionally supplied.
+The Sale Terminal always opens on its normal PIN/email login screen, including in Telegram. Development fixture mode accepts PIN `1234`; production sends the PIN or email credentials to the shared login endpoint and stores the returned Bearer token in memory.
 
 ```bash
 cp apps/admin/.env.example apps/admin/.env.local
+cp apps/sale/.env.example apps/sale/.env.local
 npm run build
 ```
 
@@ -68,13 +70,26 @@ VITE_API_URL=https://api.yourdomain.com
 VITE_DEMO_MODE=false
 ```
 
-The Admin Worker Static Assets configuration is in `apps/admin/wrangler.jsonc`. After the build-time variables are set, deploy it independently with:
+Each frontend has an independent Cloudflare Worker Static Assets configuration:
 
 ```bash
-npm run deploy:admin
+npm run deploy:admin   # apps/admin/wrangler.jsonc → admin.yourdomain.com
+npm run deploy:sale    # apps/sale/wrangler.jsonc  → sale.yourdomain.com
 ```
 
-Attach `admin.yourdomain.com` to this Worker in Cloudflare. The future sale frontend must use a different Worker and route for `sale.yourdomain.com`.
+Attach each custom domain to its corresponding Worker in Cloudflare. They are separate deployments and must not be combined into one origin.
+
+## Sale Terminal feature coverage
+
+- Mandatory staff login with a large 4-digit glass PIN pad and email/password fallback
+- Responsive category/product menu with photo cards, large touch targets, stock visibility, and FEFO near-expiry highlighting
+- Persistent tablet/desktop cart and phone bottom sheet with quantity steppers, line totals, removal, and running total
+- Cash tender/change workflow and static KHQR manual-confirmation workflow
+- Full-screen auto-dismissing payment success state
+- Opening-float and closing-count shift workflows with expected-versus-actual variance
+- Photo-first Quick Add Cake sheet with Name, Price, Category, and automatic 2–3 day best-before handling
+- Telegram Web App SDK initialization using `ready()` and `expand()` only; Telegram identity and `initData` are never used for staff authentication
+- Independent Cloudflare Worker Static Assets deployment for `sale.yourdomain.com`
 
 ## Admin Control feature coverage
 
@@ -96,16 +111,18 @@ The interface deliberately uses restrained blush glass surfaces and a dark plum 
 
 ```text
 apps/
-  admin/                 React admin frontend
-    public/              Product photography asset
-    src/
-      auth/              In-memory Bearer auth state
-      components/        Shell and modal components
-      lib/api.ts          Cross-origin API client
-      pages/              Admin feature areas
+  admin/                 Owner Admin Control frontend
+    src/auth/            In-memory Bearer auth state
+    src/lib/api.ts       Cross-origin API client
+    src/pages/           Admin feature areas
+  sale/                  Employee Sale Terminal frontend
+    src/auth/            Same in-memory Bearer auth pattern
+    src/lib/api.ts       Same cross-origin API client shape
+    src/components/      Login, menu, cart, shifts, checkout
+    wrangler.jsonc       Separate sale Worker deployment
 docs/
   DEPLOYMENT_ARCHITECTURE.md
   POS_RESEARCH.md
 ```
 
-The sale terminal and Laravel API remain separate deliverables. The backend is not implemented in this phase, in accordance with the project blueprint.
+Both Phase 1 frontends are now present. The Laravel API remains a separate deliverable and is not implemented in this phase, in accordance with the project blueprint.

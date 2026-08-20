@@ -8,9 +8,12 @@
   "scripts": {
     "dev": "npm run dev --workspace=@cake-pos/admin",
     "dev:admin": "npm run dev --workspace=@cake-pos/admin",
-    "build": "npm run build --workspace=@cake-pos/admin",
+    "dev:sale": "npm run dev --workspace=@cake-pos/sale",
+    "build": "npm run build:admin && npm run build:sale",
     "build:admin": "npm run build --workspace=@cake-pos/admin",
-    "typecheck": "npm run typecheck --workspace=@cake-pos/admin",
-    "deploy:admin": "npm run deploy --workspace=@cake-pos/admin"
+    "build:sale": "npm run build --workspace=@cake-pos/sale",
+    "typecheck": "npm run typecheck --workspace=@cake-pos/admin && npm run typecheck --workspace=@cake-pos/sale",
+    "deploy:admin": "npm run deploy --workspace=@cake-pos/admin",
+    "deploy:sale": "npm run deploy --workspace=@cake-pos/sale"
   }
 }

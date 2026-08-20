@@ -60,6 +60,17 @@ Content-Type: application/json
 
 Store only the hash in the `personal_access_tokens` table. Return the plain token once. Revoke the current token on logout and support an admin “revoke all sessions” action for a compromised employee account.
 
+The Sale Terminal uses the same endpoint and response shape for quick PIN login:
+
+```text
+POST /api/login
+Content-Type: application/json
+
+{ "pin_code": "1234" }
+```
+
+Laravel must validate that the employee is active, compare a securely hashed PIN, rate-limit failed attempts, and return the same `{ token, employee }` contract used by email/password login. The frontend then stores that token through the same in-memory API client.
+
 The frontend deliberately does not persist the token in cookies, `localStorage`, IndexedDB, URL parameters, or Telegram state. A hard refresh requires sign-in again. This reduces token persistence but means the business must accept reauthentication after a refresh.
 
 ## Laravel CORS baseline
