@@ -8,7 +8,7 @@ Cake POS is a two-frontend point-of-sale system backed by a self-hosted REST API
 | `apps/sale` | Staff checkout and shifts | 4174 | `https://sale.yourdomain.com` |
 | `backend` | Shared authenticated REST API | 8080 | `https://api.yourdomain.com` on a Docker VM |
 
-The backend is a normal Node service with a persistent SQLite volume under Docker Compose. It is not tied to Vercel, Workers, or another serverless-only host.
+The backend is a normal Node service using synchronous `better-sqlite3` with SQLite WAL and a persistent database volume under Docker Compose. The native addon is compiled inside the Docker build; host `node_modules` are never copied. It is not tied to Vercel, Workers, or another serverless-only host.
 
 ## Run locally
 

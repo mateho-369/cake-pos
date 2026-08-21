@@ -2,6 +2,8 @@
 
 Self-hosted REST API for the Admin Control and Sale Terminal frontends. It runs as a regular Node process in Docker Compose and persists its SQLite database to the `cake_pos_data` volume. It does not require Vercel, Cloudflare Workers, or a serverless runtime.
 
+The database layer uses `better-sqlite3`, a synchronous native SQLite binding. SQLite writes go directly to the durable database file and WAL; there is no in-memory export or manual save step. The Docker build installs `python3`, `make`, and `g++`, then compiles the addon inside the Node 22 Debian build stage. Host `node_modules` are never copied into the image.
+
 ## Production setup on a Linux VM
 
 ```bash

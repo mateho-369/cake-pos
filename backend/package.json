@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
-    "sql.js": "^1.13.0",
+    "better-sqlite3": "^12.4.1",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2"
