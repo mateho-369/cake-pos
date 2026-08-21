@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Data\CreatedOrder;
+use App\Jobs\SendStaffOrderNotification;
 use App\Models\{
     Employee,
     Order,
@@ -128,6 +129,7 @@ class OrderService
                     'confirmed_by_employee_id' => $employee->id,
                     'confirmed_at' => now(),
                 ]);
+                SendStaffOrderNotification::dispatch($order->id);
                 return $order;
             });
         } catch (QueryException $exception) {

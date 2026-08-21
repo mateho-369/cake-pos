@@ -22,7 +22,7 @@ Laravel signs direct browser PUTs through `/api/uploads/presign`, then `/api/upl
 
 ## Environment
 
-All variables are documented in `.env.example`. CORS is allowlist-only and accepts `ADMIN_ORIGIN`, `SALE_ORIGIN`, and `SHOP_ORIGIN`, including `Authorization` and `Content-Type` headers. Each separately hosted app must be configured with its own exact HTTPS origin.
+All variables are documented in `.env.example`. Telegram staff notifications and customer broadcasts use the configured bot tokens and database queue. Run `php artisan queue:work` in production. Before staff notifications can arrive, the owner must send `/start` to the staff bot in the target DM, or add the bot to the target group. CORS is allowlist-only and accepts `ADMIN_ORIGIN`, `SALE_ORIGIN`, and `SHOP_ORIGIN`, including `Authorization` and `Content-Type` headers. Each separately hosted app must be configured with its own exact HTTPS origin.
 
 ## API authentication
 

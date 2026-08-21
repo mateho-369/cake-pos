@@ -1,5 +1,6 @@
 <?php
 namespace App\Http\Controllers;
+use App\Jobs\SendStaffShiftNotification;
 use App\Http\Requests\{CloseShiftRequest, OpenShiftRequest};
 use App\Http\Resources\ShiftResource;
 use App\Models\Shift;
@@ -29,6 +30,7 @@ class ShiftController extends Controller
             $request->closingCash,
             $request->input('closingCashKhr', 0),
         );
+        SendStaffShiftNotification::dispatch($shift->id, $cashSales);
         $data = ShiftResource::make($shift)->resolve();
         $data['cashSales'] = Money::toDecimal($cashSales[0]);
         $data['cashSalesKhr'] = $cashSales[1];

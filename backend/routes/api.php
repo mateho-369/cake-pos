@@ -8,6 +8,7 @@ use App\Http\Controllers\{
     ProductController,
     ReceiptController,
     ReportController,
+    BroadcastController,
     SettingsController,
     ShiftController,
     TelegramController,
@@ -90,6 +91,18 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::post('/shifts/close', [ShiftController::class, 'close']);
     Route::get('/shifts/current', [ShiftController::class, 'current']);
     Route::get('/shifts', [ShiftController::class, 'index']);
+    Route::get('/broadcasts/preview', [
+        BroadcastController::class,
+        'preview',
+    ])->middleware('admin');
+    Route::get('/broadcasts', [
+        BroadcastController::class,
+        'index',
+    ])->middleware('admin');
+    Route::post('/broadcasts', [
+        BroadcastController::class,
+        'store',
+    ])->middleware('admin');
     Route::get('/reports/dashboard', [
         ReportController::class,
         'dashboard',

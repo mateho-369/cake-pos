@@ -1,5 +1,6 @@
 <?php
 namespace App\Services;
+use App\Jobs\SendStaffOrderNotification;
 use App\Models\{Employee, Order, OrderPayment, Product, OrderStatusEvent};
 use App\Support\ExchangeRate;
 use Illuminate\Support\Facades\DB;
@@ -38,6 +39,7 @@ final class PaymentService
                 'confirmed_at' => now(),
             ]);
             $this->settle($order, $payment);
+            SendStaffOrderNotification::dispatch($order->id);
             return $payment;
         });
     }
@@ -114,6 +116,7 @@ final class PaymentService
                 'confirmed_at' => now(),
             ]);
             $this->settle($order, $payment);
+            SendStaffOrderNotification::dispatch($order->id);
             return $payment;
         });
     }

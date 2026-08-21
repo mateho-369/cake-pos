@@ -34,6 +34,12 @@ class PosRulesRequest extends FormRequest
                 'string',
                 'in:opener_or_admin,admin_only',
             ],
+            'staffNotificationChatId' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:64',
+            ],
         ];
     }
 }

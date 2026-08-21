@@ -10,16 +10,19 @@ import {
   LockKeyhole,
   ReceiptText,
   Save,
+  Send,
   ShieldCheck,
   Store,
   TimerReset,
 } from 'lucide-react'
 import { apiRequest, getApiUrl } from '../lib/api'
 import { useTranslation } from '../lib/i18n'
+import BroadcastSettings from './BroadcastSettings'
 
 const settingsTabs = [
   { id: 'business', label: 'settings.businessProfile', icon: Building2 },
   { id: 'payments', label: 'settings.paymentsKhqr', icon: CreditCard },
+  { id: 'broadcast', label: 'Broadcast', icon: Send },
   { id: 'receipts', label: 'settings.receipts', icon: ReceiptText },
   { id: 'freshness', label: 'settings.freshnessRules', icon: TimerReset },
   { id: 'security', label: 'settings.securityApi', icon: ShieldCheck },
@@ -54,6 +57,7 @@ export default function SettingsPage({
   const [khrRoundingIncrement, setKhrRoundingIncrement] = useState(100)
   const [shiftClosingPolicy, setShiftClosingPolicy] =
     useState('opener_or_admin')
+  const [staffNotificationChatId, setStaffNotificationChatId] = useState('')
   useEffect(() => {
     void Promise.all([
       apiRequest<ReceiptConfig>('/api/settings/receipt-template').then(
@@ -65,12 +69,14 @@ export default function SettingsPage({
         exchangeRateKhrPerUsd?: number
         khrRoundingIncrement?: number
         shiftClosingPolicy?: string
+        staffNotificationChatId?: string
       }>('/api/settings/pos-rules').then((value) => {
         setMaxCashierDiscountPercent(value.maxCashierDiscountPercent)
         setKhqrImageUrl(value.khqrImageUrl || '')
         setExchangeRateKhrPerUsd(value.exchangeRateKhrPerUsd ?? 4100)
         setKhrRoundingIncrement(value.khrRoundingIncrement ?? 100)
         setShiftClosingPolicy(value.shiftClosingPolicy ?? 'opener_or_admin')
+        setStaffNotificationChatId(value.staffNotificationChatId ?? '')
       }),
     ]).catch(() => undefined)
   }, [])
@@ -91,6 +97,7 @@ export default function SettingsPage({
           exchangeRateKhrPerUsd?: number
           khrRoundingIncrement?: number
           shiftClosingPolicy?: string
+          staffNotificationChatId?: string
         }>('/api/settings/pos-rules', {
           method: 'PUT',
           body: JSON.stringify({
@@ -99,6 +106,7 @@ export default function SettingsPage({
             exchangeRateKhrPerUsd,
             khrRoundingIncrement,
             shiftClosingPolicy,
+            staffNotificationChatId,
           }),
         })
         setMaxCashierDiscountPercent(result.maxCashierDiscountPercent)
@@ -133,6 +141,7 @@ export default function SettingsPage({
       </aside>
       <form className="glass-panel settings-content" onSubmit={save}>
         {tab === 'business' && <BusinessSettings />}
+        {tab === 'broadcast' && <BroadcastSettings onToast={onToast} />}
         {tab === 'payments' && (
           <PaymentSettings
             maxDiscount={maxCashierDiscountPercent}
@@ -146,6 +155,8 @@ export default function SettingsPage({
             onKhrRoundingIncrement={setKhrRoundingIncrement}
             shiftClosingPolicy={shiftClosingPolicy}
             onShiftClosingPolicy={setShiftClosingPolicy}
+            staffNotificationChatId={staffNotificationChatId}
+            onStaffNotificationChatId={setStaffNotificationChatId}
           />
         )}
         {tab === 'receipts' && (
@@ -254,6 +265,8 @@ function PaymentSettings({
   onKhrRoundingIncrement,
   shiftClosingPolicy,
   onShiftClosingPolicy,
+  staffNotificationChatId,
+  onStaffNotificationChatId,
 }: {
   maxDiscount: number
   onMaxDiscount: (value: number) => void
@@ -266,6 +279,8 @@ function PaymentSettings({
   onKhrRoundingIncrement: (value: number) => void
   shiftClosingPolicy: string
   onShiftClosingPolicy: (value: string) => void
+  staffNotificationChatId: string
+  onStaffNotificationChatId: (value: string) => void
 }) {
   const { t } = useTranslation()
   const [uploadingKhqr, setUploadingKhqr] = useState(false)
@@ -320,6 +335,20 @@ function PaymentSettings({
             </select>
           </label>
         </div>
+      </div>
+      <div className="setting-section">
+        <h3>Staff notifications</h3>
+        <label>
+          <span>Telegram chat ID</span>
+          <input
+            value={staffNotificationChatId}
+            onChange={(e) => onStaffNotificationChatId(e.target.value)}
+            placeholder="DM or group chat ID"
+          />
+          <small>
+            The staff bot must receive /start first, or be added to the group.
+          </small>
+        </label>
       </div>
       <SettingHeader
         icon={<CreditCard size={21} />}
