@@ -34,7 +34,8 @@ export default function Dashboard({
   const completed = orders.filter((order) => order.status === 'Completed')
   const netRevenue = completed.reduce((sum, order) => sum + order.total, 0)
   const averageOrder = completed.length ? netRevenue / completed.length : 0
-  const money = (value: number) => `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const money = (value: number) =>
+    `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const [period, setPeriod] = useState('today')
   const periods = [
     { id: 'today', label: 'dashboard.today' },

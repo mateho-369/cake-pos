@@ -1,0 +1,59 @@
+{
+  "language": { "choose": "Choose language" },
+  "gate": {
+    "title": "Please open this from our Telegram bot to order",
+    "body": "This shop verifies your Telegram account before showing the catalog.",
+    "open": "Open our Telegram bot"
+  },
+  "loading": "Preparing today’s menu…",
+  "unavailable": "Storefront unavailable",
+  "menu": {
+    "welcome": "Welcome",
+    "label": "OUR MENU",
+    "title": "Fresh from the kitchen",
+    "treats": "{{count}} treats today",
+    "fresh": "Fresh today",
+    "add": "Add {{name}}",
+    "view": "View your order"
+  },
+  "cart": {
+    "label": "YOUR ORDER",
+    "title": "Sweet choices",
+    "close": "Close cart",
+    "each": "{{price}} each",
+    "total": "Requested total",
+    "note": "Final price is confirmed with our team in Telegram before payment.",
+    "send": "Send Order",
+    "sending": "Sending…"
+  },
+  "contact": {
+    "title": "Confirm your order",
+    "body": "Share your phone so we can confirm your order and contact you if we need to clarify a cake detail.",
+    "share": "Share phone",
+    "notNow": "Not now"
+  },
+  "status": {
+    "order": "ORDER",
+    "sent": "ORDER SENT",
+    "title": "We’re on it!",
+    "body": "We’ll confirm your final price and any special details with you in Telegram.",
+    "label": "ORDER STATUS",
+    "pending": "We received your request",
+    "confirmed": "Price and details agreed",
+    "paid": "Payment confirmed",
+    "ready": "Ready for pickup",
+    "payment": "PAYMENT",
+    "scan": "Scan to pay with KHQR",
+    "wait": "Please wait for the shop to confirm your final price before paying.",
+    "back": "Back to today’s menu"
+  },
+  "errors": {
+    "telegram": "Open this storefront from the shop’s Telegram bot to browse and order.",
+    "menu": "Could not load today’s menu",
+    "phone": "We have not received your phone yet. Please try Share phone again.",
+    "phoneTelegram": "Phone sharing is only available inside Telegram.",
+    "cancelled": "Phone sharing was cancelled.",
+    "getPhone": "Could not get your phone",
+    "send": "Could not send your order"
+  }
+}
