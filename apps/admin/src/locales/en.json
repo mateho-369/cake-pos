@@ -69,7 +69,8 @@
     "openNavigation": "Open navigation",
     "closeNavigation": "Close navigation",
     "toggleNavigation": "Toggle navigation width",
-    "customers": "Customers"
+    "customers": "Customers",
+    "media": "Media Library"
   },
   "header": {
     "morning": "Good morning, Makara",

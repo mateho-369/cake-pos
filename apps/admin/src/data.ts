@@ -9,6 +9,7 @@ export type PageId =
   | 'shifts'
   | 'reports'
   | 'settings'
+  | 'media'
 
 export type ProductStatus = 'Fresh' | '1 day left' | 'Expires today' | 'Expired'
 

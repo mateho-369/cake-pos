@@ -32,6 +32,7 @@ import EmployeesPage from './pages/EmployeesPage'
 import ShiftsPage from './pages/ShiftsPage'
 import ReportsPage from './pages/ReportsPage'
 import SettingsPage from './pages/SettingsPage'
+import MediaPage from './pages/MediaPage'
 import CustomersPage from './pages/CustomersPage'
 import LoginPage from './pages/LoginPage'
 import { useStaffAuth } from './auth/StaffAuthContext'
@@ -221,6 +222,7 @@ export default function App() {
         {page === 'shifts' && <ShiftsPage onToast={setToast} />}
         {page === 'reports' && <ReportsPage onToast={setToast} />}
         {page === 'settings' && <SettingsPage onToast={setToast} />}
+        {page === 'media' && <MediaPage onToast={setToast} />}
       </main>
       <AddCakeModal
         open={addOpen}

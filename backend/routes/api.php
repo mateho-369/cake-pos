@@ -10,6 +10,7 @@ use App\Http\Controllers\{
     ReportController,
     BroadcastController,
     BroadcastTemplateController,
+    MediaController,
     SettingsController,
     ShiftController,
     TelegramController,
@@ -110,6 +111,13 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     ])->middleware('admin');
     Route::delete('/broadcast-templates/{broadcastTemplate}', [
         BroadcastTemplateController::class,
+        'destroy',
+    ])->middleware('admin');
+    Route::get('/storage/media', [MediaController::class, 'index'])->middleware(
+        'admin',
+    );
+    Route::delete('/storage/media', [
+        MediaController::class,
         'destroy',
     ])->middleware('admin');
     Route::get('/broadcasts/preview', [
