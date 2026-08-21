@@ -13,11 +13,14 @@ import { type CartItem, type Product } from './data'
 import { useTranslation } from './lib/i18n'
 import { useSaleData } from './lib/data'
 import CustomerApp from './CustomerApp'
+import CustomerDisplay from './components/CustomerDisplay'
 
 type Shift = { startedAt: string; openingCash: number }
 type Success = { total: number; method: PaymentMethod; orderId: string }
 export default function App() {
   const { token } = useStaffAuth()
+  if (window.location.pathname.replace(/\/$/, '') === '/customer-display')
+    return <CustomerDisplay />
   if (window.location.pathname.replace(/\/$/, '') === '/customer')
     return <CustomerApp />
   const [isTelegram, setIsTelegram] = useState(false)
@@ -67,6 +70,60 @@ function SaleTerminal() {
   const [success, setSuccess] = useState<Success | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const openCustomerDisplay = (autoPlace = false) => {
+    const features = autoPlace ? undefined : 'popup,width=700,height=900'
+    if (autoPlace && 'getScreenDetails' in window) {
+      void (
+        window as Window & {
+          getScreenDetails?: () => Promise<{
+            screens: Array<{
+              availLeft: number
+              availTop: number
+              availWidth: number
+              availHeight: number
+            }>
+          }>
+        }
+      )
+        .getScreenDetails?.()
+        .then((details) => {
+          const screens = details?.screens as
+            | Array<{
+                availLeft: number
+                availTop: number
+                availWidth: number
+                availHeight: number
+              }>
+            | undefined
+          const screen = screens?.find(
+            (candidate) =>
+              !(
+                window.screenX >= candidate.availLeft &&
+                window.screenX < candidate.availLeft + candidate.availWidth &&
+                window.screenY >= candidate.availTop &&
+                window.screenY < candidate.availTop + candidate.availHeight
+              ),
+          )
+          const options = screen
+            ? `popup,width=${Math.min(800, screen.availWidth)},height=${screen.availHeight},left=${screen.availLeft},top=${screen.availTop}`
+            : features
+          window.open(
+            '/customer-display',
+            'cake-pos-customer-display',
+            options || undefined,
+          )
+        })
+        .catch(() =>
+          window.open(
+            '/customer-display',
+            'cake-pos-customer-display',
+            'popup,width=700,height=900',
+          ),
+        )
+      return
+    }
+    window.open('/customer-display', 'cake-pos-customer-display', features)
+  }
   const subtotal = useMemo(
     () =>
       cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0),
@@ -81,6 +138,18 @@ function SaleTerminal() {
   )
   const cartTotal = Math.max(0, subtotal - discountAmount)
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+  useEffect(() => {
+    if (!('BroadcastChannel' in window)) return
+    const channel = new BroadcastChannel('cake-pos-cart')
+    channel.postMessage({
+      cart,
+      subtotal,
+      total: cartTotal,
+      paymentState: success ? 'success' : 'idle',
+      orderId: success?.orderId,
+    })
+    return () => channel.close()
+  }, [cart, subtotal, cartTotal, success])
   const expectedCash = (shift?.openingCash || 0) + cashSales
   const visibleProducts = useMemo(
     () =>
@@ -241,6 +310,8 @@ function SaleTerminal() {
         cartCount={cartCount}
         onCart={() => setMobileCart(true)}
         onHistory={() => setHistoryOpen(true)}
+        onCustomerDisplay={() => openCustomerDisplay()}
+        onAutoPlaceDisplay={() => openCustomerDisplay(true)}
       />
       {!shift && (
         <button className="shift-gate-banner" onClick={openShiftAction}>

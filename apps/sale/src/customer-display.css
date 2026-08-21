@@ -1,0 +1,102 @@
+.customer-display {
+  min-height: 100vh;
+  padding: clamp(32px, 6vw, 96px);
+  background: linear-gradient(135deg, #fff8fb, #fcecf3);
+  color: #33252d;
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+}
+.customer-display header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.customer-display header > span {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border-radius: 24px;
+  background: #f3c5d5;
+  color: #a7466b;
+}
+.customer-display header strong {
+  display: block;
+  font-size: clamp(22px, 3vw, 38px);
+}
+.customer-display header small {
+  letter-spacing: 0.16em;
+  color: #a76c81;
+}
+.display-content {
+  max-width: 1000px;
+  width: 100%;
+  margin: auto;
+}
+.display-content > h1 {
+  font-size: clamp(38px, 6vw, 80px);
+  margin: 0 0 36px;
+}
+.display-lines {
+  display: grid;
+  gap: 20px;
+}
+.display-lines > div,
+.display-content footer > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  font-size: clamp(22px, 3vw, 40px);
+  padding: 20px 0;
+  border-bottom: 1px solid #edcbd7;
+}
+.display-content footer {
+  margin-top: 42px;
+}
+.display-total {
+  font-weight: 800;
+  border-bottom: 0 !important;
+  font-size: clamp(32px, 5vw, 62px) !important;
+}
+.display-empty {
+  text-align: center;
+}
+.display-empty svg {
+  color: #c57c99;
+}
+.display-empty h1 {
+  font-size: clamp(38px, 6vw, 80px);
+  margin: 25px 0 12px;
+}
+.display-empty p,
+.customer-display.success p {
+  font-size: clamp(20px, 2.5vw, 34px);
+  color: #9c7181;
+}
+.display-powered {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  color: #a76c81;
+}
+.customer-display.success {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.customer-display.success > svg {
+  color: #a7466b;
+}
+.customer-display.success > span {
+  margin-top: 25px;
+  letter-spacing: 0.18em;
+  color: #a76c81;
+}
+.customer-display.success h1 {
+  font-size: clamp(52px, 8vw, 110px);
+  margin: 15px;
+}
+.customer-display.success small {
+  font-size: 20px;
+}
