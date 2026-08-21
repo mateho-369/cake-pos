@@ -1,6 +1,7 @@
 require('dotenv').config()
 
 const express = require('express')
+const compression = require('compression')
 const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
 const database = require('./db')
@@ -13,7 +14,11 @@ const corsOrigins = [process.env.ADMIN_ORIGIN, process.env.SALE_ORIGIN].filter(B
 if (!JWT_SECRET) throw new Error('JWT_SECRET must be configured')
 
 const app = express()
+const REPORT_CACHE_TTL_MS = 45_000
+let reportCache = { value: null, expiresAt: 0 }
+function invalidateReportCache() { reportCache = { value: null, expiresAt: 0 } }
 app.disable('x-powered-by')
+app.use(compression({ threshold: 0 }))
 app.use(express.json({ limit: '1mb' }))
 
 // The API is intentionally allowlist-only. Credentials are not used, so this is not cookie CORS.
@@ -218,6 +223,7 @@ app.post('/api/products', asyncRoute(async (req, res) => {
   const values = parseProductBody(req.body)
   const timestamp = new Date().toISOString()
   const result = db.prepare(`INSERT INTO products (name, category, price, stock, made_at, best_before, image_position, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(values.name, values.category, values.price, values.stock, values.madeAt, values.bestBefore, values.imagePosition, values.active, timestamp, timestamp)
+  invalidateReportCache()
   res.status(201).json(serializeProduct(db.prepare('SELECT * FROM products WHERE id = ?').get(result.lastInsertRowid)))
 }))
 
@@ -226,6 +232,7 @@ app.put('/api/products/:id', requireAdmin, asyncRoute(async (req, res) => {
   if (!existing) throw httpError(404, 'Product not found')
   const values = parseProductBody(req.body, existing)
   db.prepare(`UPDATE products SET name = ?, category = ?, price = ?, stock = ?, made_at = ?, best_before = ?, image_position = ?, active = ?, updated_at = ? WHERE id = ?`).run(values.name, values.category, values.price, values.stock, values.madeAt, values.bestBefore, values.imagePosition, values.active, new Date().toISOString(), existing.id)
+  invalidateReportCache()
   res.json(serializeProduct(db.prepare('SELECT * FROM products WHERE id = ?').get(existing.id)))
 }))
 
@@ -236,6 +243,7 @@ app.delete('/api/products/:id', requireAdmin, asyncRoute(async (req, res) => {
   const references = db.prepare('SELECT COUNT(*) AS count FROM order_items WHERE product_id = ?').get(id).count
   if (Number(references) > 0) db.prepare('UPDATE products SET active = 0, updated_at = ? WHERE id = ?').run(new Date().toISOString(), id)
   else db.prepare('DELETE FROM products WHERE id = ?').run(id)
+  invalidateReportCache()
   res.sendStatus(204)
 }))
 
@@ -300,6 +308,7 @@ app.post('/api/orders', asyncRoute(async (req, res) => {
     }
     return db.prepare('SELECT * FROM orders WHERE id = ?').get(id)
   })
+  invalidateReportCache()
   res.status(201).json(serializeOrder(order))
 }))
 
@@ -365,7 +374,13 @@ app.get('/api/shifts', asyncRoute(async (_req, res) => {
   res.json(rows.map((row) => ({ id: row.id, employeeId: row.employee_id, openingCash: Number(row.opening_cash), closingCash: row.closing_cash === null ? null : Number(row.closing_cash), expectedCash: row.expected_cash === null ? null : Number(row.expected_cash), variance: row.variance === null ? null : Number(row.variance), openedAt: row.opened_at, closedAt: row.closed_at, status: row.status })))
 }))
 
-app.get('/api/reports/summary', asyncRoute(async (_req, res) => res.json(reportSummary())))
+app.get('/api/reports/summary', asyncRoute(async (_req, res) => {
+  const now = Date.now()
+  if (reportCache.value && reportCache.expiresAt > now) return res.json(reportCache.value)
+  const summary = reportSummary()
+  reportCache = { value: summary, expiresAt: now + REPORT_CACHE_TTL_MS }
+  res.json(summary)
+}))
 
 app.use((req, res) => res.status(404).json({ message: 'Route not found' }))
 app.use((error, _req, res, _next) => sendError(res, error))

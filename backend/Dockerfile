@@ -24,4 +24,6 @@ COPY scripts ./scripts
 RUN mkdir -p /data && chown -R node:node /app /data
 USER node
 EXPOSE 8080
-CMD ["node", "src/server.js"]
+# Keep the V8 heap conservative on a 1 GB VM; native SQLite/WAL and the OS
+# still need headroom alongside the two static frontend processes.
+CMD ["node", "--max-old-space-size=256", "src/server.js"]

@@ -36,7 +36,7 @@ async function createSqliteStore(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
   const database = new Database(filePath)
   database.pragma('journal_mode = WAL')
-  database.pragma('synchronous = FULL')
+  database.pragma('synchronous = NORMAL')
   database.pragma('foreign_keys = ON')
   return new BetterSqliteStore(database)
 }
