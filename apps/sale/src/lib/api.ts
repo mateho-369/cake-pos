@@ -1,5 +1,5 @@
 const configuredApiUrl = import.meta.env.VITE_API_URL
-const API_URL = (configuredApiUrl || (import.meta.env.DEV ? 'https://api.yourdomain.com' : '')).replace(/\/$/, '')
+const API_URL = (configuredApiUrl || '').replace(/\/$/, '')
 
 let accessToken: string | null = null
 
@@ -8,17 +8,13 @@ export function setAccessToken(token: string | null) {
 }
 
 export function getApiUrl() {
-  return API_URL || 'VITE_API_URL is not configured'
+  return API_URL || 'Same-origin /api (Vite proxy in development)'
 }
 
 export async function apiRequest<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  if (!API_URL) {
-    throw new Error('VITE_API_URL must be set to the shared API origin at build time')
-  }
-
   const headers = new Headers(options.headers)
   headers.set('Accept', 'application/json')
 
@@ -30,7 +26,8 @@ export async function apiRequest<T>(
     headers.set('Authorization', `Bearer ${accessToken}`)
   }
 
-  const response = await fetch(`${API_URL}${path.startsWith('/') ? path : `/${path}`}`, {
+  const requestPath = path.startsWith('/') ? path : `/${path}`
+  const response = await fetch(`${API_URL}${requestPath}`, {
     ...options,
     headers,
   })
