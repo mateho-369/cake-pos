@@ -1,0 +1,5 @@
+<?php
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+return new class extends Migration { public function up():void { Schema::table('order_items',function(Blueprint $t){$t->string('category_snapshot')->nullable()->after('description');}); Schema::create('inventory_waste_events',function(Blueprint $t){$t->id();$t->foreignId('product_id')->nullable()->constrained()->nullOnDelete();$t->string('product_name_snapshot');$t->string('category_snapshot')->nullable();$t->unsignedInteger('quantity');$t->unsignedBigInteger('unit_cost_cents')->nullable();$t->unsignedBigInteger('retail_value_cents');$t->string('reason',32);$t->date('best_before')->nullable();$t->foreignId('recorded_by_employee_id')->nullable()->constrained('employees')->nullOnDelete();$t->timestamp('recorded_at')->index();$t->string('source',16);$t->uuid('idempotency_key')->nullable()->unique();$t->timestamps();}); } public function down():void{Schema::dropIfExists('inventory_waste_events');} }; 

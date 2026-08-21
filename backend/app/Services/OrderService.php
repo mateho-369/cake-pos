@@ -63,13 +63,22 @@ class OrderService
                         ->all(),
                 ]);
 
+                $allocated = 0; $lineIndex = 0; $lineCount = count($lines);
                 foreach ($lines as [$product, $quantity]) {
+                    $lineSubtotal = $product->price_cents * $quantity;
+                    $lineDiscount = (++$lineIndex === $lineCount) ? $discountAmount - $allocated : intdiv($discountAmount * $lineSubtotal, max(1, $subtotal));
+                    $allocated += $lineDiscount;
                     $product->decrement('stock', $quantity);
                     OrderItem::create([
                         'order_id' => $order->id,
                         'product_id' => $product->id,
+                        'description' => $product->name,
+                        'category_snapshot' => $product->category?->name,
                         'quantity' => $quantity,
                         'unit_price_cents' => $product->price_cents,
+                        'line_subtotal_cents' => $lineSubtotal,
+                        'line_discount_cents' => $lineDiscount,
+                        'line_total_cents' => $lineSubtotal - $lineDiscount,
                     ]);
                 }
                 $this->recordNetProductRevenue($lines, $subtotal, $total);
@@ -104,7 +113,7 @@ class OrderService
             [$type,$value,$discount]=$this->calculateDiscount($input['discount']??null,$subtotal,$employee); $total=max(0,$subtotal-$discount);
             $order=Order::create(['id'=>'CS-'.$this->nextOrderNumber(),'cashier_id'=>$employee->id,'idempotency_key'=>$key,'source'=>'walk-in','time'=>now()->format('g:i A'),'date'=>'Today','items'=>collect($lines)->sum(fn($l)=>$l[1]),'subtotal_cents'=>$subtotal,'discount_type'=>$type,'discount_value'=>$value,'discount_amount_cents'=>$discount,'total_cents'=>$total,'payment'=>null,'status'=>'Held','payment_status'=>'unpaid','fulfillment_status'=>'Held','detail_json'=>collect($lines)->map(fn($l)=>$l[0]->name.' × '.$l[1])->all()]);
             OrderStatusEvent::create(['order_id'=>$order->id,'to_status'=>'Held','employee_id'=>$employee->id]);
-            foreach($lines as [$product,$quantity]) { $product->increment('reserved_stock',$quantity); OrderItem::create(['order_id'=>$order->id,'product_id'=>$product->id,'description'=>$product->name,'quantity'=>$quantity,'unit_price_cents'=>$product->price_cents,'line_subtotal_cents'=>$product->price_cents*$quantity,'line_total_cents'=>$product->price_cents*$quantity]); }
+            foreach($lines as [$product,$quantity]) { $product->increment('reserved_stock',$quantity); OrderItem::create(['order_id'=>$order->id,'product_id'=>$product->id,'description'=>$product->name,'category_snapshot'=>$product->category?->name,'quantity'=>$quantity,'unit_price_cents'=>$product->price_cents,'line_subtotal_cents'=>$product->price_cents*$quantity,'line_total_cents'=>$product->price_cents*$quantity]); }
             return $order;
         });
     }
