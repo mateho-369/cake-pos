@@ -1,10 +1,20 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react'
 import en from '../locales/en.json'
 import km from '../locales/km.json'
 
 export type Language = 'en' | 'km'
 type TranslationValue = string | Record<string, unknown>
-export type TranslationFunction = (key: string, variables?: Record<string, string | number>) => string
+export type TranslationFunction = (
+  key: string,
+  variables?: Record<string, string | number>,
+) => string
 type Dictionary = Record<string, TranslationValue>
 
 type TranslationContextValue = {
@@ -26,10 +36,12 @@ function readLanguage(): Language {
 }
 
 function lookup(dictionary: Dictionary, key: string): string | undefined {
-  const value = key.split('.').reduce<TranslationValue | undefined>((current, part) => {
-    if (!current || typeof current === 'string') return undefined
-    return current[part] as TranslationValue | undefined
-  }, dictionary)
+  const value = key
+    .split('.')
+    .reduce<TranslationValue | undefined>((current, part) => {
+      if (!current || typeof current === 'string') return undefined
+      return current[part] as TranslationValue | undefined
+    }, dictionary)
   return typeof value === 'string' ? value : undefined
 }
 
@@ -44,23 +56,36 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     }
   }, [language])
 
-  const value = useMemo<TranslationContextValue>(() => ({
-    language,
-    setLanguage,
-    t: (key, variables) => {
-      const translated = lookup(dictionaries[language], key) ?? lookup(dictionaries.en, key) ?? key
-      return variables
-        ? translated.replace(/\{\{(\w+)\}\}/g, (_, name: string) => String(variables[name] ?? `{{${name}}}`))
-        : translated
-    },
-  }), [language])
+  const value = useMemo<TranslationContextValue>(
+    () => ({
+      language,
+      setLanguage,
+      t: (key, variables) => {
+        const translated =
+          lookup(dictionaries[language], key) ??
+          lookup(dictionaries.en, key) ??
+          key
+        return variables
+          ? translated.replace(/\{\{(\w+)\}\}/g, (_, name: string) =>
+              String(variables[name] ?? `{{${name}}}`),
+            )
+          : translated
+      },
+    }),
+    [language],
+  )
 
-  return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>
+  return (
+    <LanguageContext.Provider value={value}>
+      {children}
+    </LanguageContext.Provider>
+  )
 }
 
 export function useTranslation() {
   const context = useContext(LanguageContext)
-  if (!context) throw new Error('useTranslation must be used within LanguageProvider')
+  if (!context)
+    throw new Error('useTranslation must be used within LanguageProvider')
   return context
 }
 
@@ -84,9 +109,25 @@ export function translateCategory(t: TranslationFunction, category: string) {
 export function LanguageToggle() {
   const { language, setLanguage, t } = useTranslation()
   return (
-    <div className="language-toggle" role="group" aria-label={t('language.choose')}>
-      <button type="button" className={language === 'en' ? 'active' : ''} onClick={() => setLanguage('en')}>EN</button>
-      <button type="button" className={language === 'km' ? 'active' : ''} onClick={() => setLanguage('km')}>ខ្មែរ</button>
+    <div
+      className="language-toggle"
+      role="group"
+      aria-label={t('language.choose')}
+    >
+      <button
+        type="button"
+        className={language === 'en' ? 'active' : ''}
+        onClick={() => setLanguage('en')}
+      >
+        EN
+      </button>
+      <button
+        type="button"
+        className={language === 'km' ? 'active' : ''}
+        onClick={() => setLanguage('km')}
+      >
+        ខ្មែរ
+      </button>
     </div>
   )
 }

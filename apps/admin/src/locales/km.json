@@ -68,7 +68,8 @@
     "collapse": "បង្រួមម៉ឺនុយ",
     "openNavigation": "បើកការរុករក",
     "closeNavigation": "បិទការរុករក",
-    "toggleNavigation": "ប្តូរទំហំការរុករក"
+    "toggleNavigation": "ប្តូរទំហំការរុករក",
+    "customers": "អតិថិជន"
   },
   "header": {
     "morning": "អរុណសួស្តី Makara",
@@ -691,7 +692,8 @@
     "noResults": "រកមិនឃើញលទ្ធផលសម្រាប់ “{{query}}”",
     "addFresh": "បន្ថែមនំស្រស់",
     "navigateKeys": "ដើម្បីរុករក",
-    "select": "ដើម្បីជ្រើស"
+    "select": "ដើម្បីជ្រើស",
+    "customers": "បញ្ជីអតិថិជន"
   },
   "shift": {
     "open": "វេនបើក",

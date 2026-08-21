@@ -1,89 +1,46 @@
-# Three-origin deployment architecture
-
-The repository now contains the shared backend API. The three deployable pieces remain separate:
+# Laravel + MySQL deployment architecture
 
 ```text
-Cashier browser / Telegram WebView
-    └── https://sale.yourdomain.com       (Cloudflare static frontend)
-
-Owner browser
-    └── https://admin.yourdomain.com      (Cloudflare static frontend)
-
-Both frontends
-    └── HTTPS + Authorization: Bearer ...
-        └── https://api.yourdomain.com    (DNS/proxy to the VM)
-            └── GCP VM / Docker Compose
-                └── Node REST API + persistent SQLite volume
+admin.yourdomain.com ─┐
+sale.yourdomain.com  ─┼─ HTTPS + Sanctum Bearer token ─ api.yourdomain.com
+shop under sale origin ┘                                  │
+                                                         VM / Docker Compose
+                                                         ├─ nginx
+                                                         ├─ PHP 8.3 FPM / Laravel 11
+                                                         └─ MySQL 8.4 volume
 ```
 
-The backend is intentionally a regular self-hosted Node service rather than a Vercel/serverless function. Its production files live in `backend/`.
-
-## Frontend environment
-
-Build each Cloudflare frontend with:
-
-```env
-VITE_API_URL=https://api.yourdomain.com
-VITE_DEMO_MODE=false
-```
-
-Local Vite development leaves `VITE_API_URL` empty and proxies `/api` to `http://127.0.0.1:8080`. Production builds use the absolute API origin because the static frontend origins are different browser origins.
-
-## Bearer-token login
-
-```text
-POST /api/login
-Content-Type: application/json
-
-{ "email": "owner@example.com", "password": "..." }
-
-or
-
-{ "pin_code": "1234" }
-
-200 OK
-{
-  "token": "signed-bearer-token",
-  "employee": { "id": 1, "name": "Owner", "role": "admin" }
-}
-```
-
-Every subsequent `/api/*` request must send `Authorization: Bearer <token>`. The frontends keep the token in `sessionStorage` for the current tab/session and remove it on sign-out. There is no employee registration endpoint. Employee creation is admin-only.
-
-## API CORS
-
-The backend reads `ADMIN_ORIGIN` and `SALE_ORIGIN` from its environment and only allows those exact origins. It returns `Vary: Origin`, allows `GET, POST, PUT, PATCH, DELETE, OPTIONS`, and allows `Accept, Authorization, Content-Type`. Cookie credentials are disabled.
-
-Example verification:
-
-```bash
-curl -i -X OPTIONS 'https://api.yourdomain.com/api/orders' \
-  -H 'Origin: https://admin.yourdomain.com' \
-  -H 'Access-Control-Request-Method: POST' \
-  -H 'Access-Control-Request-Headers: authorization,content-type'
-```
-
-Repeat with the sale origin and confirm an unrelated origin is rejected.
+The admin and sale builds are static frontends. The shop is independently built but should be routed beneath the sale origin when using the required exact two-origin CORS policy. Staff sale authentication stays PIN/email based; only the shop verifies Telegram `initData` as identity.
 
 ## VM deployment
 
 ```bash
 cd backend
 cp .env.example .env
-# Set JWT_SECRET, ADMIN_ORIGIN, SALE_ORIGIN, and seed credentials.
-npm install
-npm run check-env
-docker compose up -d --build
-docker compose exec api node scripts/check-env.js
+# Configure APP_KEY, MySQL, ADMIN_ORIGIN, SALE_ORIGIN, staff seeds, Telegram.
+docker compose build
+docker compose --profile tools run --rm migrate
+docker compose up -d app web
+curl http://127.0.0.1:8080/healthz
 ```
 
-The second env check is intentional: it proves that `env_file` values are visible inside the running container. Compose mounts the named `cake_pos_data` volume at `/data`, where the SQLite file is stored. See [`backend/README.md`](../backend/README.md) for backups and the complete endpoint list.
+The multi-stage image resolves Composer dependencies in a build stage. The lean PHP-FPM runtime installs only required PHP extensions. During the image build, `find` discovers the actual `www.conf`; the build then sets and verifies `clear_env = no`, ensuring Docker-injected Laravel and MySQL variables reach PHP workers.
 
-## Backend guardrails
+MySQL is not published to the host. Its InnoDB buffer pool and connection count are constrained for a 1GB VM. nginx, PHP-FPM, and MySQL have explicit memory limits.
 
-- Order creation validates stock and updates order, order-items, stock, sold count, and revenue in one SQLite transaction.
-- Expired product status is computed server-side from `bestBefore` versus the server's current date.
-- Product/category/employee writes are authenticated; employee management is admin-only.
-- Products with order history are deactivated instead of physically deleting the audit-linked row.
-- The backend does not depend on Cloudflare, Vercel, or a browser runtime.
-- The single-VM SQLite deployment is aimed at fast real-world testing. Move to a managed relational database before operating multiple API replicas.
+The migration service intentionally uses:
+
+```yaml
+entrypoint: ["/bin/sh", "-lc"]
+command:
+  - >-
+    php artisan migrate --force && php artisan db:seed --force
+```
+
+This preserves argument splitting and avoids the plain multi-line Compose command failure mode.
+
+## CORS and auth
+
+Laravel CORS allows exactly `ADMIN_ORIGIN` and `SALE_ORIGIN`, methods `GET, POST, PUT, PATCH, DELETE, OPTIONS`, and headers `Accept, Authorization, Content-Type`. Wildcards and cookie credentials are disabled.
+
+Staff login returns a 12-hour Sanctum token. Stock-changing sales run in a MySQL transaction and lock product rows with `SELECT ... FOR UPDATE`, so any validation/stock failure rolls back the entire order.

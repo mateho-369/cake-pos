@@ -11,7 +11,12 @@
     "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
+    "@cake-pos/api-client": "*",
+    "@cake-pos/design-tokens": "*",
+    "@cake-pos/uploads": "*",
     "@vitejs/plugin-react": "latest",
+    "docx": "^9.7.1",
+    "exceljs": "^4.4.0",
     "lucide-react": "^0.468.0",
     "react": "latest",
     "react-dom": "latest",

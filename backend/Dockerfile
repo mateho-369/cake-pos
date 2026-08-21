@@ -1,29 +1,22 @@
-FROM node:22-bookworm-slim AS build
-
+# syntax=docker/dockerfile:1.7
+FROM composer:2.8 AS vendor
 WORKDIR /app
+COPY composer.json ./
+RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --no-scripts --optimize-autoloader
+COPY . .
+RUN composer dump-autoload --no-dev --classmap-authoritative --no-interaction
 
-# better-sqlite3 is a native addon. Compile it inside this image with the
-# exact Node 22 Debian toolchain used by the runtime image below.
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ \
-  && rm -rf /var/lib/apt/lists/*
-
-COPY package*.json ./
-RUN npm ci --omit=dev
-
-FROM node:22-bookworm-slim
-ENV NODE_ENV=production
-WORKDIR /app
-
-# Only the node_modules produced by the build stage is copied; host modules
-# are never included in the image.
-COPY --from=build /app/node_modules ./node_modules
-COPY package*.json ./
-COPY src ./src
-COPY scripts ./scripts
-RUN mkdir -p /data && chown -R node:node /app /data
-USER node
-EXPOSE 8080
-# Keep the V8 heap conservative on a 1 GB VM; native SQLite/WAL and the OS
-# still need headroom alongside the two static frontend processes.
-CMD ["node", "--max-old-space-size=256", "src/server.js"]
+FROM php:8.3-fpm-alpine AS runtime
+WORKDIR /var/www/html
+RUN docker-php-ext-install -j1 pdo_mysql opcache \
+    && WWW_CONF="$(find /usr/local/etc -type f -name www.conf -print -quit)" \
+    && test -n "$WWW_CONF" \
+    && echo "php-fpm pool config: $WWW_CONF" \
+    && sed -i 's/^;\?clear_env[[:space:]]*=.*/clear_env = no/' "$WWW_CONF" \
+    && grep -Eq '^clear_env[[:space:]]*=[[:space:]]*no' "$WWW_CONF"
+COPY --from=vendor /app /var/www/html
+RUN mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache \
+    && chown -R www-data:www-data storage bootstrap/cache
+USER www-data
+EXPOSE 9000
+CMD ["php-fpm", "-F"]

@@ -18,5 +18,35 @@ export type Product = {
 }
 
 export type CartItem = { product: Product; quantity: number }
-export type SaleCategory = { id: number; name: string; color?: string; active?: number; items?: number; revenue?: number }
-export type SaleOrder = { id: string; time: string; date: string; cashier: string; items: number; total: number; payment: 'Cash' | 'KHQR'; status: 'Completed' | 'Refunded' | 'Voided'; detail: string[] }
+export type SaleCategory = {
+  id: number
+  name: string
+  color?: string
+  active?: number
+  items?: number
+  revenue?: number
+}
+export type SaleOrder = {
+  id: string
+  time: string
+  date: string
+  createdAt: string
+  cashier: string
+  source: 'walk-in' | 'telegram'
+  items: number
+  subtotal?: number
+  discountType?: 'percentage' | 'fixed' | null
+  discountValue?: number | null
+  discountAmount?: number
+  total: number
+  payment: 'Cash' | 'KHQR' | null
+  status:
+    | 'Pending'
+    | 'Confirmed'
+    | 'Paid'
+    | 'Ready'
+    | 'Completed'
+    | 'Refunded'
+    | 'Voided'
+  detail: string[]
+}
