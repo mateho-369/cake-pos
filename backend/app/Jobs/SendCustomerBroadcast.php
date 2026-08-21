@@ -28,10 +28,21 @@ class SendCustomerBroadcast implements ShouldQueue
                     try {
                         $sent = Http::timeout(8)
                             ->post(
-                                "https://api.telegram.org/bot{$token}/sendMessage",
+                                "https://api.telegram.org/bot{$token}/" .
+                                    ($b->image_url
+                                        ? 'sendPhoto'
+                                        : 'sendMessage'),
                                 [
                                     'chat_id' => $c->telegram_user_id,
-                                    'text' => $b->message,
+                                    $b->image_url ? 'photo' : 'text' =>
+                                        $b->image_url ?:
+                                        $b->caption ?? $b->message,
+                                    ...$b->image_url
+                                        ? [
+                                            'caption' =>
+                                                $b->caption ?? $b->message,
+                                        ]
+                                        : [],
                                     'reply_markup' => [
                                         'inline_keyboard' => [
                                             [

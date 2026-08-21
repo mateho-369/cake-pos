@@ -9,6 +9,10 @@ class StoreBroadcastRequest extends FormRequest
     }
     public function rules(): array
     {
-        return ['message' => ['required', 'string', 'max:4096']];
+        return [
+            'imageUrl' => ['nullable', 'url', 'max:2048'],
+            'caption' => ['required', 'string', 'max:1024'],
+            'message' => ['nullable', 'string', 'max:4096'],
+        ];
     }
 }

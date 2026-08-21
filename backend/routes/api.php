@@ -91,6 +91,10 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::post('/shifts/close', [ShiftController::class, 'close']);
     Route::get('/shifts/current', [ShiftController::class, 'current']);
     Route::get('/shifts', [ShiftController::class, 'index']);
+    Route::post('/broadcasts/poster', [
+        BroadcastController::class,
+        'poster',
+    ])->middleware('admin');
     Route::get('/broadcasts/preview', [
         BroadcastController::class,
         'preview',
