@@ -17,6 +17,9 @@ class PosRulesRequest extends FormRequest
                 'max:100',
             ],
             'khqrImageUrl' => ['sometimes', 'nullable', 'url', 'max:2048'],
+            'exchangeRateKhrPerUsd' => ['sometimes', 'integer', 'min:1000', 'max:10000'],
+            'khrRoundingIncrement' => ['sometimes', 'integer', 'min:1', 'max:100000'],
+            'shiftClosingPolicy' => ['sometimes', 'string', 'in:opener_or_admin,admin_only'],
         ];
     }
 }

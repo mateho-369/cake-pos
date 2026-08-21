@@ -50,6 +50,9 @@ export default function SettingsPage({
   const [receipt, setReceipt] = useState<ReceiptConfig>(defaultReceipt)
   const [maxCashierDiscountPercent, setMaxCashierDiscountPercent] = useState(10)
   const [khqrImageUrl, setKhqrImageUrl] = useState('')
+  const [exchangeRateKhrPerUsd, setExchangeRateKhrPerUsd] = useState(4100)
+  const [khrRoundingIncrement, setKhrRoundingIncrement] = useState(100)
+  const [shiftClosingPolicy, setShiftClosingPolicy] = useState('opener_or_admin')
   useEffect(() => {
     void Promise.all([
       apiRequest<ReceiptConfig>('/api/settings/receipt-template').then(
@@ -58,9 +61,15 @@ export default function SettingsPage({
       apiRequest<{
         maxCashierDiscountPercent: number
         khqrImageUrl?: string
+        exchangeRateKhrPerUsd?: number
+        khrRoundingIncrement?: number
+        shiftClosingPolicy?: string
       }>('/api/settings/pos-rules').then((value) => {
         setMaxCashierDiscountPercent(value.maxCashierDiscountPercent)
         setKhqrImageUrl(value.khqrImageUrl || '')
+        setExchangeRateKhrPerUsd(value.exchangeRateKhrPerUsd ?? 4100)
+        setKhrRoundingIncrement(value.khrRoundingIncrement ?? 100)
+        setShiftClosingPolicy(value.shiftClosingPolicy ?? 'opener_or_admin')
       }),
     ]).catch(() => undefined)
   }, [])
@@ -78,9 +87,12 @@ export default function SettingsPage({
         const result = await apiRequest<{
           maxCashierDiscountPercent: number
           khqrImageUrl?: string
+          exchangeRateKhrPerUsd?: number
+          khrRoundingIncrement?: number
+          shiftClosingPolicy?: string
         }>('/api/settings/pos-rules', {
           method: 'PUT',
-          body: JSON.stringify({ maxCashierDiscountPercent, khqrImageUrl }),
+          body: JSON.stringify({ maxCashierDiscountPercent, khqrImageUrl, exchangeRateKhrPerUsd, khrRoundingIncrement, shiftClosingPolicy }),
         })
         setMaxCashierDiscountPercent(result.maxCashierDiscountPercent)
         setKhqrImageUrl(result.khqrImageUrl || '')
@@ -121,6 +133,12 @@ export default function SettingsPage({
             khqrImageUrl={khqrImageUrl}
             onKhqrImageUrl={setKhqrImageUrl}
             onUploadError={onToast}
+            exchangeRateKhrPerUsd={exchangeRateKhrPerUsd}
+            onExchangeRate={setExchangeRateKhrPerUsd}
+            khrRoundingIncrement={khrRoundingIncrement}
+            onKhrRoundingIncrement={setKhrRoundingIncrement}
+            shiftClosingPolicy={shiftClosingPolicy}
+            onShiftClosingPolicy={setShiftClosingPolicy}
           />
         )}
         {tab === 'receipts' && (
@@ -223,12 +241,10 @@ function PaymentSettings({
   khqrImageUrl,
   onKhqrImageUrl,
   onUploadError,
+  exchangeRateKhrPerUsd, onExchangeRate, khrRoundingIncrement, onKhrRoundingIncrement, shiftClosingPolicy, onShiftClosingPolicy,
 }: {
-  maxDiscount: number
-  onMaxDiscount: (value: number) => void
-  khqrImageUrl: string
-  onKhqrImageUrl: (value: string) => void
-  onUploadError: (message: string) => void
+  maxDiscount: number; onMaxDiscount: (value: number) => void; khqrImageUrl: string; onKhqrImageUrl: (value: string) => void; onUploadError: (message: string) => void
+  exchangeRateKhrPerUsd: number; onExchangeRate: (value:number)=>void; khrRoundingIncrement:number; onKhrRoundingIncrement:(value:number)=>void; shiftClosingPolicy:string; onShiftClosingPolicy:(value:string)=>void
 }) {
   const { t } = useTranslation()
   const [uploadingKhqr, setUploadingKhqr] = useState(false)
@@ -248,6 +264,14 @@ function PaymentSettings({
   }
   return (
     <>
+      <div className="setting-section">
+        <h3>Settlement currency</h3>
+        <div className="form-grid two-columns">
+          <label><span>KHR per USD</span><input type="number" min="1000" max="10000" step="1" value={exchangeRateKhrPerUsd} onChange={e=>onExchangeRate(Number(e.target.value))}/></label>
+          <label><span>KHR rounding increment</span><input type="number" min="1" step="1" value={khrRoundingIncrement} onChange={e=>onKhrRoundingIncrement(Number(e.target.value))}/></label>
+          <label><span>Shift closing permission</span><select value={shiftClosingPolicy} onChange={e=>onShiftClosingPolicy(e.target.value)}><option value="opener_or_admin">Opener or admin</option><option value="admin_only">Admin only</option></select></label>
+        </div>
+      </div>
       <SettingHeader
         icon={<CreditCard size={21} />}
         eyebrow={t('settings.payments')}

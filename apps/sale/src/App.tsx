@@ -150,6 +150,8 @@ function SaleTerminal() {
           ? { discount: { type: discountType, amount: discountValue } }
           : {}),
         idempotencyKey: checkoutKey,
+        confirmed: payment === 'khqr' ? khqrConfirmed : undefined,
+        ...(payment === 'cash' && tendered ? { usdReceivedCents: Math.round(Number(tendered) * 100) } : {}),
       })
       setSuccess({ total: order.total, method: payment, orderId: order.id })
       setCart([])

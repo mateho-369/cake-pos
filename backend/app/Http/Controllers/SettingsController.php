@@ -31,6 +31,9 @@ class SettingsController extends Controller
         return response()->json(
             Setting::find('pos_rules')?->value_json ?? [
                 'maxCashierDiscountPercent' => 10,
+                'exchangeRateKhrPerUsd' => 4100,
+                'khrRoundingIncrement' => 100,
+                'shiftClosingPolicy' => 'opener_or_admin',
             ],
         );
     }

@@ -60,6 +60,10 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     ])->middleware('admin');
     Route::get('/orders', [OrderController::class, 'index']);
     Route::post('/orders', [OrderController::class, 'store']);
+    Route::post('/orders/hold', [OrderController::class, 'hold']);
+    Route::get('/orders/held', [OrderController::class, 'held']);
+    Route::post('/orders/{order}/pay', [OrderController::class, 'pay']);
+    Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
     Route::patch('/orders/{order}', [
         OrderController::class,
         'update',
@@ -84,6 +88,7 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     ])->middleware('admin');
     Route::post('/shifts/open', [ShiftController::class, 'open']);
     Route::post('/shifts/close', [ShiftController::class, 'close']);
+    Route::get('/shifts/current', [ShiftController::class, 'current']);
     Route::get('/shifts', [ShiftController::class, 'index']);
     Route::get('/reports/summary', [ReportController::class, 'report']);
     Route::get('/customers', [CustomerController::class, 'index'])->middleware(
