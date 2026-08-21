@@ -34,6 +34,12 @@ class Order extends Model
     {
         return $this->hasMany(self::class, 'parent_order_id');
     }
-    public function payments() { return $this->hasMany(OrderPayment::class); }
-    public function statusEvents() { return $this->hasMany(OrderStatusEvent::class); }
+    public function payments()
+    {
+        return $this->hasMany(OrderPayment::class);
+    }
+    public function statusEvents()
+    {
+        return $this->hasMany(OrderStatusEvent::class);
+    }
 }

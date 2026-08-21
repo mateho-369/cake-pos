@@ -90,17 +90,50 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::post('/shifts/close', [ShiftController::class, 'close']);
     Route::get('/shifts/current', [ShiftController::class, 'current']);
     Route::get('/shifts', [ShiftController::class, 'index']);
-    Route::get('/reports/dashboard', [ReportController::class, 'dashboard'])->middleware('admin');
-    Route::get('/reports/sales-summary', [ReportController::class, 'summary'])->middleware('admin');
-    Route::get('/reports/revenue-trend', [ReportController::class, 'trend'])->middleware('admin');
-    Route::get('/reports/products', [ReportController::class, 'products'])->middleware('admin');
-    Route::get('/reports/categories', [ReportController::class, 'categories'])->middleware('admin');
-    Route::get('/reports/payments', [ReportController::class, 'payments'])->middleware('admin');
-    Route::get('/reports/cashiers', [ReportController::class, 'cashiers'])->middleware('admin');
-    Route::get('/reports/peak-hours', [ReportController::class, 'peakHours'])->middleware('admin');
-    Route::get('/reports/waste', [ReportController::class, 'waste'])->middleware('admin');
-    Route::get('/reports/customers', [ReportController::class, 'customers'])->middleware('admin');
-    Route::get('/reports/summary', [ReportController::class, 'summary'])->middleware('admin');
+    Route::get('/reports/dashboard', [
+        ReportController::class,
+        'dashboard',
+    ])->middleware('admin');
+    Route::get('/reports/sales-summary', [
+        ReportController::class,
+        'summary',
+    ])->middleware('admin');
+    Route::get('/reports/revenue-trend', [
+        ReportController::class,
+        'trend',
+    ])->middleware('admin');
+    Route::get('/reports/products', [
+        ReportController::class,
+        'products',
+    ])->middleware('admin');
+    Route::get('/reports/categories', [
+        ReportController::class,
+        'categories',
+    ])->middleware('admin');
+    Route::get('/reports/payments', [
+        ReportController::class,
+        'payments',
+    ])->middleware('admin');
+    Route::get('/reports/cashiers', [
+        ReportController::class,
+        'cashiers',
+    ])->middleware('admin');
+    Route::get('/reports/peak-hours', [
+        ReportController::class,
+        'peakHours',
+    ])->middleware('admin');
+    Route::get('/reports/waste', [
+        ReportController::class,
+        'waste',
+    ])->middleware('admin');
+    Route::get('/reports/customers', [
+        ReportController::class,
+        'customers',
+    ])->middleware('admin');
+    Route::get('/reports/summary', [
+        ReportController::class,
+        'summary',
+    ])->middleware('admin');
     Route::get('/customers', [CustomerController::class, 'index'])->middleware(
         'admin',
     );

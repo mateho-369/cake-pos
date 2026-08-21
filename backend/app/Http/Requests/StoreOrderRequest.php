@@ -43,11 +43,11 @@ class StoreOrderRequest extends FormRequest
             'idempotencyKey' => ['nullable', 'uuid'],
             'discount.type' => ['nullable', Rule::in(['percentage', 'fixed'])],
             'discount.amount' => ['required_with:discount.type'],
-            'usdReceivedCents' => ['integer','min:0'],
-            'khrReceived' => ['integer','min:0'],
-            'changeUsdCents' => ['integer','min:0'],
-            'changeKhr' => ['integer','min:0'],
-            'exchangeRateKhrPerUsd' => ['integer','min:1000','max:10000'],
+            'usdReceivedCents' => ['integer', 'min:0'],
+            'khrReceived' => ['integer', 'min:0'],
+            'changeUsdCents' => ['integer', 'min:0'],
+            'changeKhr' => ['integer', 'min:0'],
+            'exchangeRateKhrPerUsd' => ['integer', 'min:1000', 'max:10000'],
             'confirmed' => ['boolean'],
         ];
     }

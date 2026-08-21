@@ -40,9 +40,34 @@ class OrderResource extends JsonResource
             'status' => $this->status,
             'detail' => $this->detail_json,
             'originalOrderId' => $this->parent_order_id,
-            'paymentStatus' => $this->payment_status ?? ($this->status === 'Completed' ? 'paid' : 'unpaid'),
+            'paymentStatus' =>
+                $this->payment_status ??
+                ($this->status === 'Completed' ? 'paid' : 'unpaid'),
             'fulfillmentStatus' => $this->fulfillment_status ?? $this->status,
-            'payments' => $this->whenLoaded('payments', fn()=> $this->payments->map(fn($p)=>['id'=>$p->id,'method'=>$p->method,'status'=>$p->status,'amountUsdCents'=>$p->amount_usd_cents,'exchangeRateKhrPerUsd'=>$p->exchange_rate_khr_per_usd,'tenderedUsdCents'=>$p->tendered_usd_cents,'tenderedKhr'=>$p->tendered_khr,'changeUsdCents'=>$p->change_usd_cents,'changeKhr'=>$p->change_khr,'settlementRoundingKhr'=>$p->settlement_rounding_khr,'confirmedByEmployeeId'=>$p->confirmed_by_employee_id,'confirmedAt'=>$p->confirmed_at?->toISOString()])->values()),
+            'payments' => $this->whenLoaded(
+                'payments',
+                fn() => $this->payments
+                    ->map(
+                        fn($p) => [
+                            'id' => $p->id,
+                            'method' => $p->method,
+                            'status' => $p->status,
+                            'amountUsdCents' => $p->amount_usd_cents,
+                            'exchangeRateKhrPerUsd' =>
+                                $p->exchange_rate_khr_per_usd,
+                            'tenderedUsdCents' => $p->tendered_usd_cents,
+                            'tenderedKhr' => $p->tendered_khr,
+                            'changeUsdCents' => $p->change_usd_cents,
+                            'changeKhr' => $p->change_khr,
+                            'settlementRoundingKhr' =>
+                                $p->settlement_rounding_khr,
+                            'confirmedByEmployeeId' =>
+                                $p->confirmed_by_employee_id,
+                            'confirmedAt' => $p->confirmed_at?->toISOString(),
+                        ],
+                    )
+                    ->values(),
+            ),
         ];
     }
 

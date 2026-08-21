@@ -3,7 +3,15 @@
 namespace App\Services;
 
 use App\Data\CreatedOrder;
-use App\Models\{Employee, Order, OrderItem, Product, Setting, OrderPayment, OrderStatusEvent};
+use App\Models\{
+    Employee,
+    Order,
+    OrderItem,
+    Product,
+    Setting,
+    OrderPayment,
+    OrderStatusEvent,
+};
 use App\Support\ExchangeRate;
 use App\Support\Money;
 use Illuminate\Database\QueryException;
@@ -63,10 +71,18 @@ class OrderService
                         ->all(),
                 ]);
 
-                $allocated = 0; $lineIndex = 0; $lineCount = count($lines);
+                $allocated = 0;
+                $lineIndex = 0;
+                $lineCount = count($lines);
                 foreach ($lines as [$product, $quantity]) {
                     $lineSubtotal = $product->price_cents * $quantity;
-                    $lineDiscount = (++$lineIndex === $lineCount) ? $discountAmount - $allocated : intdiv($discountAmount * $lineSubtotal, max(1, $subtotal));
+                    $lineDiscount =
+                        ++$lineIndex === $lineCount
+                            ? $discountAmount - $allocated
+                            : intdiv(
+                                $discountAmount * $lineSubtotal,
+                                max(1, $subtotal),
+                            );
                     $allocated += $lineDiscount;
                     $product->decrement('stock', $quantity);
                     OrderItem::create([
@@ -82,9 +98,36 @@ class OrderService
                     ]);
                 }
                 $this->recordNetProductRevenue($lines, $subtotal, $total);
-                $method = strtolower($input['payment']) === 'cash' ? 'cash' : 'qr_manual';
-                if ($method === 'qr_manual' && empty($input['confirmed'])) { throw ValidationException::withMessages(['confirmed'=>['Cashier confirmation is required']]); }
-                OrderPayment::create(['order_id'=>$order->id,'method'=>$method,'status'=>'confirmed','amount_usd_cents'=>$total,'exchange_rate_khr_per_usd'=>ExchangeRate::current(),'tendered_usd_cents'=>$method==='cash' ? ($input['usdReceivedCents'] ?? $total) : null,'tendered_khr'=>$method==='cash' ? ($input['khrReceived'] ?? 0) : null,'change_usd_cents'=>$method==='cash' ? ($input['changeUsdCents'] ?? 0) : null,'change_khr'=>$method==='cash' ? ($input['changeKhr'] ?? 0) : null,'confirmed_by_employee_id'=>$employee->id,'confirmed_at'=>now()]);
+                $method =
+                    strtolower($input['payment']) === 'cash'
+                        ? 'cash'
+                        : 'qr_manual';
+                if ($method === 'qr_manual' && empty($input['confirmed'])) {
+                    throw ValidationException::withMessages([
+                        'confirmed' => ['Cashier confirmation is required'],
+                    ]);
+                }
+                OrderPayment::create([
+                    'order_id' => $order->id,
+                    'method' => $method,
+                    'status' => 'confirmed',
+                    'amount_usd_cents' => $total,
+                    'exchange_rate_khr_per_usd' => ExchangeRate::current(),
+                    'tendered_usd_cents' =>
+                        $method === 'cash'
+                            ? $input['usdReceivedCents'] ?? $total
+                            : null,
+                    'tendered_khr' =>
+                        $method === 'cash' ? $input['khrReceived'] ?? 0 : null,
+                    'change_usd_cents' =>
+                        $method === 'cash'
+                            ? $input['changeUsdCents'] ?? 0
+                            : null,
+                    'change_khr' =>
+                        $method === 'cash' ? $input['changeKhr'] ?? 0 : null,
+                    'confirmed_by_employee_id' => $employee->id,
+                    'confirmed_at' => now(),
+                ]);
                 return $order;
             });
         } catch (QueryException $exception) {
@@ -106,18 +149,92 @@ class OrderService
 
     public function hold(array $input, Employee $employee): Order
     {
-        $key=$input['idempotencyKey']??null; if($key && ($old=Order::where('idempotency_key',$key)->first())) return $old;
-        return DB::transaction(function() use($input,$employee,$key) {
-            $lines=$this->lockRequestedProducts($input['items'], true);
-            $subtotal=collect($lines)->sum(fn($l)=>$l[0]->price_cents*$l[1]);
-            [$type,$value,$discount]=$this->calculateDiscount($input['discount']??null,$subtotal,$employee); $total=max(0,$subtotal-$discount);
-            $order=Order::create(['id'=>'CS-'.$this->nextOrderNumber(),'cashier_id'=>$employee->id,'idempotency_key'=>$key,'source'=>'walk-in','time'=>now()->format('g:i A'),'date'=>'Today','items'=>collect($lines)->sum(fn($l)=>$l[1]),'subtotal_cents'=>$subtotal,'discount_type'=>$type,'discount_value'=>$value,'discount_amount_cents'=>$discount,'total_cents'=>$total,'payment'=>null,'status'=>'Held','payment_status'=>'unpaid','fulfillment_status'=>'Held','detail_json'=>collect($lines)->map(fn($l)=>$l[0]->name.' × '.$l[1])->all()]);
-            OrderStatusEvent::create(['order_id'=>$order->id,'to_status'=>'Held','employee_id'=>$employee->id]);
-            foreach($lines as [$product,$quantity]) { $product->increment('reserved_stock',$quantity); OrderItem::create(['order_id'=>$order->id,'product_id'=>$product->id,'description'=>$product->name,'category_snapshot'=>$product->category?->name,'quantity'=>$quantity,'unit_price_cents'=>$product->price_cents,'line_subtotal_cents'=>$product->price_cents*$quantity,'line_total_cents'=>$product->price_cents*$quantity]); }
+        $key = $input['idempotencyKey'] ?? null;
+        if ($key && ($old = Order::where('idempotency_key', $key)->first())) {
+            return $old;
+        }
+        return DB::transaction(function () use ($input, $employee, $key) {
+            $lines = $this->lockRequestedProducts($input['items'], true);
+            $subtotal = collect($lines)->sum(
+                fn($l) => $l[0]->price_cents * $l[1],
+            );
+            [$type, $value, $discount] = $this->calculateDiscount(
+                $input['discount'] ?? null,
+                $subtotal,
+                $employee,
+            );
+            $total = max(0, $subtotal - $discount);
+            $order = Order::create([
+                'id' => 'CS-' . $this->nextOrderNumber(),
+                'cashier_id' => $employee->id,
+                'idempotency_key' => $key,
+                'source' => 'walk-in',
+                'time' => now()->format('g:i A'),
+                'date' => 'Today',
+                'items' => collect($lines)->sum(fn($l) => $l[1]),
+                'subtotal_cents' => $subtotal,
+                'discount_type' => $type,
+                'discount_value' => $value,
+                'discount_amount_cents' => $discount,
+                'total_cents' => $total,
+                'payment' => null,
+                'status' => 'Held',
+                'payment_status' => 'unpaid',
+                'fulfillment_status' => 'Held',
+                'detail_json' => collect($lines)
+                    ->map(fn($l) => $l[0]->name . ' × ' . $l[1])
+                    ->all(),
+            ]);
+            OrderStatusEvent::create([
+                'order_id' => $order->id,
+                'to_status' => 'Held',
+                'employee_id' => $employee->id,
+            ]);
+            foreach ($lines as [$product, $quantity]) {
+                $product->increment('reserved_stock', $quantity);
+                OrderItem::create([
+                    'order_id' => $order->id,
+                    'product_id' => $product->id,
+                    'description' => $product->name,
+                    'category_snapshot' => $product->category?->name,
+                    'quantity' => $quantity,
+                    'unit_price_cents' => $product->price_cents,
+                    'line_subtotal_cents' => $product->price_cents * $quantity,
+                    'line_total_cents' => $product->price_cents * $quantity,
+                ]);
+            }
             return $order;
         });
     }
-    public function cancel(Order $order): void { DB::transaction(function() use($order){ $order=Order::whereKey($order->id)->lockForUpdate()->firstOrFail(); if($order->status!=='Held') $this->conflict('Only unpaid Held orders can be cancelled'); foreach($order->orderItems()->lockForUpdate()->get() as $item) if($item->product_id) Product::whereKey($item->product_id)->lockForUpdate()->first()?->decrement('reserved_stock',$item->quantity); $from=$order->status; $order->update(['status'=>'Cancelled','fulfillment_status'=>'Cancelled']); OrderStatusEvent::create(['order_id'=>$order->id,'from_status'=>$from,'to_status'=>'Cancelled']); }); }
+    public function cancel(Order $order): void
+    {
+        DB::transaction(function () use ($order) {
+            $order = Order::whereKey($order->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            if ($order->status !== 'Held') {
+                $this->conflict('Only unpaid Held orders can be cancelled');
+            }
+            foreach ($order->orderItems()->lockForUpdate()->get() as $item) {
+                if ($item->product_id) {
+                    Product::whereKey($item->product_id)
+                        ->lockForUpdate()
+                        ->first()
+                        ?->decrement('reserved_stock', $item->quantity);
+                }
+            }
+            $from = $order->status;
+            $order->update([
+                'status' => 'Cancelled',
+                'fulfillment_status' => 'Cancelled',
+            ]);
+            OrderStatusEvent::create([
+                'order_id' => $order->id,
+                'from_status' => $from,
+                'to_status' => 'Cancelled',
+            ]);
+        });
+    }
 
     public function updateTelegram(Order $order, array $input): Order
     {
@@ -245,8 +362,10 @@ class OrderService
         });
     }
 
-    private function lockRequestedProducts(array $requestedItems, bool $forHold = false): array
-    {
+    private function lockRequestedProducts(
+        array $requestedItems,
+        bool $forHold = false,
+    ): array {
         $lines = [];
         foreach ($requestedItems as $item) {
             $productId = (int) ($item['productId'] ?? $item['id']);
@@ -255,7 +374,10 @@ class OrderService
                 ->where('active', true)
                 ->lockForUpdate()
                 ->firstOrFail();
-            if (($product->stock - ($forHold ? $product->reserved_stock : 0)) < $quantity) {
+            if (
+                $product->stock - ($forHold ? $product->reserved_stock : 0) <
+                $quantity
+            ) {
                 $this->stockConflict($product);
             }
             $lines[] = [$product, $quantity];
