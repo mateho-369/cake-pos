@@ -1,10 +1,253 @@
 import { useState } from 'react'
-import { Banknote, CheckCircle2, Clock3, Download, LockKeyhole, ScanLine, ShieldAlert } from 'lucide-react'
+import {
+  Banknote,
+  CheckCircle2,
+  Clock3,
+  Download,
+  LockKeyhole,
+  ScanLine,
+  ShieldAlert,
+} from 'lucide-react'
 import Modal from '../components/Modal'
 import { useTranslation } from '../lib/i18n'
 
-export default function ShiftsPage({ onToast }: { onToast: (message: string) => void }) {
-  const { t } = useTranslation(); const [closeShift, setCloseShift] = useState(false)
-  const reconcile = (event: React.FormEvent) => { event.preventDefault(); setCloseShift(false); onToast(t('shifts.closedSaved')) }
-  return <div className="page-content"><section className="shift-overview-grid"><article className="glass-panel active-shift-card"><div className="panel-heading"><div><span className="section-kicker">{t('shifts.current')}</span><h2>{t('shifts.morning')}</h2></div><span className="live-badge"><i /> {t('common.open')}</span></div><div className="large-shift-time"><strong>2:47:18</strong><span><Clock3 size={15} /> {t('shifts.openedBy')}</span></div><div className="shift-staff-row"><span className="employee-avatar e1">SC</span><span className="employee-avatar e2 overlap">DL</span><div><strong>{t('shifts.cashiersActive')}</strong><span>Sophea Chan · Dara Lim</span></div></div><button className="danger-outline full-button" onClick={() => setCloseShift(true)}><LockKeyhole size={16} /> {t('shifts.closeReconcile')}</button></article><article className="glass-panel cash-ledger-card"><div className="panel-heading"><div><span className="section-kicker">{t('shifts.cashPosition')}</span><h2>{t('shifts.expectedDrawer')}</h2></div><Banknote size={20} /></div><strong className="cash-total">$553.07</strong><div className="ledger-lines"><div><span>{t('shifts.openingFloat')}</span><strong>$100.00</strong></div><div><span>{t('shifts.cashSales')}</span><strong>+$453.07</strong></div><div><span>{t('shifts.cashRefunds')}</span><strong>−$0.00</strong></div><div><span>{t('shifts.paidOut')}</span><strong>−$0.00</strong></div></div></article><article className="glass-panel payment-reconcile-card"><div className="panel-heading"><div><span className="section-kicker">{t('shifts.digitalPayments')}</span><h2>{t('shifts.khqrConfirmation')}</h2></div><ScanLine size={20} /></div><strong className="cash-total">$771.43</strong><div className="reconcile-progress"><span><i style={{ width: '100%' }} /></span><small>{t('shifts.paymentsConfirmed')}</small></div><div className="success-note"><CheckCircle2 size={16} /><span>{t('shifts.noMismatches')}</span></div></article></section><section className="glass-panel shift-history table-responsive"><div className="panel-heading"><div><span className="section-kicker">{t('shifts.controlLog')}</span><h2>{t('shifts.history')}</h2></div><button className="secondary-button" onClick={() => onToast(t('shifts.historyExported'))}><Download size={16} /> {t('common.export')}</button></div><div className="shift-history-row table-head"><span>{t('shifts.dateShift')}</span><span>{t('employees.employee')}</span><span>{t('shifts.duration')}</span><span>{t('dashboard.netSales')}</span><span>{t('shifts.expectedCash')}</span><span>{t('shifts.countedCash')}</span><span>{t('shifts.variance')}</span><span>{t('catalog.status')}</span></div><div className="shift-history-row current"><span><strong>Aug 20 · {t('shifts.morning')}</strong><small>7:55 AM – {t('shifts.now')}</small></span><span>Sophea</span><span>2h 47m</span><strong>$1,224.50</strong><span>$553.07</span><span>—</span><span>—</span><span className="status-badge info"><i />{t('common.open')}</span></div><div className="shift-history-row"><span><strong>Aug 19 · {t('shifts.fullDay')}</strong><small>7:58 AM – 7:14 PM</small></span><span>Dara</span><span>11h 16m</span><strong>$2,486.20</strong><span>$1,082.60</span><span>$1,080.60</span><strong className="coral-text">−$2.00</strong><span className="status-badge success"><i />{t('common.closed')}</span></div><div className="shift-history-row"><span><strong>Aug 18 · {t('shifts.fullDay')}</strong><small>8:01 AM – 6:52 PM</small></span><span>Sophea</span><span>10h 51m</span><strong>$2,214.00</strong><span>$924.00</span><span>$924.00</span><strong className="green-text">$0.00</strong><span className="status-badge success"><i />{t('common.closed')}</span></div><div className="shift-history-row"><span><strong>Aug 17 · {t('shifts.fullDay')}</strong><small>7:49 AM – 7:02 PM</small></span><span>Dara</span><span>11h 13m</span><strong>$2,708.40</strong><span>$1,140.40</span><span>$1,145.40</span><strong className="amber-text">+$5.00</strong><span className="status-badge warning"><i />{t('shifts.reviewed')}</span></div></section><Modal open={closeShift} onClose={() => setCloseShift(false)} eyebrow={t('shifts.cashControl')} title={t('shifts.closeTitle')} size="medium"><form className="modal-form" onSubmit={reconcile}><div className="reconcile-summary"><div><span>{t('shifts.expectedCash')}</span><strong>$553.07</strong></div><div><span>{t('shifts.khqrConfirmed')}</span><strong>$771.43</strong></div><div><span>{t('shifts.netSales')}</span><strong>$1,224.50</strong></div></div><label><span>{t('shifts.countedCash')}</span><div className="currency-input"><span>$</span><input type="number" step="0.01" placeholder="0.00" required /></div><small>{t('shifts.countInstruction')}</small></label><label><span>{t('shifts.closingNote')}</span><textarea rows={3} placeholder={t('shifts.handoverPlaceholder')} /></label><div className="form-notice warning"><ShieldAlert size={17} /><span>{t('shifts.closingWarning')}</span></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setCloseShift(false)}>{t('common.cancel')}</button><button className="primary-button"><LockKeyhole size={16} /> {t('shifts.closeShift')}</button></div></form></Modal></div>
+export default function ShiftsPage({
+  onToast,
+}: {
+  onToast: (message: string) => void
+}) {
+  const { t } = useTranslation()
+  const [closeShift, setCloseShift] = useState(false)
+  const reconcile = (event: React.FormEvent) => {
+    event.preventDefault()
+    setCloseShift(false)
+    onToast(t('shifts.closedSaved'))
+  }
+  return (
+    <div className="page-content">
+      <section className="shift-overview-grid">
+        <article className="glass-panel active-shift-card">
+          <div className="panel-heading">
+            <div>
+              <span className="section-kicker">{t('shifts.current')}</span>
+              <h2>{t('shifts.morning')}</h2>
+            </div>
+            <span className="live-badge">
+              <i /> {t('common.open')}
+            </span>
+          </div>
+          <div className="large-shift-time">
+            <strong>2:47:18</strong>
+            <span>
+              <Clock3 size={15} /> {t('shifts.openedBy')}
+            </span>
+          </div>
+          <div className="shift-staff-row">
+            <span className="employee-avatar e1">SC</span>
+            <span className="employee-avatar e2 overlap">DL</span>
+            <div>
+              <strong>{t('shifts.cashiersActive')}</strong>
+              <span>Sophea Chan · Dara Lim</span>
+            </div>
+          </div>
+          <button
+            className="danger-outline full-button"
+            onClick={() => setCloseShift(true)}
+          >
+            <LockKeyhole size={16} /> {t('shifts.closeReconcile')}
+          </button>
+        </article>
+        <article className="glass-panel cash-ledger-card">
+          <div className="panel-heading">
+            <div>
+              <span className="section-kicker">{t('shifts.cashPosition')}</span>
+              <h2>{t('shifts.expectedDrawer')}</h2>
+            </div>
+            <Banknote size={20} />
+          </div>
+          <strong className="cash-total">$553.07</strong>
+          <div className="ledger-lines">
+            <div>
+              <span>{t('shifts.openingFloat')}</span>
+              <strong>$100.00</strong>
+            </div>
+            <div>
+              <span>{t('shifts.cashSales')}</span>
+              <strong>+$453.07</strong>
+            </div>
+            <div>
+              <span>{t('shifts.cashRefunds')}</span>
+              <strong>−$0.00</strong>
+            </div>
+            <div>
+              <span>{t('shifts.paidOut')}</span>
+              <strong>−$0.00</strong>
+            </div>
+          </div>
+        </article>
+        <article className="glass-panel payment-reconcile-card">
+          <div className="panel-heading">
+            <div>
+              <span className="section-kicker">
+                {t('shifts.digitalPayments')}
+              </span>
+              <h2>{t('shifts.khqrConfirmation')}</h2>
+            </div>
+            <ScanLine size={20} />
+          </div>
+          <strong className="cash-total">$771.43</strong>
+          <div className="reconcile-progress">
+            <span>
+              <i style={{ width: '100%' }} />
+            </span>
+            <small>{t('shifts.paymentsConfirmed')}</small>
+          </div>
+          <div className="success-note">
+            <CheckCircle2 size={16} />
+            <span>{t('shifts.noMismatches')}</span>
+          </div>
+        </article>
+      </section>
+      <section className="glass-panel shift-history table-responsive">
+        <div className="panel-heading">
+          <div>
+            <span className="section-kicker">{t('shifts.controlLog')}</span>
+            <h2>{t('shifts.history')}</h2>
+          </div>
+          <button
+            className="secondary-button"
+            onClick={() => onToast(t('shifts.historyExported'))}
+          >
+            <Download size={16} /> {t('common.export')}
+          </button>
+        </div>
+        <div className="shift-history-row table-head">
+          <span>{t('shifts.dateShift')}</span>
+          <span>{t('employees.employee')}</span>
+          <span>{t('shifts.duration')}</span>
+          <span>{t('dashboard.netSales')}</span>
+          <span>{t('shifts.expectedCash')}</span>
+          <span>{t('shifts.countedCash')}</span>
+          <span>{t('shifts.variance')}</span>
+          <span>{t('catalog.status')}</span>
+        </div>
+        <div className="shift-history-row current">
+          <span>
+            <strong>Aug 20 · {t('shifts.morning')}</strong>
+            <small>7:55 AM – {t('shifts.now')}</small>
+          </span>
+          <span>Sophea</span>
+          <span>2h 47m</span>
+          <strong>$1,224.50</strong>
+          <span>$553.07</span>
+          <span>—</span>
+          <span>—</span>
+          <span className="status-badge info">
+            <i />
+            {t('common.open')}
+          </span>
+        </div>
+        <div className="shift-history-row">
+          <span>
+            <strong>Aug 19 · {t('shifts.fullDay')}</strong>
+            <small>7:58 AM – 7:14 PM</small>
+          </span>
+          <span>Dara</span>
+          <span>11h 16m</span>
+          <strong>$2,486.20</strong>
+          <span>$1,082.60</span>
+          <span>$1,080.60</span>
+          <strong className="coral-text">−$2.00</strong>
+          <span className="status-badge success">
+            <i />
+            {t('common.closed')}
+          </span>
+        </div>
+        <div className="shift-history-row">
+          <span>
+            <strong>Aug 18 · {t('shifts.fullDay')}</strong>
+            <small>8:01 AM – 6:52 PM</small>
+          </span>
+          <span>Sophea</span>
+          <span>10h 51m</span>
+          <strong>$2,214.00</strong>
+          <span>$924.00</span>
+          <span>$924.00</span>
+          <strong className="green-text">$0.00</strong>
+          <span className="status-badge success">
+            <i />
+            {t('common.closed')}
+          </span>
+        </div>
+        <div className="shift-history-row">
+          <span>
+            <strong>Aug 17 · {t('shifts.fullDay')}</strong>
+            <small>7:49 AM – 7:02 PM</small>
+          </span>
+          <span>Dara</span>
+          <span>11h 13m</span>
+          <strong>$2,708.40</strong>
+          <span>$1,140.40</span>
+          <span>$1,145.40</span>
+          <strong className="amber-text">+$5.00</strong>
+          <span className="status-badge warning">
+            <i />
+            {t('shifts.reviewed')}
+          </span>
+        </div>
+      </section>
+      <Modal
+        open={closeShift}
+        onClose={() => setCloseShift(false)}
+        eyebrow={t('shifts.cashControl')}
+        title={t('shifts.closeTitle')}
+        size="medium"
+      >
+        <form className="modal-form" onSubmit={reconcile}>
+          <div className="reconcile-summary">
+            <div>
+              <span>{t('shifts.expectedCash')}</span>
+              <strong>$553.07</strong>
+            </div>
+            <div>
+              <span>{t('shifts.khqrConfirmed')}</span>
+              <strong>$771.43</strong>
+            </div>
+            <div>
+              <span>{t('shifts.netSales')}</span>
+              <strong>$1,224.50</strong>
+            </div>
+          </div>
+          <label>
+            <span>{t('shifts.countedCash')}</span>
+            <div className="currency-input">
+              <span>$</span>
+              <input type="number" step="0.01" placeholder="0.00" required />
+            </div>
+            <small>{t('shifts.countInstruction')}</small>
+          </label>
+          <label>
+            <span>{t('shifts.closingNote')}</span>
+            <textarea rows={3} placeholder={t('shifts.handoverPlaceholder')} />
+          </label>
+          <div className="form-notice warning">
+            <ShieldAlert size={17} />
+            <span>{t('shifts.closingWarning')}</span>
+          </div>
+          <div className="modal-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setCloseShift(false)}
+            >
+              {t('common.cancel')}
+            </button>
+            <button className="primary-button">
+              <LockKeyhole size={16} /> {t('shifts.closeShift')}
+            </button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  )
 }

@@ -1,55 +1,36 @@
-const configuredApiUrl = import.meta.env.VITE_API_URL
-const API_URL = (configuredApiUrl || '').replace(/\/$/, '')
+import { createApiClient } from '@cake-pos/api-client'
 
 let accessToken: string | null = null
+
+const client = createApiClient({
+  baseUrl: import.meta.env.VITE_API_URL,
+  getAccessToken: () => accessToken,
+})
+
+export const apiRequest = client.request
+export const getApiUrl = client.getApiUrl
 
 export function setAccessToken(token: string | null) {
   accessToken = token
 }
 
-export function getApiUrl() {
-  return API_URL || 'Same-origin /api (Vite proxy in development)'
-}
-
-export async function apiRequest<T>(
-  path: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const headers = new Headers(options.headers)
-  headers.set('Accept', 'application/json')
-
-  if (options.body && !(options.body instanceof FormData)) {
-    headers.set('Content-Type', 'application/json')
-  }
-
-  if (accessToken) {
-    headers.set('Authorization', `Bearer ${accessToken}`)
-  }
-
-  const requestPath = path.startsWith('/') ? path : `/${path}`
-  const response = await fetch(`${API_URL}${requestPath}`, {
-    ...options,
-    headers,
-  })
-
-  if (!response.ok) {
-    const message = await response.json().catch(() => null)
-    throw new Error(message?.message || `API request failed (${response.status})`)
-  }
-
-  if (response.status === 204) return undefined as T
-  return response.json() as Promise<T>
-}
-
 export async function login(email: string, password: string) {
-  const result = await apiRequest<{ token: string; employee: unknown }>('/api/login', {
-    method: 'POST',
-    body: JSON.stringify({ email, password }),
-  })
+  const result = await apiRequest<{ token: string; employee: unknown }>(
+    '/api/login',
+    {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    },
+  )
   setAccessToken(result.token)
   return result
 }
 
-export function logout() {
-  setAccessToken(null)
+export async function logout() {
+  try {
+    if (accessToken)
+      await apiRequest<{ ok: boolean }>('/api/logout', { method: 'POST' })
+  } finally {
+    setAccessToken(null)
+  }
 }

@@ -1,14 +1,19 @@
 /// <reference types="vite/client" />
 
 interface TelegramWebApp {
+  initData: string
   ready: () => void
   expand: () => void
   setHeaderColor?: (color: string) => void
   setBackgroundColor?: (color: string) => void
-}
-
-interface Window {
-  Telegram?: {
-    WebApp?: TelegramWebApp
+  requestContact?: (callback?: (granted: boolean) => void) => void
+  HapticFeedback?: {
+    notificationOccurred?: (type: 'error' | 'success' | 'warning') => void
   }
+}
+interface Window {
+  Telegram?: { WebApp?: TelegramWebApp }
+}
+interface ImportMetaEnv {
+  readonly VITE_DEV_TELEGRAM_INIT_DATA?: string
 }

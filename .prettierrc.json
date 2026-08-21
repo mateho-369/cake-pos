@@ -1,0 +1,15 @@
+{
+  "singleQuote": true,
+  "semi": false,
+  "trailingComma": "all",
+  "plugins": ["@prettier/plugin-php"],
+  "overrides": [
+    {
+      "files": "*.php",
+      "options": {
+        "parser": "php",
+        "singleQuote": true
+      }
+    }
+  ]
+}

@@ -1,19 +1,20 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { AuthProvider } from './auth/AuthContext'
+import { StaffAuthProvider } from './auth/StaffAuthContext'
 import { LanguageProvider } from './lib/i18n'
 import { SaleDataProvider } from './lib/data'
 import App from './App'
 import './index.css'
+import './customer.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <LanguageProvider>
-      <AuthProvider>
+      <StaffAuthProvider>
         <SaleDataProvider>
           <App />
         </SaleDataProvider>
-      </AuthProvider>
+      </StaffAuthProvider>
     </LanguageProvider>
   </StrictMode>,
 )

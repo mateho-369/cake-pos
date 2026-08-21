@@ -1,109 +1,52 @@
-# Cake POS API
+# Cake POS Laravel API
 
-Self-hosted REST API for the Admin Control and Sale Terminal frontends. It runs as a regular Node process in Docker Compose and persists its SQLite database to the `cake_pos_data` volume. It does not require Vercel, Cloudflare Workers, or a serverless runtime.
+Laravel 11, Eloquent, Sanctum bearer tokens, and MySQL 8. HTTP validation lives in `app/Http/Requests`, camelCase serialization in `app/Http/Resources`, and transactional POS rules in `app/Services`; controllers only coordinate those layers. The API preserves the frontend contract from the former service.
 
-The database layer uses `better-sqlite3`, a synchronous native SQLite binding. SQLite writes go directly to the durable database file and WAL; there is no in-memory export or manual save step. The Docker build installs `python3`, `make`, and `g++`, then compiles the addon inside the Node 22 Debian build stage. Host `node_modules` are never copied into the image.
-
-## Production setup on a Linux VM
+## Local/deployment setup
 
 ```bash
-cd backend
 cp .env.example .env
-# Edit .env. At minimum, set a long random JWT_SECRET and the real origins.
-nano .env
+# Edit every secret and origin, then generate an APP_KEY:
+docker compose run --rm app php artisan key:generate --show
 
-# Verify the values are visible to the shell before starting Compose.
-npm install
-npm run check-env
-
-# The same environment is injected into the container by env_file.
-docker compose up -d --build
-
-docker compose ps
-curl http://127.0.0.1:8080/healthz
+docker compose build
+# The Dockerfile prints and verifies the discovered php-fpm www.conf path and clear_env=no.
+docker compose --profile tools run --rm migrate
+docker compose up -d app web
+curl http://localhost:8080/healthz
 ```
 
-The API container logs the resolved database path and CORS origins at startup. To verify the variables inside the running container rather than assuming `env_file` worked:
+The one-shot `migrate` and `minio-init` services use explicit shell entrypoints and YAML lists containing one folded-scalar command. `minio-init` creates the bucket, grants anonymous downloads only below `product-images/`, and applies browser CORS rules. Neither MySQL nor MinIO is exposed beyond `127.0.0.1`; reverse-proxy the configured `AWS_PUBLIC_ENDPOINT` to MinIO's local port while preserving the request host for S3 signatures.
+
+Laravel signs direct browser PUTs through `/api/uploads/presign`, then `/api/uploads/complete` reads the stored bytes through the internal MinIO endpoint and verifies size plus MIME magic before the URL may be persisted. The backend app, MinIO server, and init job all read the same `backend/.env`; there is no second credential file to drift out of sync.
+
+## Environment
+
+All variables are documented in `.env.example`. CORS is allowlist-only and accepts exactly `ADMIN_ORIGIN` and `SALE_ORIGIN`, including `Authorization` and `Content-Type` headers. For separate hosting, serve the customer shop beneath the sale origin (for example through the same edge/reverse proxy) so the two-origin policy remains exact.
+
+## API authentication
+
+`POST /api/login` accepts either email/password or `pin_code`. It returns a 12-hour Sanctum personal access token. Staff routes use `auth:sanctum`; administrative mutations additionally use the `admin` middleware. Telegram customer routes remain separate and validate Telegram `initData` using the official two-stage HMAC-SHA256 algorithm.
+
+## Integrity and security contract tests
+
+Against a disposable MySQL database:
 
 ```bash
-docker compose exec api node scripts/check-env.js
+php artisan test --filter ApiContractTest
 ```
 
-The `DATABASE_PATH` value is intentionally overridden to `/data/cake-pos.sqlite` in Compose, and `/data` is a named persistent volume. Back up the database with:
+`tests/Feature/ApiContractTest.php` explicitly verifies the five-attempt login limiter and Retry-After response; 12-hour Sanctum expiry and token deletion on logout; integer-cent schemas and exact cent arithmetic; percentage/fixed discount caps and non-negative totals; idempotent duplicate submission; generated `FOR UPDATE` SQL and rollback; immutable completed orders plus linked corrections; cent-based shift variance; Telegram signature rejection/acceptance; and reports camelCase output.
 
-```bash
-docker compose cp api:/data/cake-pos.sqlite ./cake-pos-backup.sqlite
-```
+## POS integrity guarantees
 
-To stop the API without deleting data:
+- Login is limited to five attempts per IP per minute and returns HTTP 429 with `Retry-After`.
+- Currency is persisted as integer cents. Percentage discounts use integer basis points.
+- The server recomputes subtotal from locked product rows and enforces the configured cashier discount ceiling.
+- A unique UUID idempotency key makes retries return the original order without a second stock decrement.
+- Completed orders cannot be updated. Refunds and voids are separate linked negative records.
+- Sanctum tokens expire after 12 hours and `/api/logout` deletes the active token.
 
-```bash
-docker compose down
-```
+## Main routes
 
-Do not run `docker compose down -v` unless the database may be deleted.
-
-## Environment variables
-
-| Variable | Purpose |
-|---|---|
-| `PORT` | Container port; defaults to `8080` |
-| `JWT_SECRET` | Secret used to sign 12-hour Bearer tokens; required |
-| `ADMIN_ORIGIN` | Exact Admin frontend origin allowed by CORS |
-| `SALE_ORIGIN` | Exact Sale frontend origin allowed by CORS |
-| `DATABASE_PATH` | SQLite file path; Compose sets this to `/data/cake-pos.sqlite` |
-| `SEED_*` | First-install credentials, used only when the employee table is empty |
-
-The first database creation seeds one admin and two cashier accounts. Change the seed values before the first `docker compose up` in a real environment. Seed variables do not overwrite an existing database.
-
-## API contract
-
-All `/api/*` routes except `POST /api/login` require:
-
-```http
-Authorization: Bearer <token>
-```
-
-`POST /api/login` accepts either:
-
-```json
-{"email":"owner@atelier.local","password":"..."}
-```
-
-or:
-
-```json
-{"pin_code":"1234"}
-```
-
-and returns `{ token, employee }`. There is no public employee signup endpoint.
-
-Implemented routes:
-
-- `GET/POST /api/products`, `PUT/DELETE /api/products/:id`
-- `GET/POST /api/categories`, `PUT/DELETE /api/categories/:id`
-- `GET/POST /api/orders`
-- `GET/POST /api/employees`, `PUT/DELETE /api/employees/:id` (admin-only)
-- `POST /api/shifts/open`, `POST /api/shifts/close`, `GET /api/shifts`
-- `GET /api/reports/summary`
-- `GET /healthz`
-
-Order creation performs stock validation, order insertion, product stock decrement, sold/revenue updates, and order-item insertion inside one SQLite transaction. A failed stock check rolls the entire operation back.
-
-## Local frontend development
-
-The Vite configs proxy `/api` and `/healthz` to `http://127.0.0.1:8080` when `VITE_API_URL` is empty. Start the backend first, then:
-
-```bash
-cd backend
-PORT=8080 DATABASE_PATH=/tmp/cake-pos.sqlite JWT_SECRET=local-secret \
-  ADMIN_ORIGIN=http://localhost:4173 SALE_ORIGIN=http://localhost:4174 \
-  npm start
-
-# In another shell at the repository root:
-npm install
-npm run dev:admin
-npm run dev:sale
-```
-
-For production frontend builds, set `VITE_API_URL=https://api.example.com` in each app's environment. The browser then calls the dedicated API origin rather than its own static-asset origin.
+The Laravel service preserves all routes consumed by `apps/admin`, `apps/sale`, and the customer storefront, including products/import, categories, orders and Telegram statuses, employees, shifts, reports, customers, receipt settings/reprints, Telegram contact webhook, and customer orders.

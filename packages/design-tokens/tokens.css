@@ -1,0 +1,39 @@
+:root {
+  --color-canvas: #fdf2f6;
+  --color-ink: #3b0a1f;
+  --color-muted: #796873;
+  --color-subtle: #a0929a;
+  --color-pink: #f472b6;
+  --color-pink-deep: #be185d;
+  --color-blue: #3b82f6;
+  --color-green: #14845f;
+  --color-amber: #b46b16;
+  --color-coral: #d4565d;
+  --color-line: rgba(69, 31, 49, 0.1);
+  --color-glass: rgba(255, 255, 255, 0.62);
+  --color-glass-strong: rgba(255, 255, 255, 0.88);
+
+  --radius-sm: 9px;
+  --radius-md: 14px;
+  --radius-lg: 24px;
+  --glass-blur: 26px;
+  --shadow-glass:
+    0 1px 2px rgba(59, 10, 31, 0.035), 0 14px 42px rgba(59, 10, 31, 0.075);
+  --shadow-raised: 0 24px 70px rgba(59, 10, 31, 0.18);
+
+  /* Backward-compatible aliases while component CSS migrates to semantic names. */
+  --ink: var(--color-ink);
+  --muted: var(--color-muted);
+  --subtle: var(--color-subtle);
+  --pink: var(--color-pink);
+  --pink-deep: var(--color-pink-deep);
+  --pink-light: var(--color-pink);
+  --blue: var(--color-blue);
+  --green: var(--color-green);
+  --amber: var(--color-amber);
+  --coral: var(--color-coral);
+  --line: var(--color-line);
+  --glass: var(--color-glass);
+  --glass-strong: var(--color-glass-strong);
+  --shadow: var(--shadow-glass);
+}

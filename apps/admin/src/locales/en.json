@@ -68,7 +68,8 @@
     "collapse": "Collapse sidebar",
     "openNavigation": "Open navigation",
     "closeNavigation": "Close navigation",
-    "toggleNavigation": "Toggle navigation width"
+    "toggleNavigation": "Toggle navigation width",
+    "customers": "Customers"
   },
   "header": {
     "morning": "Good morning, Makara",
@@ -691,7 +692,8 @@
     "noResults": "No results for “{{query}}”",
     "addFresh": "Add a fresh cake",
     "navigateKeys": "to navigate",
-    "select": "to select"
+    "select": "to select",
+    "customers": "Customer directory"
   },
   "shift": {
     "open": "Shift open",

@@ -3,17 +3,32 @@
   "private": true,
   "version": "0.1.0",
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "packages/*"
   ],
+  "overrides": {
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
+  },
   "scripts": {
     "dev": "npm run dev --workspace=@cake-pos/admin",
     "dev:admin": "npm run dev --workspace=@cake-pos/admin",
     "dev:sale": "npm run dev --workspace=@cake-pos/sale",
-    "build": "npm run build:admin && npm run build:sale",
+    "dev:shop": "npm run dev --workspace=@cake-pos/shop",
+    "build": "npm run build:admin && npm run build:sale && npm run build:shop",
     "build:admin": "npm run build --workspace=@cake-pos/admin",
     "build:sale": "npm run build --workspace=@cake-pos/sale",
-    "typecheck": "npm run typecheck --workspace=@cake-pos/admin && npm run typecheck --workspace=@cake-pos/sale",
+    "build:shop": "npm run build --workspace=@cake-pos/shop",
+    "typecheck": "npm run typecheck --workspace=@cake-pos/admin && npm run typecheck --workspace=@cake-pos/sale && npm run typecheck --workspace=@cake-pos/shop",
     "deploy:admin": "npm run deploy --workspace=@cake-pos/admin",
-    "deploy:sale": "npm run deploy --workspace=@cake-pos/sale"
+    "deploy:sale": "npm run deploy --workspace=@cake-pos/sale",
+    "deploy:shop": "npm run deploy --workspace=@cake-pos/shop",
+    "format": "prettier --write \"apps/**/*.{ts,tsx,css,json}\" \"packages/**/*.{ts,css,json}\" \"backend/**/*.php\" \"*.{json,md}\"",
+    "format:check": "prettier --check \"apps/**/*.{ts,tsx,css,json}\" \"packages/**/*.{ts,css,json}\" \"backend/**/*.php\" \"*.{json,md}\""
+  },
+  "devDependencies": {
+    "@prettier/plugin-php": "^0.25.0",
+    "prettier": "^3.9.6"
   }
 }

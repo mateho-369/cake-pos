@@ -1,6 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { AuthProvider } from './auth/AuthContext'
+import { StaffAuthProvider } from './auth/StaffAuthContext'
 import { LanguageProvider } from './lib/i18n'
 import { AdminDataProvider } from './lib/data'
 import App from './App'
@@ -9,11 +9,11 @@ import './index.css'
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <LanguageProvider>
-      <AuthProvider>
+      <StaffAuthProvider>
         <AdminDataProvider>
           <App />
         </AdminDataProvider>
-      </AuthProvider>
+      </StaffAuthProvider>
     </LanguageProvider>
   </StrictMode>,
 )
