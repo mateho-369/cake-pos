@@ -7,6 +7,7 @@ class Product extends Model
     protected $casts = [
         'price_cents' => 'integer',
         'stock' => 'integer',
+        'reserved_stock' => 'integer',
         'sold' => 'integer',
         'revenue_cents' => 'integer',
         'active' => 'boolean',

@@ -8,6 +8,9 @@ use App\Http\Controllers\{
     ProductController,
     ReceiptController,
     ReportController,
+    BroadcastController,
+    BroadcastTemplateController,
+    MediaController,
     SettingsController,
     ShiftController,
     TelegramController,
@@ -60,6 +63,10 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     ])->middleware('admin');
     Route::get('/orders', [OrderController::class, 'index']);
     Route::post('/orders', [OrderController::class, 'store']);
+    Route::post('/orders/hold', [OrderController::class, 'hold']);
+    Route::get('/orders/held', [OrderController::class, 'held']);
+    Route::post('/orders/{order}/pay', [OrderController::class, 'pay']);
+    Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
     Route::patch('/orders/{order}', [
         OrderController::class,
         'update',
@@ -84,8 +91,91 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     ])->middleware('admin');
     Route::post('/shifts/open', [ShiftController::class, 'open']);
     Route::post('/shifts/close', [ShiftController::class, 'close']);
+    Route::get('/shifts/current', [ShiftController::class, 'current']);
     Route::get('/shifts', [ShiftController::class, 'index']);
-    Route::get('/reports/summary', [ReportController::class, 'report']);
+    Route::post('/broadcasts/poster', [
+        BroadcastController::class,
+        'poster',
+    ])->middleware('admin');
+    Route::get('/broadcast-templates', [
+        BroadcastTemplateController::class,
+        'index',
+    ])->middleware('admin');
+    Route::post('/broadcast-templates', [
+        BroadcastTemplateController::class,
+        'store',
+    ])->middleware('admin');
+    Route::put('/broadcast-templates/{broadcastTemplate}', [
+        BroadcastTemplateController::class,
+        'update',
+    ])->middleware('admin');
+    Route::delete('/broadcast-templates/{broadcastTemplate}', [
+        BroadcastTemplateController::class,
+        'destroy',
+    ])->middleware('admin');
+    Route::get('/storage/media', [MediaController::class, 'index'])->middleware(
+        'admin',
+    );
+    Route::delete('/storage/media', [
+        MediaController::class,
+        'destroy',
+    ])->middleware('admin');
+    Route::get('/broadcasts/preview', [
+        BroadcastController::class,
+        'preview',
+    ])->middleware('admin');
+    Route::get('/broadcasts', [
+        BroadcastController::class,
+        'index',
+    ])->middleware('admin');
+    Route::post('/broadcasts', [
+        BroadcastController::class,
+        'store',
+    ])->middleware('admin');
+    Route::get('/reports/dashboard', [
+        ReportController::class,
+        'dashboard',
+    ])->middleware('admin');
+    Route::get('/reports/sales-summary', [
+        ReportController::class,
+        'summary',
+    ])->middleware('admin');
+    Route::get('/reports/revenue-trend', [
+        ReportController::class,
+        'trend',
+    ])->middleware('admin');
+    Route::get('/reports/products', [
+        ReportController::class,
+        'products',
+    ])->middleware('admin');
+    Route::get('/reports/categories', [
+        ReportController::class,
+        'categories',
+    ])->middleware('admin');
+    Route::get('/reports/payments', [
+        ReportController::class,
+        'payments',
+    ])->middleware('admin');
+    Route::get('/reports/cashiers', [
+        ReportController::class,
+        'cashiers',
+    ])->middleware('admin');
+    Route::get('/reports/peak-hours', [
+        ReportController::class,
+        'peakHours',
+    ])->middleware('admin');
+    Route::get('/reports/waste', [
+        ReportController::class,
+        'waste',
+    ])->middleware('admin');
+    Route::get('/reports/customers', [
+        ReportController::class,
+        'customers',
+    ])->middleware('admin');
+    Route::get('/reports/summary', [
+        ReportController::class,
+        'summary',
+    ])->middleware('admin');
     Route::get('/customers', [CustomerController::class, 'index'])->middleware(
         'admin',
     );

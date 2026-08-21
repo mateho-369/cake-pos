@@ -13,6 +13,26 @@
     linear-gradient(160deg, #fffafb, #fdf1f6 58%, #f9f4f6);
   color: var(--ink);
 }
+.language-toggle {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line, rgba(0, 0, 0, 0.1));
+  border-radius: 999px;
+}
+.language-toggle button {
+  border: 0;
+  background: transparent;
+  border-radius: 999px;
+  padding: 4px 7px;
+  font: inherit;
+  cursor: pointer;
+}
+.language-toggle button.active {
+  background: var(--ink, #241b22);
+  color: white;
+}
+
 .customer-header {
   height: calc(70px + env(safe-area-inset-top));
   padding: max(12px, env(safe-area-inset-top)) 18px 10px;

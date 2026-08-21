@@ -20,6 +20,8 @@ export default function TerminalHeader({
   cartCount,
   onCart,
   onHistory,
+  onCustomerDisplay,
+  onAutoPlaceDisplay,
 }: {
   shiftOpen: boolean
   shiftStartedAt?: string
@@ -29,6 +31,8 @@ export default function TerminalHeader({
   cartCount: number
   onCart: () => void
   onHistory: () => void
+  onCustomerDisplay: () => void
+  onAutoPlaceDisplay?: () => void
 }) {
   const { employee, signOut } = useStaffAuth()
   const { t } = useTranslation()
@@ -54,6 +58,22 @@ export default function TerminalHeader({
         <kbd>⌘K</kbd>
       </label>
       <div className="terminal-header-actions">
+        <button
+          className="icon-button"
+          onClick={onCustomerDisplay}
+          title={t('sale.customerDisplay')}
+        >
+          <ShoppingBag size={18} />
+        </button>
+        {'getScreenDetails' in window && onAutoPlaceDisplay && (
+          <button
+            className="icon-button"
+            onClick={onAutoPlaceDisplay}
+            title={t('sale.autoPlace')}
+          >
+            ⌗
+          </button>
+        )}
         <button
           className="icon-button terminal-history-button"
           onClick={onHistory}

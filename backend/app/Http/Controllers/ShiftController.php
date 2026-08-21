@@ -1,5 +1,6 @@
 <?php
 namespace App\Http\Controllers;
+use App\Jobs\SendStaffShiftNotification;
 use App\Http\Requests\{CloseShiftRequest, OpenShiftRequest};
 use App\Http\Resources\ShiftResource;
 use App\Models\Shift;
@@ -11,7 +12,11 @@ class ShiftController extends Controller
     public function __construct(private readonly ShiftService $shifts) {}
     public function open(OpenShiftRequest $request): JsonResponse
     {
-        $shift = $this->shifts->open($request->user(), $request->openingCash);
+        $shift = $this->shifts->open(
+            $request->user(),
+            $request->openingCash,
+            $request->input('openingCashKhr', 0),
+        );
         $data = ShiftResource::make($shift)->resolve();
         $data['expectedCash'] = $data['openingCash'];
         $data['variance'] = 0;
@@ -23,10 +28,20 @@ class ShiftController extends Controller
         [$shift, $cashSales] = $this->shifts->close(
             $request->user(),
             $request->closingCash,
+            $request->input('closingCashKhr', 0),
         );
+        SendStaffShiftNotification::dispatch($shift->id, $cashSales);
         $data = ShiftResource::make($shift)->resolve();
-        $data['cashSales'] = Money::toDecimal($cashSales);
+        $data['cashSales'] = Money::toDecimal($cashSales[0]);
+        $data['cashSalesKhr'] = $cashSales[1];
         return response()->json($data);
+    }
+    public function current(): JsonResponse
+    {
+        $shift = $this->shifts->current();
+        return response()->json(
+            $shift ? ShiftResource::make($shift)->resolve() : null,
+        );
     }
     public function index(): JsonResponse
     {

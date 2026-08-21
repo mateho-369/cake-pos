@@ -670,7 +670,9 @@
     "productPublished": "{{name}} published to the sale menu",
     "paymentFailed": "Payment could not be completed",
     "shiftFailed": "Shift update failed",
-    "productFailed": "Product could not be added"
+    "productFailed": "Product could not be added",
+    "customerDisplay": "Open Customer Display",
+    "autoPlace": "Auto-place on second screen"
   },
   "app": {
     "cakePublished": "Cake added and published to the sale terminal"
@@ -728,5 +730,18 @@
     "openShiftAction": "Open shift",
     "closeReconcileAction": "Close & reconcile",
     "openedPerson": "Thursday, 20 August · Sophea Chan"
+  },
+  "display": {
+    "customerDisplay": "Open Customer Display",
+    "autoPlace": "Auto-place on second screen",
+    "customerView": "CUSTOMER DISPLAY",
+    "welcome": "Welcome",
+    "waiting": "Your order will appear here",
+    "yourOrder": "Your order",
+    "subtotal": "Subtotal",
+    "total": "Total",
+    "thankYou": "Thank you!",
+    "orderNumber": "Order {{number}}",
+    "ready": "Your payment was received"
   }
 }

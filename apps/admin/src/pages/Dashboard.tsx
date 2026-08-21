@@ -31,6 +31,11 @@ export default function Dashboard({
 }: DashboardProps) {
   const { t } = useTranslation()
   const { orders, products, revenueData } = useAdminData()
+  const completed = orders.filter((order) => order.status === 'Completed')
+  const netRevenue = completed.reduce((sum, order) => sum + order.total, 0)
+  const averageOrder = completed.length ? netRevenue / completed.length : 0
+  const money = (value: number) =>
+    `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const [period, setPeriod] = useState('today')
   const periods = [
     { id: 'today', label: 'dashboard.today' },
@@ -40,10 +45,10 @@ export default function Dashboard({
   const exportSummary = () => {
     const content = [
       `${t('dashboard.netSales')},${t('dashboard.revenue')}`,
-      `${t('dashboard.netSales')},1224.50`,
-      `${t('dashboard.orders')},47`,
-      `${t('dashboard.averageOrder')},26.05`,
-      `${t('dashboard.freshnessRisk')},5`,
+      `${t('dashboard.netSales')},${netRevenue.toFixed(2)}`,
+      `${t('dashboard.orders')},${completed.length}`,
+      `${t('dashboard.averageOrder')},${averageOrder.toFixed(2)}`,
+      `${t('dashboard.freshnessRisk')},${products.filter((product) => ['Expires today', '1 day left'].includes(product.status)).length}`,
     ].join('\n')
     const link = document.createElement('a')
     link.href = URL.createObjectURL(new Blob([content], { type: 'text/csv' }))
@@ -81,7 +86,7 @@ export default function Dashboard({
       <section className="kpi-grid">
         <MetricCard
           label={t('dashboard.netSales')}
-          value="$1,224.50"
+          value={money(netRevenue)}
           compare="12.4%"
           positive
           note={t('dashboard.yesterday')}
@@ -90,7 +95,7 @@ export default function Dashboard({
         />
         <MetricCard
           label={t('dashboard.orders')}
-          value="47"
+          value={String(completed.length)}
           compare="8.2%"
           positive
           note={t('dashboard.dailyPace')}
@@ -99,7 +104,7 @@ export default function Dashboard({
         />
         <MetricCard
           label={t('dashboard.averageOrder')}
-          value="$26.05"
+          value={money(averageOrder)}
           compare="3.8%"
           positive
           note={t('dashboard.basket')}

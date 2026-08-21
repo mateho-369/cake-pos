@@ -14,6 +14,7 @@ import {
 import { apiRequest } from './lib/api'
 import type { Product } from './data'
 import { useTelegramIdentity } from './telegram/useTelegramIdentity'
+import { LanguageToggle, useTranslation } from './lib/i18n'
 
 type Customer = {
   name: string
@@ -36,6 +37,7 @@ const statusSteps = ['Pending', 'Confirmed', 'Paid', 'Ready']
 
 export default function CustomerApp() {
   const { webApp, initData, botUrl, launchedInTelegram } = useTelegramIdentity()
+  const { t } = useTranslation()
   const [menu, setMenu] = useState<MenuResponse | null>(null)
   const [cart, setCart] = useState<Cart>({})
   const [cartOpen, setCartOpen] = useState(false)
@@ -48,9 +50,7 @@ export default function CustomerApp() {
   useEffect(() => {
     if (!initData) {
       setLoading(false)
-      setError(
-        'Open this storefront from the shop’s Telegram bot to browse and order.',
-      )
+      setError(t('errors.telegram'))
       return
     }
     apiRequest<MenuResponse>('/api/customer-products', {
@@ -59,11 +59,7 @@ export default function CustomerApp() {
     })
       .then(setMenu)
       .catch((reason) =>
-        setError(
-          reason instanceof Error
-            ? reason.message
-            : 'Could not load today’s menu',
-        ),
+        setError(reason instanceof Error ? reason.message : t('errors.menu')),
       )
       .finally(() => setLoading(false))
   }, [initData])
@@ -122,17 +118,14 @@ export default function CustomerApp() {
       }
       await new Promise((resolve) => window.setTimeout(resolve, 1000))
     }
-    throw new Error(
-      'We have not received your phone yet. Please try Share phone again.',
-    )
+    throw new Error(t('errors.phone'))
   }
   const requestPhone = async () => {
     setContactPrompt(false)
     setSending(true)
     setError(null)
     try {
-      if (!webApp?.requestContact)
-        throw new Error('Phone sharing is only available inside Telegram.')
+      if (!webApp?.requestContact) throw new Error(t('errors.phoneTelegram'))
       await new Promise<void>((resolve, reject) =>
         webApp.requestContact?.((granted) =>
           granted
@@ -191,11 +184,9 @@ export default function CustomerApp() {
         <span>
           <Send />
         </span>
-        <strong>Please open this from our Telegram bot to order</strong>
-        <p>
-          This shop verifies your Telegram account before showing the catalog.
-        </p>
-        <a href={botUrl}>Open our Telegram bot</a>
+        <strong>{t('gate.title')}</strong>
+        <p>{t('gate.body')}</p>
+        <a href={botUrl}>{t('gate.open')}</a>
       </main>
     )
   if (loading)
@@ -204,7 +195,7 @@ export default function CustomerApp() {
         <span className="customer-loader">
           <CakeSlice />
         </span>
-        <strong>Preparing today’s menu…</strong>
+        <strong>{t('loading')}</strong>
       </main>
     )
   if (!menu)
@@ -213,7 +204,7 @@ export default function CustomerApp() {
         <span>
           <CakeSlice />
         </span>
-        <strong>Storefront unavailable</strong>
+        <strong>{t('unavailable')}</strong>
         <p>{error}</p>
       </main>
     )
@@ -238,8 +229,9 @@ export default function CustomerApp() {
             <small>FRESHLY MADE FOR YOU</small>
           </div>
         </div>
+        <LanguageToggle />
         <div className="customer-greeting">
-          <small>Welcome</small>
+          <small>{t('menu.welcome')}</small>
           <strong>{menu.customer.name.split(' ')[0]}</strong>
         </div>
       </header>
@@ -446,6 +438,7 @@ function OrderStatus({
   khqrImageUrl?: string
   onBack: () => void
 }) {
+  const { t } = useTranslation()
   const effectiveStatus = order.status === 'Completed' ? 'Ready' : order.status
   const current = Math.max(0, statusSteps.indexOf(effectiveStatus))
   return (

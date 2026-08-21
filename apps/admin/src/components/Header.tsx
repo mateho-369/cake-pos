@@ -13,6 +13,7 @@ const titles: Record<PageId, { title: string; eyebrow: string }> = {
   shifts: { title: 'nav.shifts', eyebrow: 'header.cashControl' },
   reports: { title: 'header.reports', eyebrow: 'header.performance' },
   settings: { title: 'header.settings', eyebrow: 'header.configuration' },
+  media: { title: 'nav.media', eyebrow: 'header.configuration' },
 }
 
 type HeaderProps = {

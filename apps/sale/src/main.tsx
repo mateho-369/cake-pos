@@ -6,6 +6,7 @@ import { SaleDataProvider } from './lib/data'
 import App from './App'
 import './index.css'
 import './customer.css'
+import './customer-display.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

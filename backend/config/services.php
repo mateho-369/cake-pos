@@ -27,6 +27,12 @@ return [
         'sale_bot_username' => env('SALE_TELEGRAM_BOT_USERNAME'),
         'shop_bot_username' => env('SHOP_TELEGRAM_BOT_USERNAME'),
         'bot_token' => env('SHOP_TELEGRAM_BOT_TOKEN'),
+        'staff_bot_token' => env('STAFF_TELEGRAM_BOT_TOKEN'),
+        'staff_notification_chat_id' => env('STAFF_NOTIFICATION_CHAT_ID'),
+        'shop_mini_app_url' => env(
+            'SHOP_MINI_APP_URL',
+            'https://shop.yourdomain.com',
+        ),
         'admin_chat_id' => env('TELEGRAM_ADMIN_CHAT_ID'),
         'webhook_secret' => env('TELEGRAM_WEBHOOK_SECRET'),
         'khqr_image_url' => env('KHQR_IMAGE_URL', ''),

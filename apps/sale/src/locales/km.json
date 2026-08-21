@@ -670,7 +670,9 @@
     "productPublished": "{{name}} បានបង្ហោះទៅម៉ឺនុយលក់",
     "paymentFailed": "មិនអាចបញ្ចប់ការទូទាត់បានទេ",
     "shiftFailed": "មិនអាចធ្វើបច្ចុប្បន្នភាពវេនបានទេ",
-    "productFailed": "មិនអាចបន្ថែមមុខទំនិញបានទេ"
+    "productFailed": "មិនអាចបន្ថែមមុខទំនិញបានទេ",
+    "customerDisplay": "បើកអេក្រង់អតិថិជន",
+    "autoPlace": "ដាក់នៅអេក្រង់ទីពីរដោយស្វ័យប្រវត្តិ"
   },
   "app": {
     "cakePublished": "បានបន្ថែមនំ និងផ្សព្វផ្សាយទៅកន្លែងលក់"
@@ -728,5 +730,18 @@
     "openShiftAction": "បើកវេន",
     "closeReconcileAction": "បិទ និងផ្ទៀងផ្ទាត់",
     "openedPerson": "ព្រហស្បតិ៍ ទី20 សីហា · Sophea Chan"
+  },
+  "display": {
+    "customerDisplay": "បើកអេក្រង់អតិថិជន",
+    "autoPlace": "ដាក់នៅអេក្រង់ទីពីរដោយស្វ័យប្រវត្តិ",
+    "customerView": "អេក្រង់អតិថិជន",
+    "welcome": "សូមស្វាគមន៍",
+    "waiting": "ការបញ្ជាទិញរបស់អ្នកនឹងបង្ហាញនៅទីនេះ",
+    "yourOrder": "ការបញ្ជាទិញរបស់អ្នក",
+    "subtotal": "សរុបរង",
+    "total": "សរុប",
+    "thankYou": "សូមអរគុណ!",
+    "orderNumber": "លេខបញ្ជាទិញ {{number}}",
+    "ready": "បានទទួលការទូទាត់របស់អ្នក"
   }
 }

@@ -5,6 +5,7 @@ import {
   CircleDollarSign,
   Clock3,
   LayoutDashboard,
+  Images,
   PackageCheck,
   ReceiptText,
   Settings,
@@ -46,6 +47,7 @@ const navGroups: { title: string; items: NavItem[] }[] = [
     items: [
       { id: 'reports', label: 'nav.reports', icon: BarChart3 },
       { id: 'settings', label: 'nav.settings', icon: Settings },
+      { id: 'media', label: 'nav.media', icon: Images },
     ],
   },
 ]

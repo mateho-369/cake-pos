@@ -63,6 +63,12 @@ type SaleDataContextValue = {
     items: Array<{ productId: number; quantity: number }>
     discount?: { type: 'percentage' | 'fixed'; amount: string }
     idempotencyKey?: string
+    confirmed?: boolean
+    usdReceivedCents?: number
+    khrReceived?: number
+    changeUsdCents?: number
+    changeKhr?: number
+    exchangeRateKhrPerUsd?: number
   }) => Promise<SaleOrder>
   openShift: (openingCash: number) => Promise<ShiftResult>
   closeShift: (closingCash: number) => Promise<ShiftResult>
@@ -175,6 +181,12 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
       items: Array<{ productId: number; quantity: number }>
       discount?: { type: 'percentage' | 'fixed'; amount: string }
       idempotencyKey?: string
+      confirmed?: boolean
+      usdReceivedCents?: number
+      khrReceived?: number
+      changeUsdCents?: number
+      changeKhr?: number
+      exchangeRateKhrPerUsd?: number
     }) => {
       const result = await apiRequest<SaleOrder>('/api/orders', {
         method: 'POST',
