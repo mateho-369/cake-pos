@@ -18,20 +18,17 @@ class BroadcastController extends Controller
     public function index(): JsonResponse
     {
         return response()->json(
-            Broadcast::latest()
-                ->limit(50)
-                ->get()
-                ->map(
-                    fn($b) => [
-                        'id' => $b->id,
-                        'caption' => $b->caption,
-                        'imageUrl' => $b->image_url,
-                        'sentAt' => $b->sent_at?->toISOString(),
-                        'recipientCount' => $b->recipient_count,
-                        'successCount' => $b->success_count,
-                        'failureCount' => $b->failure_count,
-                    ],
-                ),
+            Broadcast::latest()->limit(50)->get()->map(
+                fn($b) => [
+                    'id' => $b->id,
+                    'caption' => $b->caption,
+                    'imageUrl' => $b->image_url,
+                    'sentAt' => $b->sent_at?->toISOString(),
+                    'recipientCount' => $b->recipient_count,
+                    'successCount' => $b->success_count,
+                    'failureCount' => $b->failure_count,
+                ],
+            ),
         );
     }
     public function poster(

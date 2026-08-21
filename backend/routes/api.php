@@ -9,6 +9,7 @@ use App\Http\Controllers\{
     ReceiptController,
     ReportController,
     BroadcastController,
+    BroadcastTemplateController,
     SettingsController,
     ShiftController,
     TelegramController,
@@ -94,6 +95,22 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::post('/broadcasts/poster', [
         BroadcastController::class,
         'poster',
+    ])->middleware('admin');
+    Route::get('/broadcast-templates', [
+        BroadcastTemplateController::class,
+        'index',
+    ])->middleware('admin');
+    Route::post('/broadcast-templates', [
+        BroadcastTemplateController::class,
+        'store',
+    ])->middleware('admin');
+    Route::put('/broadcast-templates/{broadcastTemplate}', [
+        BroadcastTemplateController::class,
+        'update',
+    ])->middleware('admin');
+    Route::delete('/broadcast-templates/{broadcastTemplate}', [
+        BroadcastTemplateController::class,
+        'destroy',
     ])->middleware('admin');
     Route::get('/broadcasts/preview', [
         BroadcastController::class,

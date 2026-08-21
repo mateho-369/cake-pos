@@ -7,6 +7,7 @@ type Product = {
   price: number
   imageUrl?: string | null
 }
+type Template = { id: number; name: string; imageUrl: string; caption: string }
 type History = {
   id: number
   caption: string
@@ -28,12 +29,15 @@ export default function BroadcastSettings({
   const [template, setTemplate] = useState('new_arrival')
   const [history, setHistory] = useState<History[]>([])
   const [busy, setBusy] = useState(false)
+  const [templates, setTemplates] = useState<Template[]>([])
+  const [templateName, setTemplateName] = useState('')
   useEffect(() => {
     apiRequest<{ recipientCount: number }>('/api/broadcasts/preview').then(
       (v) => setCount(v.recipientCount),
     )
     apiRequest<Product[]>('/api/products').then(setProducts)
     apiRequest<History[]>('/api/broadcasts').then(setHistory)
+    apiRequest<Template[]>('/api/broadcast-templates').then(setTemplates)
   }, [])
   const photo = async (file?: File) => {
     if (!file) return
@@ -66,6 +70,49 @@ export default function BroadcastSettings({
       setBusy(false)
     }
   }
+  const loadTemplate = (id: string) => {
+    const t = templates.find((x) => x.id === Number(id))
+    if (t) {
+      setImageUrl(t.imageUrl)
+      setCaption(t.caption)
+    }
+  }
+  const saveTemplate = async () => {
+    if (!templateName.trim() || !imageUrl || !caption.trim())
+      return onToast('Add a name, photo, and caption first')
+    try {
+      const t = await apiRequest<Template>('/api/broadcast-templates', {
+        method: 'POST',
+        body: JSON.stringify({ name: templateName, imageUrl, caption }),
+      })
+      setTemplates([t, ...templates])
+      setTemplateName('')
+      onToast('Template saved')
+    } catch (e) {
+      onToast(e instanceof Error ? e.message : 'Could not save template')
+    }
+  }
+  const renameTemplate = async (t: Template) => {
+    const name = window.prompt('Template name', t.name)
+    if (!name || name === t.name) return
+    const updated = await apiRequest<Template>(
+      `/api/broadcast-templates/${t.id}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          name,
+          imageUrl: t.imageUrl,
+          caption: t.caption,
+        }),
+      },
+    )
+    setTemplates(templates.map((x) => (x.id === t.id ? updated : x)))
+  }
+  const deleteTemplate = async (id: number) => {
+    if (!window.confirm('Delete this template?')) return
+    await apiRequest(`/api/broadcast-templates/${id}`, { method: 'DELETE' })
+    setTemplates(templates.filter((x) => x.id !== id))
+  }
   const send = async () => {
     if (!caption.trim() || !imageUrl)
       return onToast('Add a photo and caption first')
@@ -86,6 +133,20 @@ export default function BroadcastSettings({
     <>
       <div className="setting-section">
         <h3>Customer broadcast</h3>
+        <label>
+          Load from template{' '}
+          <select
+            defaultValue=""
+            onChange={(e) => loadTemplate(e.target.value)}
+          >
+            <option value="">Start a new broadcast</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <p>Upload your own photo and write any Khmer and/or English caption.</p>
         <input
           type="file"
@@ -141,9 +202,19 @@ export default function BroadcastSettings({
             <button type="button">🛒 Open Shop / បើកហាង</button>
           </div>
         )}
-        <button type="button" className="primary-button" onClick={send}>
-          Send to all customers
-        </button>
+        <div>
+          <input
+            value={templateName}
+            onChange={(e) => setTemplateName(e.target.value)}
+            placeholder="Template name"
+          />
+          <button type="button" onClick={saveTemplate}>
+            Save as template
+          </button>
+          <button type="button" className="primary-button" onClick={send}>
+            Send to all customers
+          </button>
+        </div>
       </div>
       <div className="setting-section">
         <h3>Broadcast history</h3>
@@ -155,6 +226,30 @@ export default function BroadcastSettings({
               {b.successCount}/{b.recipientCount} delivered · {b.failureCount}{' '}
               failed
             </small>
+          </div>
+        ))}
+      </div>
+      <div className="setting-section">
+        <h3>Saved templates</h3>
+        {templates.map((t) => (
+          <div
+            key={t.id}
+            style={{ display: 'flex', gap: 12, alignItems: 'center' }}
+          >
+            <img
+              src={t.imageUrl}
+              alt=""
+              width={56}
+              height={40}
+              style={{ objectFit: 'cover', borderRadius: 8 }}
+            />
+            <span>{t.name}</span>
+            <button type="button" onClick={() => renameTemplate(t)}>
+              Rename
+            </button>
+            <button type="button" onClick={() => void deleteTemplate(t.id)}>
+              Delete
+            </button>
           </div>
         ))}
       </div>
