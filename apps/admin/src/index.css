@@ -870,3 +870,7 @@ button.order-full-row.selected { box-shadow: inset 2px 0 var(--pink); }
   .login-mobile-brand strong { font-size: 17px; }
 }
 .login-options > span { color: var(--subtle); font-size: 8px; }
+
+.language-toggle { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid rgba(78,37,55,.10); border-radius: 999px; background: rgba(255,255,255,.72); }
+.language-toggle button { min-width: 30px; height: 25px; padding: 0 7px; border: 0; border-radius: 999px; color: var(--muted); background: transparent; font-size: 9px; font-weight: 800; cursor: pointer; }
+.language-toggle button.active { color: white; background: var(--pink-deep); box-shadow: 0 3px 9px rgba(152,20,71,.22); }
