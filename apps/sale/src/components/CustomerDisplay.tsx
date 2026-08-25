@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { CakeSlice, Heart, ShoppingBag } from 'lucide-react'
+import { Heart, ShoppingBag } from 'lucide-react'
+import { GCakeLogo } from '@cake-pos/brand'
 import type { CartItem } from '../data'
 import { useTranslation } from '../lib/i18n'
 
@@ -29,7 +30,7 @@ export default function CustomerDisplay() {
   if (state.paymentState === 'success')
     return (
       <main className="customer-display success">
-        <CakeSlice size={72} />
+        <GCakeLogo size={96} className="brand-logo" />
         <span>{t('sale.paymentComplete')}</span>
         <h1>{t('display.thankYou')}</h1>
         <p>{t('display.orderNumber', { number: state.orderId || '' })}</p>
@@ -39,9 +40,7 @@ export default function CustomerDisplay() {
   return (
     <main className="customer-display">
       <header>
-        <span>
-          <CakeSlice size={34} />
-        </span>
+        <GCakeLogo size={68} className="brand-logo" />
         <div>
           <strong>{t('brand.name')}</strong>
           <small>{t('display.customerView')}</small>

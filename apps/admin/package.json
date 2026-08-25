@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@cake-pos/api-client": "*",
+    "@cake-pos/brand": "*",
     "@cake-pos/design-tokens": "*",
     "@cake-pos/uploads": "*",
     "@vitejs/plugin-react": "latest",

@@ -1,0 +1,11 @@
+{
+  "name": "@cake-pos/brand",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.tsx",
+    "./logo.svg": "./logo.svg"
+  }
+}

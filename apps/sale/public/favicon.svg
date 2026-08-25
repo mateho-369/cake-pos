@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="gcake-rim" x1="24" y1="14" x2="104" y2="116" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F472B6"/>
+      <stop offset="1" stop-color="#BE185D"/>
+    </linearGradient>
+    <linearGradient id="gcake-g" x1="64" y1="26" x2="64" y2="102" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F472B6"/>
+      <stop offset="1" stop-color="#BE185D"/>
+    </linearGradient>
+    <radialGradient id="gcake-disc" cx="0.35" cy="0.3" r="0.9">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FDF2F6"/>
+    </radialGradient>
+  </defs>
+  <!-- Blush badge disc with soft glass highlight -->
+  <circle cx="64" cy="64" r="60" fill="url(#gcake-disc)"/>
+  <!-- Pink gradient rim -->
+  <circle cx="64" cy="64" r="57" stroke="url(#gcake-rim)" stroke-width="6"/>
+  <!-- Bold rounded "G" monogram -->
+  <path d="M83.28 41.02 A30 30 0 1 0 94 64 H70" stroke="url(#gcake-g)" stroke-width="19" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Cake-slice badge overlaying the rim -->
+  <circle cx="104.3" cy="104.3" r="17" fill="#FFFFFF" stroke="#F472B6" stroke-width="3"/>
+  <!-- Cherry -->
+  <circle cx="104.3" cy="94.6" r="2.6" fill="#BE185D"/>
+  <!-- Frosting wedge (wide + flat so it reads as cake, not an arrow) -->
+  <path d="M104.3 97.4 L95.1 105.6 H113.5 Z" fill="#3B82F6" stroke="#3B82F6" stroke-width="3" stroke-linejoin="round"/>
+  <!-- Cake layer -->
+  <rect x="95.1" y="108.4" width="18.4" height="5.6" rx="2.8" fill="#3B82F6"/>
+</svg>

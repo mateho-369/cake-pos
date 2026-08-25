@@ -14,6 +14,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
+import { GCakeLogo } from '@cake-pos/brand'
 import type { PageId } from '../data'
 import { useTranslation } from '../lib/i18n'
 
@@ -83,9 +84,7 @@ export default function Sidebar({
         className={`sidebar ${open ? 'sidebar-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}
       >
         <div className="brand-row">
-          <div className="brand-mark">
-            <CakeSlice size={19} strokeWidth={2.2} />
-          </div>
+          <GCakeLogo size={38} className="brand-logo" />
           {!collapsed && (
             <div className="brand-copy">
               <strong>{t('brand.name')}</strong>

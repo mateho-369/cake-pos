@@ -51,6 +51,11 @@
   align-items: center;
   gap: 9px;
 }
+.brand-logo {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  box-shadow: 0 8px 19px rgba(190, 24, 93, 0.18);
+}
 .customer-brand > span {
   width: 38px;
   height: 38px;

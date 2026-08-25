@@ -18,6 +18,7 @@
     "react-dom": "latest",
     "lucide-react": "^0.468.0",
     "@cake-pos/api-client": "*",
+    "@cake-pos/brand": "*",
     "@cake-pos/design-tokens": "*"
   },
   "devDependencies": {

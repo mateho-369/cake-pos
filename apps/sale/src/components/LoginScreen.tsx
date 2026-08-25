@@ -2,7 +2,6 @@ import { useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
-  CakeSlice,
   CheckCircle2,
   Delete,
   Eye,
@@ -12,6 +11,7 @@ import {
   Mail,
   ShieldCheck,
 } from 'lucide-react'
+import { GCakeLogo } from '@cake-pos/brand'
 import { useStaffAuth } from '../auth/StaffAuthContext'
 import { LanguageToggle, useTranslation } from '../lib/i18n'
 export default function LoginScreen() {
@@ -84,9 +84,7 @@ export default function LoginScreen() {
     <main className="login-page">
       <section className="login-showcase">
         <div className="login-brand">
-          <span>
-            <CakeSlice size={21} />
-          </span>
+          <GCakeLogo size={41} className="brand-logo" />
           <div>
             <strong>{t('brand.name')}</strong>
             <small>{t('brand.sale')}</small>
