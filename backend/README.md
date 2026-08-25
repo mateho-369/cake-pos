@@ -16,9 +16,11 @@ docker compose up -d app web
 curl http://localhost:8080/healthz
 ```
 
-The one-shot `migrate` and `minio-init` services use explicit shell entrypoints and YAML lists containing one folded-scalar command. `minio-init` creates the bucket, grants anonymous downloads only below `product-images/`, and applies browser CORS rules. Neither MySQL nor MinIO is exposed beyond `127.0.0.1`; reverse-proxy the configured `AWS_PUBLIC_ENDPOINT` to MinIO's local port while preserving the request host for S3 signatures.
+The one-shot `migrate` service uses an explicit shell entrypoint and a YAML list containing one folded-scalar command so argument splitting stays correct. MySQL is not published to the host.
 
-Laravel signs direct browser PUTs through `/api/uploads/presign`, then `/api/uploads/complete` reads the stored bytes through the internal MinIO endpoint and verifies size plus MIME magic before the URL may be persisted. The backend app, MinIO server, and init job all read the same `backend/.env`; there is no second credential file to drift out of sync.
+Object storage is Cloudflare R2 (S3-compatible). Configure `AWS_*` in `backend/.env` with the R2 S3 API endpoint, API token credentials, bucket name, and public object base URL. On the R2 bucket, enable CORS for the admin/sale origins with `PUT`/`GET`/`HEAD` and the headers the browser sends (`Content-Type`, `Content-Length`, `x-amz-*`).
+
+Laravel signs direct browser PUTs through `/api/uploads/presign`, then `/api/uploads/complete` reads the stored bytes through the R2 S3 API and verifies size plus MIME magic before the URL may be persisted.
 
 ## Environment
 

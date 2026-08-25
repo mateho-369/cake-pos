@@ -19,4 +19,4 @@ npm run build --workspace=@cake-pos/admin
 npm run deploy:admin                # Cloudflare Workers static assets
 ```
 
-Production origin: `https://admin.yourdomain.com`. Laravel must receive the exact same value in `ADMIN_ORIGIN`. Product photos and KHQR images use the shared presigned MinIO upload flow, including a 45-second browser timeout and server-side byte verification.
+Production origin: `https://admin.yourdomain.com`. Laravel must receive the exact same value in `ADMIN_ORIGIN`. Product photos and KHQR images use the shared presigned R2 upload flow, including a 45-second browser timeout and server-side byte verification.

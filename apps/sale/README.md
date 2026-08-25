@@ -10,7 +10,7 @@ npm install                         # run at repository root
 npm run dev:sale                    # http://localhost:4174
 ```
 
-The development server proxies `/api` to `http://127.0.0.1:8080` when `VITE_API_URL` is empty. Quick Add photos are uploaded directly to MinIO with a Laravel-presigned URL and verified by Laravel before product creation; they are never browser-local blob URLs.
+The development server proxies `/api` to `http://127.0.0.1:8080` when `VITE_API_URL` is empty. Quick Add photos are uploaded directly to Cloudflare R2 with a Laravel-presigned URL and verified by Laravel before product creation; they are never browser-local blob URLs.
 
 ## Checks and deployment
 

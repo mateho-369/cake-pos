@@ -46,35 +46,38 @@ return [
         ],
 
         // Internal endpoint: trusted server-side inspection and deletion.
+        // For Cloudflare R2 this is the S3 API endpoint
+        // (https://<accountid>.r2.cloudflarestorage.com).
         's3' => [
             'driver' => 's3',
-            'key' => env('MINIO_ROOT_USER'),
-            'secret' => env('MINIO_ROOT_PASSWORD'),
-            'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
-            'bucket' => env('MINIO_BUCKET'),
+            'key' => env('AWS_ACCESS_KEY_ID'),
+            'secret' => env('AWS_SECRET_ACCESS_KEY'),
+            'region' => env('AWS_DEFAULT_REGION', 'auto'),
+            'bucket' => env('AWS_BUCKET'),
             'url' => env('AWS_URL'),
             'endpoint' => env('AWS_ENDPOINT'),
             'use_path_style_endpoint' => env(
                 'AWS_USE_PATH_STYLE_ENDPOINT',
-                true,
+                false,
             ),
             'throw' => true,
             'report' => true,
         ],
 
         // Public endpoint: the host is part of the S3 signature and must be
-        // reachable by the browser performing the direct PUT.
+        // reachable by the browser performing the direct PUT. For R2 this is
+        // usually the same S3 API endpoint (CORS is configured on the bucket).
         's3_upload' => [
             'driver' => 's3',
-            'key' => env('MINIO_ROOT_USER'),
-            'secret' => env('MINIO_ROOT_PASSWORD'),
-            'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
-            'bucket' => env('MINIO_BUCKET'),
+            'key' => env('AWS_ACCESS_KEY_ID'),
+            'secret' => env('AWS_SECRET_ACCESS_KEY'),
+            'region' => env('AWS_DEFAULT_REGION', 'auto'),
+            'bucket' => env('AWS_BUCKET'),
             'url' => env('AWS_URL'),
-            'endpoint' => env('AWS_PUBLIC_ENDPOINT'),
+            'endpoint' => env('AWS_PUBLIC_ENDPOINT', env('AWS_ENDPOINT')),
             'use_path_style_endpoint' => env(
                 'AWS_USE_PATH_STYLE_ENDPOINT',
-                true,
+                false,
             ),
             'throw' => true,
             'report' => true,
