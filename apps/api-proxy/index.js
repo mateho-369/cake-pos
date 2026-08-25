@@ -1,0 +1,18 @@
+const BACKEND = 'https://cakepos-api.duckdns.org';
+
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    const backendUrl = new URL(url.pathname + url.search, BACKEND);
+    const response = await fetch(backendUrl.toString(), {
+      method: request.method,
+      headers: request.headers,
+      body: ['GET', 'HEAD'].includes(request.method) ? undefined : request.body,
+    });
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+  },
+};
