@@ -1,4 +1,4 @@
-const BACKEND = 'https://cakepos-api.duckdns.org';
+const BACKEND = 'http://cakepos-api.duckdns.org:8080';
 
 export default {
   async fetch(request) {
