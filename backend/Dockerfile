@@ -6,7 +6,7 @@ RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --no-
 COPY . .
 RUN composer dump-autoload --no-dev --classmap-authoritative --no-interaction
 
-FROM php:8.3-fpm-alpine AS runtime
+FROM php:8.4-fpm-alpine AS runtime
 WORKDIR /var/www/html
 RUN docker-php-ext-install -j1 pdo_mysql opcache \
     && WWW_CONF="$(find /usr/local/etc -type f -name www.conf -print -quit)" \

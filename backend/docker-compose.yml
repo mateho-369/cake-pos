@@ -24,44 +24,6 @@ services:
                 limits:
                     memory: 384M
 
-    minio:
-        image: minio/minio:RELEASE.2025-04-22T22-12-26Z
-        restart: unless-stopped
-        env_file: .env
-        command: server /data --console-address ":9001"
-        ports:
-            - '127.0.0.1:${MINIO_API_PORT:-9000}:9000'
-            - '127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001'
-        volumes:
-            - minio-data:/data
-        healthcheck:
-            test:
-                ['CMD', 'curl', '-f', 'http://127.0.0.1:9000/minio/health/live']
-            interval: 10s
-            timeout: 5s
-            retries: 12
-        deploy:
-            resources:
-                limits:
-                    memory: 256M
-
-    minio-init:
-        image: minio/mc:RELEASE.2025-04-16T18-13-26Z
-        env_file: .env
-        depends_on:
-            minio:
-                condition: service_healthy
-        restart: 'no'
-        entrypoint: ['/bin/sh', '-c']
-        volumes:
-            - ./docker/minio-cors.xml:/config/minio-cors.xml:ro
-        command:
-            - >-
-                mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
-                mc mb --ignore-existing "local/$${MINIO_BUCKET}" &&
-                mc anonymous set download "local/$${MINIO_BUCKET}/product-images" &&
-                mc cors set "local/$${MINIO_BUCKET}" /config/minio-cors.xml
-
     app:
         build: .
         restart: unless-stopped
@@ -69,10 +31,6 @@ services:
         depends_on:
             mysql:
                 condition: service_healthy
-            minio:
-                condition: service_healthy
-            minio-init:
-                condition: service_completed_successfully
         deploy:
             resources:
                 limits:
@@ -107,4 +65,3 @@ services:
 
 volumes:
     mysql-data:
-    minio-data:

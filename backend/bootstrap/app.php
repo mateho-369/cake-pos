@@ -14,7 +14,8 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__ . '/../routes/console.php',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->alias(['admin' => RequireAdmin::class]);
+        $middleware->alias(['admin' => RequireAdmin::class, 'active' => \App\Http\Middleware\EnsureActiveEmployee::class]);
+        $middleware->redirectGuestsTo(fn () => null);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(fn() => true);

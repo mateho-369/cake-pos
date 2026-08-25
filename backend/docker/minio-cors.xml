@@ -7,7 +7,7 @@
     <AllowedMethod>HEAD</AllowedMethod>
     <AllowedHeader>Content-Type</AllowedHeader>
     <AllowedHeader>Content-Length</AllowedHeader>
-    <AllowedHeader>x-amz-*</AllowedHeader>
+    <AllowedHeader>*</AllowedHeader>
     <ExposeHeader>ETag</ExposeHeader>
     <MaxAgeSeconds>3600</MaxAgeSeconds>
   </CORSRule>
