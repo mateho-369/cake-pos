@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "cake-pos-sale",
+  "name": "g-cake-sale",
   "compatibility_date": "2026-08-20",
   "assets": {
     "directory": "./dist",

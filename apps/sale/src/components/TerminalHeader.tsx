@@ -1,5 +1,4 @@
 import {
-  CakeSlice,
   ChevronDown,
   Clock3,
   History,
@@ -9,6 +8,7 @@ import {
   Store,
 } from 'lucide-react'
 import { useState } from 'react'
+import { GCakeLogo } from '@cake-pos/brand'
 import { useStaffAuth } from '../auth/StaffAuthContext'
 import { LanguageToggle, useTranslation } from '../lib/i18n'
 export default function TerminalHeader({
@@ -40,9 +40,7 @@ export default function TerminalHeader({
   return (
     <header className="terminal-header">
       <div className="terminal-brand">
-        <span>
-          <CakeSlice size={19} />
-        </span>
+        <GCakeLogo size={39} className="brand-logo" />
         <div>
           <strong>{t('brand.name')}</strong>
           <small>{t('brand.sale')}</small>

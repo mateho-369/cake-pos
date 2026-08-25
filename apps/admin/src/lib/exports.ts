@@ -24,7 +24,7 @@ export async function exportOrdersExcel(
 ) {
   const { default: ExcelJS } = await import('exceljs')
   const workbook = new ExcelJS.Workbook()
-  workbook.creator = 'Cake Atelier POS'
+  workbook.creator = 'G-Cake POS'
   workbook.created = new Date()
   const sheet = workbook.addWorksheet('Orders', {
     views: [{ state: 'frozen', ySplit: 1 }],

@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import {
   ArrowRight,
-  CakeSlice,
   Eye,
   EyeOff,
   KeyRound,
   LockKeyhole,
   ShieldCheck,
 } from 'lucide-react'
+import { GCakeLogo } from '@cake-pos/brand'
 import { useStaffAuth } from '../auth/StaffAuthContext'
 import { getApiUrl } from '../lib/api'
 import { LanguageToggle, useTranslation } from '../lib/i18n'
@@ -38,9 +38,7 @@ export default function LoginPage() {
     <main className="login-page">
       <section className="login-visual">
         <div className="login-brand">
-          <span>
-            <CakeSlice size={20} />
-          </span>
+          <GCakeLogo size={39} className="brand-logo" />
           <div>
             <strong>{t('brand.name')}</strong>
             <small>{t('brand.admin')}</small>
@@ -62,9 +60,7 @@ export default function LoginPage() {
       <section className="login-panel">
         <form className="login-card" onSubmit={submit}>
           <div className="login-mobile-brand">
-            <span>
-              <CakeSlice size={20} />
-            </span>
+            <GCakeLogo size={36} className="brand-logo" />
             <strong>{t('brand.name')}</strong>
           </div>
           <div className="login-heading">

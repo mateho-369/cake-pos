@@ -11,6 +11,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react'
+import { GCakeLogo } from '@cake-pos/brand'
 import { apiRequest } from './lib/api'
 import type { Product } from './data'
 
@@ -222,11 +223,9 @@ export default function CustomerApp() {
     <main className="customer-app">
       <header className="customer-header">
         <div className="customer-brand">
-          <span>
-            <CakeSlice size={20} />
-          </span>
+          <GCakeLogo size={38} className="brand-logo" />
           <div>
-            <strong>Cake Atelier</strong>
+            <strong>G-Cake</strong>
             <small>FRESHLY MADE FOR YOU</small>
           </div>
         </div>
