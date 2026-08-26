@@ -496,7 +496,10 @@
     "wasteCost": "តម្លៃការខាតបង់",
     "noChartData": "គ្មានទិន្នន័យសម្រាប់រយៈពេលនេះ",
     "salesTrend": "និន្នាការការលក់",
-    "trend": "និន្នាការ"
+    "trend": "និន្នាការ",
+    "opportunity": "{{day}} ជាថ្ងៃលក់ខ្លាំងបំផុតរបស់អ្នក។",
+    "opportunityText": "{{day}} បង្កើតបាន {{delta}}% ច្រើនជាងមធ្យមនៃរយៈពេល។ {{product}} លក់ដាច់បំផុត។",
+    "recommendedText": "រៀបចំផលិត {{product}} បន្ថែមមុនថ្ងៃ {{day}}។"
   },
   "settings": {
     "configuration": "ការកំណត់រចនា",

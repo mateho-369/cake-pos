@@ -496,7 +496,10 @@
     "wasteCost": "Waste cost",
     "noChartData": "No data for this period",
     "salesTrend": "Sales trend",
-    "trend": "Trend"
+    "trend": "Trend",
+    "opportunity": "{{day}} was your strongest day.",
+    "opportunityText": "{{day}} generated {{delta}}% more sales than the period average. {{product}} led the menu.",
+    "recommendedText": "Plan extra {{product}} production ahead of {{day}}."
   },
   "settings": {
     "configuration": "Configuration",
