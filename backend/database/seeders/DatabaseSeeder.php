@@ -2,7 +2,7 @@
 
 namespace Database\Seeders;
 
-use App\Models\{Category, Employee, Order, Product, Setting};
+use App\Models\{Category, Employee, Product, Setting};
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use App\Support\Money;
@@ -47,6 +47,47 @@ class DatabaseSeeder extends Seeder
                 $row + ['active' => true, 'created_at' => $now],
             );
         }
+        if ($this->shouldSeedDemoCatalog()) {
+            $this->seedDemoCatalog();
+        }
+        Setting::firstOrCreate(
+            ['key' => 'pos_rules'],
+            [
+                'value_json' => [
+                    'maxCashierDiscountPercent' => 10,
+                    'khqrImageUrl' => env('KHQR_IMAGE_URL', ''),
+                ],
+                'updated_at' => $now,
+            ],
+        );
+        Setting::firstOrCreate(
+            ['key' => 'receipt_template'],
+            [
+                'value_json' => [
+                    'paperSize' => '80mm',
+                    'language' => 'en',
+                    'businessName' => 'Atelier Cake Shop',
+                    'address' => 'Street 63, BKK1, Phnom Penh',
+                    'logoUrl' => '',
+                    'footerMessage' => 'Thank you for your order!',
+                ],
+                'updated_at' => $now,
+            ],
+        );
+    }
+
+    /**
+     * Demo catalog is useful for local development and feature tests, but must
+     * never be reintroduced into a production store on every deploy. Real
+     * stores manage their catalog through the admin app.
+     */
+    private function shouldSeedDemoCatalog(): bool
+    {
+        return app()->environment('local', 'testing');
+    }
+
+    private function seedDemoCatalog(): void
+    {
         $categories = [
             ['Signature', '#be185d'],
             ['Whole cakes', '#3b82f6'],
@@ -57,6 +98,10 @@ class DatabaseSeeder extends Seeder
             ['Chocolate', '#92400e'],
             ['Birthday Cakes', '#2563eb'],
             ['Cheesecakes', '#d97706'],
+            ['Party Hats', '#f59e0b'],
+            ['Party Decor', '#8b5cf6'],
+            ['Party Supplies', '#06b6d4'],
+            ['Toys & Games', '#10b981'],
         ];
         foreach ($categories as $i => $row) {
             Category::firstOrCreate(
@@ -194,29 +239,5 @@ class DatabaseSeeder extends Seeder
                 ],
             );
         }
-        Setting::firstOrCreate(
-            ['key' => 'pos_rules'],
-            [
-                'value_json' => [
-                    'maxCashierDiscountPercent' => 10,
-                    'khqrImageUrl' => env('KHQR_IMAGE_URL', ''),
-                ],
-                'updated_at' => $now,
-            ],
-        );
-        Setting::firstOrCreate(
-            ['key' => 'receipt_template'],
-            [
-                'value_json' => [
-                    'paperSize' => '80mm',
-                    'language' => 'en',
-                    'businessName' => 'Atelier Cake Shop',
-                    'address' => 'Street 63, BKK1, Phnom Penh',
-                    'logoUrl' => '',
-                    'footerMessage' => 'Thank you for your order!',
-                ],
-                'updated_at' => $now,
-            ],
-        );
     }
 }

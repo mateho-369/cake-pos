@@ -1,11 +1,29 @@
 <?php
 namespace App\Services;
-use App\Models\{Category, Product};
+use App\Models\{Category, Product, ProductImage};
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 class ProductService
 {
+    public function create(array $input): Product
+    {
+        $values = $this->values($input);
+        return DB::transaction(function () use ($values, $input) {
+            $product = Product::create($values);
+            $this->syncImages($product, $input['images'] ?? null);
+            return $product->fresh(['images']);
+        });
+    }
+    public function update(array $input, Product $product): Product
+    {
+        $values = $this->values($input, $product);
+        DB::transaction(function () use ($product, $values, $input) {
+            $product->update($values);
+            $this->syncImages($product->fresh(), $input['images'] ?? null);
+        });
+        return $product->fresh(['images']);
+    }
     public function values(array $input, ?Product $existing = null): array
     {
         $name = trim((string) ($input['name'] ?? $existing?->name));
@@ -41,6 +59,9 @@ class ProductService
             $input['bestBefore'] ??
             ($existing?->best_before?->format('Y-m-d') ??
                 now()->addDays(3)->toDateString());
+        $images = $this->normalizedImages($input['images'] ?? null, $existing);
+        $primaryImageUrl =
+            $input['imageUrl'] ?? ($images[0]['url'] ?? $existing?->image_url);
 
         return [
             'name' => $name,
@@ -56,7 +77,7 @@ class ProductService
             'image_position' =>
                 (string) ($input['imagePosition'] ??
                     ($existing?->image_position ?? '0% 0%')),
-            'image_url' => $input['imageUrl'] ?? $existing?->image_url,
+            'image_url' => $primaryImageUrl,
             'active' =>
                 (bool) ($input['active'] ?? ($existing?->active ?? true)),
         ];
@@ -109,6 +130,7 @@ class ProductService
                     'made_at' => $row['madeAt'],
                     'best_before' => $row['bestBefore'],
                     'image_position' => '0% 0%',
+                    'image_url' => $row['imageUrl'] ?? null,
                     'active' => true,
                 ];
             }
@@ -119,5 +141,70 @@ class ProductService
                 ->all(),
         );
         return [$created, $skipped];
+    }
+
+    private function syncImages(Product $product, ?array $images): void
+    {
+        if ($images === null) {
+            return;
+        }
+        $normalized = $this->normalizedImages($images);
+        $product->images()->delete();
+        foreach (array_slice($normalized, 0, 5) as $index => $image) {
+            ProductImage::create([
+                'product_id' => $product->id,
+                'url' => $image['url'],
+                'caption' => (string) ($image['caption'] ?? ''),
+                'sort_order' => $index,
+            ]);
+        }
+    }
+
+    private function normalizedImages(
+        ?array $images,
+        ?Product $existing = null,
+    ): array {
+        $source = $images;
+        if (
+            $source === null &&
+            $existing &&
+            $existing->relationLoaded('images')
+        ) {
+            $source = $existing->images
+                ->map(
+                    fn($image) => [
+                        'url' => $image->url,
+                        'caption' => $image->caption,
+                        'sortOrder' => $image->sort_order,
+                    ],
+                )
+                ->all();
+        }
+        if ($source === null && $existing?->image_url) {
+            $source = [
+                [
+                    'url' => $existing->image_url,
+                    'caption' => '',
+                    'sortOrder' => 0,
+                ],
+            ];
+        }
+        if ($source === null) {
+            return [];
+        }
+        return collect($source)
+            ->map(
+                fn($image) => [
+                    'url' => trim(
+                        (string) ($image['url'] ?? ($image['imageUrl'] ?? '')),
+                    ),
+                    'caption' => trim((string) ($image['caption'] ?? '')),
+                    'sortOrder' => (int) ($image['sortOrder'] ?? 0),
+                ],
+            )
+            ->filter(fn($image) => $image['url'] !== '')
+            ->sortBy('sortOrder')
+            ->values()
+            ->all();
     }
 }

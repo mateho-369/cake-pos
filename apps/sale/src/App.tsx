@@ -47,6 +47,7 @@ function SaleTerminal() {
     nextOrderNumber,
     createProduct,
     createOrder,
+    currentShift,
     openShift,
     closeShift,
   } = useSaleData()
@@ -62,7 +63,7 @@ function SaleTerminal() {
   const [tendered, setTendered] = useState('')
   const [khqrConfirmed, setKhqrConfirmed] = useState(false)
   const [shift, setShift] = useState<Shift | null>(null)
-  const [shiftModal, setShiftModal] = useState(true)
+  const [shiftModal, setShiftModal] = useState(false)
   const [shiftMode, setShiftMode] = useState<'open' | 'close'>('open')
   const [cashSales, setCashSales] = useState(0)
   const [quickAdd, setQuickAdd] = useState(false)
@@ -138,6 +139,28 @@ function SaleTerminal() {
   )
   const cartTotal = Math.max(0, subtotal - discountAmount)
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+  // The shift is owned server-side. Hydrate it after any login/session return
+  // so a shift that is still open survives logout/login and only closes when a
+  // user explicitly closes it. `currentShift` is `undefined` until the first
+  // fetch completes, so we never show the open-shift gate prematurely.
+  useEffect(() => {
+    if (currentShift === undefined) return
+    if (currentShift) {
+      setShift({
+        openingCash: currentShift.openingCash,
+        startedAt:
+          currentShift.startedAt ||
+          new Intl.DateTimeFormat('en', {
+            hour: 'numeric',
+            minute: '2-digit',
+          }).format(new Date(currentShift.openedAt || Date.now())),
+      })
+      setShiftModal(false)
+    } else {
+      setShift(null)
+      setShiftModal(true)
+    }
+  }, [currentShift])
   useEffect(() => {
     if (!('BroadcastChannel' in window)) return
     const channel = new BroadcastChannel('cake-pos-cart')

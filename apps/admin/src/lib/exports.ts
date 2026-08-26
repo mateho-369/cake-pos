@@ -112,6 +112,29 @@ export async function exportSummaryWord(
     (sum, order) => sum + (order.discountAmount || 0),
     0,
   )
+  const km = {
+    shop: 'ហាងនំអាតេលៀ',
+    title: 'សេចក្តីសង្ខេបការលក់',
+    period: (start: string, end: string) =>
+      `រយៈពេលរាយការណ៍៖ ${start} ដល់ ${end}`,
+    allDates: 'រាល់កាលបរិច្ឆេទ',
+    present: 'បច្ចុប្បន្ន',
+    totalRevenue: (value: string) => `ចំណូលសរុប៖ $${value}`,
+    completedOrders: (value: number) => `ការបញ្ជាទិញដែលបានបញ្ចប់៖ ${value}`,
+    discounts: (value: string) => `ការបញ្ចុះតម្លៃដែលបានអនុវត្ត៖ $${value}`,
+    average: (value: string) => `តម្លៃមធ្យមនៃការបញ្ជាទិញ៖ $${value}`,
+    noSales: 'គ្មានការលក់ផលិតផលដែលបានបញ្ចប់ក្នុងអំឡុងពេលនេះទេ។',
+    topProducts: 'ផលិតផលពេញនិយម',
+    rank: 'លេខរៀង',
+    product: 'ផលិតផល',
+    units: 'ឯកតា',
+    generated: (value: string) => `បង្កើតនៅ ${value}`,
+  }
+  const khmerFont = {
+    ascii: 'Kantumruy Pro',
+    hAnsi: 'Kantumruy Pro',
+    eastAsia: 'Kantumruy Pro',
+  }
   const products = new Map<string, number>()
   completed.forEach((order) =>
     order.detail.forEach((line) => {
@@ -136,47 +159,59 @@ export async function exportSummaryWord(
           children: [
             new TableCell({
               columnSpan: 3,
-              children: [
-                new Paragraph('No completed product sales in this period.'),
-              ],
+              children: [new Paragraph(km.noSales)],
             }),
           ],
         }),
       ]
   const doc = new Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: khmerFont, size: 22 },
+        },
+      },
+    },
     sections: [
       {
         properties: {},
         children: [
           new Paragraph({
-            text: 'ATELIER CAKE SHOP',
+            text: km.shop,
             heading: HeadingLevel.TITLE,
           }),
           new Paragraph({
-            text: 'Sales Summary Statement',
+            text: km.title,
             heading: HeadingLevel.HEADING_1,
           }),
           new Paragraph({
             children: [
               new TextRun({
-                text: `Reporting period: ${from || 'All dates'} to ${to || 'Present'}`,
+                text: km.period(from || km.allDates, to || km.present),
+                font: khmerFont,
                 color: '666666',
               }),
             ],
           }),
           new Paragraph({
-            text: `Total revenue: $${revenue.toFixed(2)}`,
+            text: km.totalRevenue(revenue.toFixed(2)),
             heading: HeadingLevel.HEADING_2,
           }),
-          new Paragraph({ text: `Completed orders: ${completed.length}` }),
           new Paragraph({
-            text: `Discounts applied: $${discounts.toFixed(2)}`,
+            text: km.completedOrders(completed.length),
           }),
           new Paragraph({
-            text: `Average order value: $${completed.length ? (revenue / completed.length).toFixed(2) : '0.00'}`,
+            text: km.discounts(discounts.toFixed(2)),
           }),
           new Paragraph({
-            text: 'Top Products',
+            text: km.average(
+              completed.length
+                ? (revenue / completed.length).toFixed(2)
+                : '0.00',
+            ),
+          }),
+          new Paragraph({
+            text: km.topProducts,
             heading: HeadingLevel.HEADING_2,
           }),
           new Table({
@@ -184,12 +219,14 @@ export async function exportSummaryWord(
             rows: [
               new TableRow({
                 tableHeader: true,
-                children: ['Rank', 'Product', 'Units'].map(
+                children: [km.rank, km.product, km.units].map(
                   (text) =>
                     new TableCell({
                       children: [
                         new Paragraph({
-                          children: [new TextRun({ text, bold: true })],
+                          children: [
+                            new TextRun({ text, bold: true, font: khmerFont }),
+                          ],
                         }),
                       ],
                     }),
@@ -199,7 +236,7 @@ export async function exportSummaryWord(
             ],
           }),
           new Paragraph({
-            text: `Generated ${new Date().toLocaleString()}`,
+            text: km.generated(new Date().toLocaleString()),
             spacing: { before: 500 },
           }),
         ],

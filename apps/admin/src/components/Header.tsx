@@ -1,5 +1,16 @@
-import { Bell, ChevronDown, Menu, Plus, Search, Store } from 'lucide-react'
+import { useEffect, useRef } from 'react'
+import {
+  Bell,
+  ChevronDown,
+  LogOut,
+  Menu,
+  Plus,
+  Search,
+  Settings,
+  Store,
+} from 'lucide-react'
 import type { PageId } from '../data'
+import { useStaffAuth } from '../auth/StaffAuthContext'
 import { LanguageToggle, useTranslation } from '../lib/i18n'
 
 const titles: Record<PageId, { title: string; eyebrow: string }> = {
@@ -23,7 +34,16 @@ type HeaderProps = {
   onSearch: () => void
   onNotifications: () => void
   notificationOpen: boolean
+  profileOpen: boolean
+  onToggleProfile: () => void
+  onCloseProfile: () => void
+  onOpenSettings: () => void
 }
+
+const profileMenuItems = [
+  { id: 'settings', label: 'header.accountSettings', icon: Settings },
+  { id: 'signout', label: 'header.signOut', icon: LogOut },
+] as const
 
 export default function Header({
   page,
@@ -32,9 +52,42 @@ export default function Header({
   onSearch,
   onNotifications,
   notificationOpen,
+  profileOpen,
+  onToggleProfile,
+  onCloseProfile,
+  onOpenSettings,
 }: HeaderProps) {
   const { t } = useTranslation()
+  const { employee, signOut } = useStaffAuth()
   const heading = titles[page]
+  const employeeName = employee?.name || 'Makara Piseth'
+  const initials = employeeName
+    .split(/\s+/)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
+  const roleLabel =
+    employee?.role === 'admin' ? t('header.adminRole') : t('header.cashierRole')
+  const profileRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!profileOpen) return
+    const onPointerDown = (event: MouseEvent) => {
+      if (
+        profileRef.current &&
+        !profileRef.current.contains(event.target as Node)
+      ) {
+        onCloseProfile()
+      }
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    return () => document.removeEventListener('mousedown', onPointerDown)
+  }, [profileOpen, onCloseProfile])
+  const handleProfileClick = (action: string) => {
+    onCloseProfile()
+    if (action === 'signout') void signOut()
+    if (action === 'settings') onOpenSettings()
+  }
   return (
     <header className="topbar">
       <div className="page-heading">
@@ -108,14 +161,47 @@ export default function Header({
           <Plus size={17} />
           <span>{t('header.addCake')}</span>
         </button>
-        <button className="profile-button">
-          <span>MP</span>
-          <div>
-            <strong>Makara Piseth</strong>
-            <small>{t('header.owner')}</small>
-          </div>
-          <ChevronDown size={15} />
-        </button>
+        <div className="profile-menu-wrap">
+          <button
+            className="profile-button"
+            aria-haspopup="menu"
+            aria-expanded={profileOpen}
+            onClick={onToggleProfile}
+          >
+            <span>{initials}</span>
+            <div>
+              <strong>{employeeName}</strong>
+              <small>{roleLabel}</small>
+            </div>
+            <ChevronDown size={15} />
+          </button>
+          {profileOpen && (
+            <div className="profile-popover glass-panel" role="menu">
+              <div className="profile-popover-head">
+                <span className="profile-avatar-lg">{initials}</span>
+                <div>
+                  <strong>{employeeName}</strong>
+                  <small>{employee?.email || 'owner@atelier.local'}</small>
+                </div>
+              </div>
+              <div className="profile-menu-items">
+                {profileMenuItems.map((item) => {
+                  const Icon = item.icon
+                  return (
+                    <button
+                      key={item.id}
+                      role="menuitem"
+                      onClick={() => handleProfileClick(item.id)}
+                    >
+                      <Icon size={16} />
+                      <span>{t(item.label)}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   )

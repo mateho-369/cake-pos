@@ -94,7 +94,12 @@
     "varianceResolved": "Shift variance resolved",
     "closingNote": "Sophea added a closing note",
     "backupComplete": "Daily backup complete",
-    "backupTime": "Today at 3:00 AM"
+    "backupTime": "Today at 3:00 AM",
+    "profileMenu": "Account",
+    "accountSettings": "Account settings",
+    "adminRole": "Administrator",
+    "cashierRole": "Cashier",
+    "signOut": "Sign out"
   },
   "auth": {
     "ownerOperations": "OWNER OPERATIONS",
@@ -249,7 +254,11 @@
     "saved": "Product details saved",
     "product": "Product",
     "expired": "Expired",
-    "beverages": "Beverages"
+    "beverages": "Beverages",
+    "partyHats": "Party Hats",
+    "partyDecor": "Party Décor",
+    "partySupplies": "Party Supplies",
+    "toys": "Toys & Games"
   },
   "orders": {
     "grossSales": "Gross sales",
@@ -446,7 +455,10 @@
     "closeShift": "Close shift",
     "historyExported": "Shift history exported",
     "openingFloat": "Opening float",
-    "expectedCash": "Expected cash"
+    "expectedCash": "Expected cash",
+    "noActive": "No active shift",
+    "closeFailed": "Could not close shift",
+    "closing": "Closing…"
   },
   "reports": {
     "sales": "Sales",

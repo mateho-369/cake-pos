@@ -30,7 +30,7 @@
 }
 .customer-display header strong {
   display: block;
-  font-size: clamp(22px, 3vw, 38px);
+  font-size: calc(clamp(22px, 3vw, 38px) * var(--font-scale));
 }
 .customer-display header small {
   letter-spacing: 0.16em;
@@ -42,7 +42,7 @@
   margin: auto;
 }
 .display-content > h1 {
-  font-size: clamp(38px, 6vw, 80px);
+  font-size: calc(clamp(38px, 6vw, 80px) * var(--font-scale));
   margin: 0 0 36px;
 }
 .display-lines {
@@ -54,7 +54,7 @@
   display: flex;
   justify-content: space-between;
   gap: 20px;
-  font-size: clamp(22px, 3vw, 40px);
+  font-size: calc(clamp(22px, 3vw, 40px) * var(--font-scale));
   padding: 20px 0;
   border-bottom: 1px solid #edcbd7;
 }
@@ -64,7 +64,7 @@
 .display-total {
   font-weight: 800;
   border-bottom: 0 !important;
-  font-size: clamp(32px, 5vw, 62px) !important;
+  font-size: calc(clamp(32px, 5vw, 62px) * var(--font-scale)) !important;
 }
 .display-empty {
   text-align: center;
@@ -73,12 +73,12 @@
   color: #c57c99;
 }
 .display-empty h1 {
-  font-size: clamp(38px, 6vw, 80px);
+  font-size: calc(clamp(38px, 6vw, 80px) * var(--font-scale));
   margin: 25px 0 12px;
 }
 .display-empty p,
 .customer-display.success p {
-  font-size: clamp(20px, 2.5vw, 34px);
+  font-size: calc(clamp(20px, 2.5vw, 34px) * var(--font-scale));
   color: #9c7181;
 }
 .display-powered {
@@ -101,9 +101,9 @@
   color: #a76c81;
 }
 .customer-display.success h1 {
-  font-size: clamp(52px, 8vw, 110px);
+  font-size: calc(clamp(52px, 8vw, 110px) * var(--font-scale));
   margin: 15px;
 }
 .customer-display.success small {
-  font-size: 20px;
+  font-size: calc(20px * var(--font-scale));
 }

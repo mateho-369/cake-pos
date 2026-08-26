@@ -36,7 +36,7 @@ import MediaPage from './pages/MediaPage'
 import CustomersPage from './pages/CustomersPage'
 import LoginPage from './pages/LoginPage'
 import { useStaffAuth } from './auth/StaffAuthContext'
-import { useTranslation } from './lib/i18n'
+import { translateCategory, useTranslation } from './lib/i18n'
 import { apiRequest } from './lib/api'
 import { useAdminData } from './lib/data'
 
@@ -110,11 +110,12 @@ const commandItems: {
 export default function App() {
   const { token } = useStaffAuth()
   const { t } = useTranslation()
-  const { createProduct } = useAdminData()
+  const { createProduct, categories } = useAdminData()
   const [page, setPage] = useState<PageId>('overview')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [commandOpen, setCommandOpen] = useState(false)
   const [commandQuery, setCommandQuery] = useState('')
@@ -131,6 +132,7 @@ export default function App() {
         setCommandOpen(false)
         setAddOpen(false)
         setNotificationsOpen(false)
+        setProfileOpen(false)
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -145,6 +147,7 @@ export default function App() {
     setPage(nextPage)
     setCommandOpen(false)
     setCommandQuery('')
+    setProfileOpen(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   const openOrder = (id: string) => {
@@ -197,6 +200,10 @@ export default function App() {
           onSearch={() => setCommandOpen(true)}
           onNotifications={() => setNotificationsOpen(!notificationsOpen)}
           notificationOpen={notificationsOpen}
+          profileOpen={profileOpen}
+          onToggleProfile={() => setProfileOpen(!profileOpen)}
+          onCloseProfile={() => setProfileOpen(false)}
+          onOpenSettings={() => navigate('settings')}
         />
         {page === 'overview' && (
           <Dashboard
@@ -231,6 +238,7 @@ export default function App() {
           setPhotoPreview(null)
         }}
         onSubmit={addProduct}
+        categories={categories}
         photoPreview={photoPreview}
         setPhotoPreview={setPhotoPreview}
       />
@@ -263,6 +271,7 @@ function AddCakeModal({
   open,
   onClose,
   onSubmit,
+  categories,
   photoPreview,
   setPhotoPreview,
 }: {
@@ -273,21 +282,15 @@ function AddCakeModal({
     category: string,
     madeToday: boolean,
   ) => void
+  categories: Array<{ name: string }>
   photoPreview: string | null
   setPhotoPreview: (value: string | null) => void
 }) {
   const { t } = useTranslation()
-  const [category, setCategory] = useState('Signature')
+  const [category, setCategory] = useState(categories[0]?.name || 'Signature')
   const [madeToday, setMadeToday] = useState(true)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
-  const categories = [
-    { id: 'Signature', label: 'catalog.signature' },
-    { id: 'Birthday Cakes', label: 'catalog.birthday' },
-    { id: 'Cheesecakes', label: 'catalog.cheesecakes' },
-    { id: 'Mini cakes', label: 'catalog.mini' },
-    { id: 'Chocolate', label: 'catalog.chocolate' },
-  ]
   const onPhoto = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -386,11 +389,11 @@ function AddCakeModal({
               {categories.map((item) => (
                 <button
                   type="button"
-                  key={item.id}
-                  className={category === item.id ? 'active' : ''}
-                  onClick={() => setCategory(item.id)}
+                  key={item.name}
+                  className={category === item.name ? 'active' : ''}
+                  onClick={() => setCategory(item.name)}
                 >
-                  {t(item.label)}
+                  {translateCategory(t, item.name)}
                 </button>
               ))}
             </div>

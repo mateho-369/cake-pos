@@ -1,9 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   ArrowDownRight,
   ArrowUpRight,
   Banknote,
-  CalendarDays,
   ChevronRight,
   CircleAlert,
   Clock3,
@@ -30,28 +29,66 @@ export default function Dashboard({
   onToast,
 }: DashboardProps) {
   const { t } = useTranslation()
-  const { orders, products, revenueData } = useAdminData()
+  const {
+    orders,
+    products,
+    revenueData,
+    summary,
+    currentShift,
+    loadDashboard,
+  } = useAdminData()
   const completed = orders.filter((order) => order.status === 'Completed')
-  const netRevenue = completed.reduce((sum, order) => sum + order.total, 0)
-  const averageOrder = completed.length ? netRevenue / completed.length : 0
+  const netRevenue = summary?.todaySalesTotal ?? 0
+  const completedOrders = summary?.todayOrdersCount ?? completed.length
+  const averageOrder =
+    completedOrders > 0 && netRevenue ? netRevenue / completedOrders : 0
+  const chartTotal = revenueData.reduce((sum, point) => sum + point.value, 0)
+  const chartAverage = revenueData.length ? chartTotal / revenueData.length : 0
+  const highestChart = revenueData.reduce(
+    (max, point) => Math.max(max, point.value),
+    0,
+  )
+  const cashRevenue = (summary?.cashRevenueCents ?? 0) / 100
+  const qrRevenue = (summary?.qrRevenueCents ?? 0) / 100
+  const paymentTotal = cashRevenue + qrRevenue
+  const cashPercent = paymentTotal ? (cashRevenue / paymentTotal) * 100 : 0
+  const qrPercent = paymentTotal ? (qrRevenue / paymentTotal) * 100 : 0
+  const freshnessRisk = products.filter((product) =>
+    ['Expires today', '1 day left'].includes(product.status),
+  )
+  const atRiskValue = freshnessRisk.reduce(
+    (sum, product) => sum + product.stock * product.price,
+    0,
+  )
   const money = (value: number) =>
     `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  const [period, setPeriod] = useState('today')
-  const periods = [
+  type PeriodId = 'today' | 'seven_days' | 'thirty_days'
+  const [period, setPeriod] = useState<PeriodId>('today')
+  const periods: Array<{ id: PeriodId; label: string }> = [
     { id: 'today', label: 'dashboard.today' },
-    { id: 'sevenDays', label: 'dashboard.sevenDays' },
-    { id: 'thirtyDays', label: 'dashboard.thirtyDays' },
+    { id: 'seven_days', label: 'dashboard.sevenDays' },
+    { id: 'thirty_days', label: 'dashboard.thirtyDays' },
   ]
+  useEffect(() => {
+    void loadDashboard(period)
+  }, [period, loadDashboard])
   const exportSummary = () => {
+    // CSV/Excel reports are deliberately English so any spreadsheet program
+    // opens them with stable, machine-readable headers (the UI language may
+    // be Khmer). The UTF-8 BOM makes Excel detect the encoding correctly.
     const content = [
-      `${t('dashboard.netSales')},${t('dashboard.revenue')}`,
-      `${t('dashboard.netSales')},${netRevenue.toFixed(2)}`,
-      `${t('dashboard.orders')},${completed.length}`,
-      `${t('dashboard.averageOrder')},${averageOrder.toFixed(2)}`,
-      `${t('dashboard.freshnessRisk')},${products.filter((product) => ['Expires today', '1 day left'].includes(product.status)).length}`,
+      'Metric,Value',
+      `Net sales,${netRevenue.toFixed(2)}`,
+      `Orders,${completedOrders}`,
+      `Average order,${averageOrder.toFixed(2)}`,
+      `Freshness risk,${freshnessRisk.length}`,
     ].join('\n')
     const link = document.createElement('a')
-    link.href = URL.createObjectURL(new Blob([content], { type: 'text/csv' }))
+    link.href = URL.createObjectURL(
+      new Blob(['\uFEFF' + content], {
+        type: 'text/csv;charset=utf-8;',
+      }),
+    )
     link.download = 'atelier-daily-summary.csv'
     link.click()
     URL.revokeObjectURL(link.href)
@@ -75,9 +112,6 @@ export default function Dashboard({
           ))}
         </div>
         <div className="toolbar-actions">
-          <button className="secondary-button">
-            <CalendarDays size={16} /> {t('dashboard.date')}
-          </button>
           <button className="secondary-button" onClick={exportSummary}>
             <Download size={16} /> {t('common.export')}
           </button>
@@ -87,17 +121,13 @@ export default function Dashboard({
         <MetricCard
           label={t('dashboard.netSales')}
           value={money(netRevenue)}
-          compare="12.4%"
-          positive
           note={t('dashboard.yesterday')}
           icon={<WalletCards size={19} />}
           tone="pink"
         />
         <MetricCard
           label={t('dashboard.orders')}
-          value={String(completed.length)}
-          compare="8.2%"
-          positive
+          value={String(completedOrders)}
           note={t('dashboard.dailyPace')}
           icon={<ReceiptText size={19} />}
           tone="blue"
@@ -105,17 +135,13 @@ export default function Dashboard({
         <MetricCard
           label={t('dashboard.averageOrder')}
           value={money(averageOrder)}
-          compare="3.8%"
-          positive
           note={t('dashboard.basket')}
           icon={<ShoppingBag size={19} />}
           tone="violet"
         />
         <MetricCard
           label={t('dashboard.freshnessRisk')}
-          value="5 units"
-          compare="2 more"
-          positive={false}
+          value={`${freshnessRisk.length} units`}
           note={t('dashboard.riskValue')}
           icon={<CircleAlert size={19} />}
           tone="amber"
@@ -134,22 +160,22 @@ export default function Dashboard({
             <div className="chart-legend">
               <i />
               <span>{t('dashboard.netSalesShort')}</span>
-              <strong>$6,658</strong>
+              <strong>{money(chartTotal)}</strong>
             </div>
           </div>
           <RevenueChart />
           <div className="chart-summary">
             <div>
               <span>{t('dashboard.sevenDayAverage')}</span>
-              <strong>$951</strong>
+              <strong>{money(chartAverage)}</strong>
             </div>
             <div>
               <span>{t('dashboard.highestDay')}</span>
-              <strong>{t('dashboard.sat')} · $1,328</strong>
+              <strong>{money(highestChart)}</strong>
             </div>
             <div>
               <span>{t('dashboard.forecastToday')}</span>
-              <strong>$1,410</strong>
+              <strong>{money(highestChart || chartAverage)}</strong>
             </div>
           </div>
         </div>
@@ -195,7 +221,7 @@ export default function Dashboard({
               ))}
             <div className="waste-projection">
               <div className="waste-ring">
-                <span>$146</span>
+                <span>{money(atRiskValue)}</span>
               </div>
               <div>
                 <strong>{t('dashboard.valueAtRisk')}</strong>
@@ -241,14 +267,20 @@ export default function Dashboard({
                 <span className="numeric">{product.sold}</span>
                 <strong className="numeric">${product.revenue}</strong>
                 <div className="progress-cell">
-                  <span>
-                    <i
-                      style={{
-                        width: `${Math.min(94, 50 + product.sold * 2)}%`,
-                      }}
-                    />
-                  </span>
-                  <small>{Math.min(94, 50 + product.sold * 2)}%</small>
+                  {(() => {
+                    const total = product.stock + product.sold
+                    const rate = total
+                      ? Math.min(100, (product.sold / total) * 100)
+                      : 0
+                    return (
+                      <>
+                        <span>
+                          <i style={{ width: `${rate}%` }} />
+                        </span>
+                        <small>{rate.toFixed(0)}%</small>
+                      </>
+                    )
+                  })()}
                 </div>
               </div>
             ))}
@@ -264,7 +296,7 @@ export default function Dashboard({
           <div className="donut-wrap">
             <div className="donut-chart">
               <div>
-                <strong>$1.2k</strong>
+                <strong>{money(paymentTotal || 0)}</strong>
                 <span>{t('dashboard.processed')}</span>
               </div>
             </div>
@@ -272,14 +304,14 @@ export default function Dashboard({
               <div>
                 <i className="khqr" />
                 <span>{t('payment.khqr')}</span>
-                <strong>$771.43</strong>
-                <small>63%</small>
+                <strong>{money(qrRevenue)}</strong>
+                <small>{qrPercent.toFixed(0)}%</small>
               </div>
               <div>
                 <i className="cash" />
                 <span>{t('dashboard.cash')}</span>
-                <strong>$453.07</strong>
-                <small>37%</small>
+                <strong>{money(cashRevenue)}</strong>
+                <small>{cashPercent.toFixed(0)}%</small>
               </div>
             </div>
           </div>
@@ -354,36 +386,49 @@ export default function Dashboard({
             <Clock3 size={19} />
             <div>
               <strong>{t('dashboard.shiftDuration')}</strong>
-              <span>{t('dashboard.openedAt')}</span>
-            </div>
-          </div>
-          <div className="shift-people">
-            <div>
-              <span className="avatar pink">SC</span>
               <span>
-                <strong>Sophea</strong>
-                <small>
-                  {t('dashboard.staffOrders', { count: 24, amount: '648' })}
-                </small>
-              </span>
-            </div>
-            <div>
-              <span className="avatar blue">DL</span>
-              <span>
-                <strong>Dara</strong>
-                <small>
-                  {t('dashboard.staffOrders', { count: 23, amount: '576' })}
-                </small>
+                {currentShift ? t('dashboard.openedAt') : t('shifts.noActive')}
               </span>
             </div>
           </div>
-          <div className="cash-position">
-            <span>
-              <Banknote size={16} /> {t('dashboard.expectedCash')}
-            </span>
-            <strong>$553.07</strong>
-            <small>{t('dashboard.openingFloat')}</small>
-          </div>
+          {currentShift ? (
+            <>
+              <div className="shift-people">
+                <div>
+                  <span className="avatar pink">
+                    {initialsOf(currentShift.openedBy || '')}
+                  </span>
+                  <span>
+                    <strong>{currentShift.openedBy || '—'}</strong>
+                    <small>
+                      {new Date(currentShift.openedAt).toLocaleString()}
+                    </small>
+                  </span>
+                </div>
+              </div>
+              <div className="cash-position">
+                <span>
+                  <Banknote size={16} /> {t('dashboard.expectedCash')}
+                </span>
+                <strong>
+                  $
+                  {(
+                    (currentShift.expectedCashUsdCents ??
+                      currentShift.openingCashUsdCents) / 100
+                  ).toFixed(2)}
+                </strong>
+                <small>{t('dashboard.openingFloat')}</small>
+              </div>
+            </>
+          ) : (
+            <div className="cash-position">
+              <span>
+                <Banknote size={16} /> {t('dashboard.expectedCash')}
+              </span>
+              <strong>$0.00</strong>
+              <small>{t('shifts.noActive')}</small>
+            </div>
+          )}
           <button
             className="secondary-button full-button"
             onClick={() => onNavigate('shifts')}
@@ -408,8 +453,8 @@ function MetricCard({
 }: {
   label: string
   value: string
-  compare: string
-  positive: boolean
+  compare?: string
+  positive?: boolean
   note: string
   icon: React.ReactNode
   tone: string
@@ -425,13 +470,32 @@ function MetricCard({
         <button aria-label={label}>•••</button>
       </div>
       <div className="metric-value">{value}</div>
-      <div className={`metric-compare ${positive ? 'positive' : 'negative'}`}>
-        {positive ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-        <strong>{compare}</strong>
-        <span>{note}</span>
-      </div>
+      {compare ? (
+        <div className={`metric-compare ${positive ? 'positive' : 'negative'}`}>
+          {positive ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+          <strong>{compare}</strong>
+          <span>{note}</span>
+        </div>
+      ) : (
+        <div className="metric-compare neutral">
+          <span>{note}</span>
+        </div>
+      )}
     </article>
   )
+}
+function moneyLabel(value: number) {
+  return value >= 1000
+    ? `$${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k`
+    : `$${value.toFixed(0)}`
+}
+function initialsOf(name: string) {
+  return name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
 }
 function ProductThumb({ position }: { position: string }) {
   return (
@@ -465,16 +529,14 @@ function RevenueChart() {
   const { revenueData } = useAdminData()
   const width = 700
   const height = 210
-  const max = 1400
+  const max = Math.max(1, ...revenueData.map((point) => point.value))
   const padX = 14
   const plotH = 170
   // Data starts empty while the dashboard request is in flight, and a new
   // installation can legitimately return only today's point. Avoid indexing
   // an empty array and keep a single point centred (rather than dividing by 0).
   const pointSpacing =
-    revenueData.length > 1
-      ? (width - padX * 2) / (revenueData.length - 1)
-      : 0
+    revenueData.length > 1 ? (width - padX * 2) / (revenueData.length - 1) : 0
   const points = revenueData.map((item, index) => ({
     ...item,
     x: revenueData.length === 1 ? width / 2 : padX + index * pointSpacing,
@@ -486,12 +548,11 @@ function RevenueChart() {
   const area = points.length
     ? `${line} L ${points[points.length - 1].x} 190 L ${points[0].x} 190 Z`
     : ''
-  const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
   return (
     <div className="chart-container">
       <div className="chart-y-labels">
-        <span>$1.4k</span>
-        <span>$700</span>
+        <span>{moneyLabel(max)}</span>
+        <span>{moneyLabel(max / 2)}</span>
         <span>$0</span>
       </div>
       <svg
@@ -543,9 +604,19 @@ function RevenueChart() {
       </svg>
       <div className="chart-x-labels">
         {points.map((point, index) => (
-          <span key={point.day}>{t(`dashboard.${days[index]}`)}</span>
+          <span key={point.day}>{formatChartDay(point.day)}</span>
         ))}
       </div>
     </div>
   )
+}
+
+function formatChartDay(day: string) {
+  const [year, month, date] = day.split('-')
+  if (!date) return day
+  const parsed = new Date(`${year}-${month}-${date}T00:00:00`)
+  return parsed.toLocaleDateString('en', {
+    day: 'numeric',
+    month: 'short',
+  })
 }

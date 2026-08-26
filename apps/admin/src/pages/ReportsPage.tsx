@@ -22,7 +22,25 @@ export default function ReportsPage({
   onToast: (message: string) => void
 }) {
   const { t } = useTranslation()
-  const { categories, products, revenueData, orders } = useAdminData()
+  const { categories, products, revenueData, orders, summary } = useAdminData()
+  const kpiNetSales = summary?.todaySalesTotal ?? 0
+  const kpiAverageOrder = (summary?.averageOrderValueCents ?? 0) / 100
+  const kpiOrders = summary?.todayOrdersCount ?? orders.length
+  const atRiskProducts = products.filter((product) =>
+    ['Expires today', '1 day left'].includes(product.status),
+  )
+  const kpiWaste = atRiskProducts.reduce(
+    (sum, product) => sum + product.stock * product.price,
+    0,
+  )
+  const totalCategoryRevenue = categories.reduce(
+    (sum, category) => sum + category.revenue,
+    0,
+  )
+  const totalProductRevenue = products.reduce(
+    (sum, product) => sum + product.revenue,
+    0,
+  )
   const [tab, setTab] = useState('sales')
   const today = new Date().toISOString().slice(0, 10)
   const [from, setFrom] = useState(today.slice(0, 8) + '01')
@@ -99,30 +117,22 @@ export default function ReportsPage({
       <section className="report-kpi-row">
         <ReportKpi
           label={t('dashboard.netSales')}
-          value="$6,658"
-          change="+14.2%"
-          up
+          value={`$${kpiNetSales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           detail={t('reports.vsPrevious')}
         />
         <ReportKpi
-          label={t('reports.grossProfit')}
-          value="$4,126"
-          change="+11.8%"
-          up
-          detail={t('reports.marginDetail')}
+          label={t('dashboard.averageOrder')}
+          value={`$${kpiAverageOrder.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          detail={t('reports.averageDetail')}
         />
         <ReportKpi
           label={t('dashboard.orders')}
-          value="268"
-          change="+8.7%"
-          up
+          value={String(kpiOrders)}
           detail={t('reports.averageDetail')}
         />
         <ReportKpi
           label={t('reports.waste')}
-          value="$92"
-          change="−18.3%"
-          up
+          value={`$${kpiWaste.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           detail={t('reports.netSalesPercent')}
         />
       </section>
@@ -181,29 +191,36 @@ export default function ReportsPage({
               </span>
               <h2>{t('reports.salesCategory')}</h2>
             </div>
-            <button className="text-button">{t('common.viewBreakdown')}</button>
+            <button className="text-button" onClick={() => setTab('products')}>
+              {t('common.viewBreakdown')}
+            </button>
           </div>
           <div className="category-report-list">
-            {categories.map((category, index) => (
-              <div key={translateCategory(t, category.name)}>
-                <span className="rank">{index + 1}</span>
-                <div>
-                  <strong>{translateCategory(t, category.name)}</strong>
-                  <i>
-                    <b
-                      style={{
-                        width: `${category.revenue / 19}%`,
-                        background: category.color,
-                      }}
-                    />
-                  </i>
+            {categories.map((category, index) => {
+              const share = totalCategoryRevenue
+                ? (category.revenue / totalCategoryRevenue) * 100
+                : 0
+              return (
+                <div key={translateCategory(t, category.name)}>
+                  <span className="rank">{index + 1}</span>
+                  <div>
+                    <strong>{translateCategory(t, category.name)}</strong>
+                    <i>
+                      <b
+                        style={{
+                          width: `${Math.min(100, share)}%`,
+                          background: category.color,
+                        }}
+                      />
+                    </i>
+                  </div>
+                  <span>
+                    <strong>${category.revenue.toLocaleString()}</strong>
+                    <small>{Math.round(share)}%</small>
+                  </span>
                 </div>
-                <span>
-                  <strong>${category.revenue.toLocaleString()}</strong>
-                  <small>{Math.round(category.revenue / 56)}%</small>
-                </span>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
         <div className="glass-panel margin-report">
@@ -220,23 +237,24 @@ export default function ReportsPage({
             <span>{t('dashboard.revenue')}</span>
             <span>{t('reports.margin')}</span>
           </div>
-          {products.slice(0, 5).map((product) => (
-            <div className="margin-row" key={product.id}>
-              <div className="catalog-product">
-                <span
-                  className="catalog-image small"
-                  style={{ backgroundPosition: product.imagePosition }}
-                />
-                <strong>{product.name}</strong>
+          {products.slice(0, 5).map((product) => {
+            const share = totalProductRevenue
+              ? (product.revenue / totalProductRevenue) * 100
+              : 0
+            return (
+              <div className="margin-row" key={product.id}>
+                <div className="catalog-product">
+                  <span
+                    className="catalog-image small"
+                    style={{ backgroundPosition: product.imagePosition }}
+                  />
+                  <strong>{product.name}</strong>
+                </div>
+                <strong>${product.revenue}</strong>
+                <span className="margin-pill">{Math.round(share)}%</span>
               </div>
-              <strong>${product.revenue}</strong>
-              <span
-                className={`margin-pill ${product.id === 4 ? 'amber' : ''}`}
-              >
-                {product.id === 4 ? '54%' : `${64 + product.id}%`}
-              </span>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </section>
       <section className="glass-panel report-library">
@@ -250,9 +268,14 @@ export default function ReportsPage({
           {libraries.map((item) => (
             <button
               key={item.key}
-              onClick={() =>
+              onClick={() => {
                 onToast(t('reports.prepared', { name: t(item.label) }))
-              }
+                void (
+                  item.key === 'dailySummary'
+                    ? exportSummaryWord(selectedOrders, from, to)
+                    : exportOrdersExcel(selectedOrders, from, to)
+                ).catch((error) => onToast(error.message))
+              }}
             >
               <FileSpreadsheet size={19} />
               <span>
@@ -276,32 +299,45 @@ function ReportKpi({
 }: {
   label: string
   value: string
-  change: string
-  up: boolean
+  change?: string
+  up?: boolean
   detail: string
 }) {
   return (
     <article className="glass-panel report-kpi">
       <span>{label}</span>
       <strong>{value}</strong>
-      <div className={up ? 'green-text' : 'coral-text'}>
-        {up ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-        <b>{change}</b>
-        <small>{detail}</small>
-      </div>
+      {change ? (
+        <div className={up ? 'green-text' : 'coral-text'}>
+          {up ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+          <b>{change}</b>
+          <small>{detail}</small>
+        </div>
+      ) : (
+        <div className="report-kpi-detail">
+          <small>{detail}</small>
+        </div>
+      )}
     </article>
   )
 }
 function ComparisonChart({ waste }: { waste: boolean }) {
   const { t } = useTranslation()
   const { revenueData } = useAdminData()
-  const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+  const maxValue = Math.max(1, ...revenueData.map((item) => item.value))
+  const topLabel =
+    maxValue >= 1000
+      ? `$${(maxValue / 1000).toFixed(maxValue >= 10000 ? 0 : 1)}k`
+      : `$${maxValue.toFixed(0)}`
+  const midLabel =
+    maxValue >= 1000
+      ? `$${(maxValue / 2000).toFixed(maxValue >= 10000 ? 0 : 1)}k`
+      : `$${(maxValue / 2).toFixed(0)}`
   return (
     <div className="comparison-chart">
       <div className="bar-y-labels">
-        <span>$1.5k</span>
-        <span>$1k</span>
-        <span>$500</span>
+        <span>{topLabel}</span>
+        <span>{midLabel}</span>
         <span>$0</span>
       </div>
       <div className="bar-plot">
@@ -312,20 +348,30 @@ function ComparisonChart({ waste }: { waste: boolean }) {
               <i
                 className="sales-bar"
                 style={{
-                  height: `${waste ? 20 + index * 5 : item.value / 14}%`,
+                  height: `${waste ? 20 + (index % 5) * 5 : Math.min(100, (item.value / maxValue) * 100)}%`,
                 }}
               />
               <i
                 className="profit-bar"
                 style={{
-                  height: `${waste ? 12 + index * 3 : item.value / 22}%`,
+                  height: `${waste ? 12 + (index % 5) * 3 : Math.min(100, (item.value / maxValue) * 78)}%`,
                 }}
               />
             </div>
-            <span>{t(`dashboard.${days[index]}`)}</span>
+            <span>{formatReportDay(item.day)}</span>
           </div>
         ))}
       </div>
     </div>
   )
+}
+
+function formatReportDay(day: string) {
+  const [year, month, date] = day.split('-')
+  if (!date) return day
+  const parsed = new Date(`${year}-${month}-${date}T00:00:00`)
+  return parsed.toLocaleDateString('en', {
+    day: 'numeric',
+    month: 'short',
+  })
 }

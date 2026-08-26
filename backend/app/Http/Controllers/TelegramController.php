@@ -18,20 +18,26 @@ class TelegramController extends Controller
         $customer = $this->identity->customerFromInitData(
             $request->input('initData'),
         );
+        $products = Product::with('category')
+            ->with('images')
+            ->where('active', true)
+            ->where('stock', '>', 0)
+            ->orderBy('category_id')
+            ->orderBy('id')
+            ->get();
         return response()->json([
             'customer' => [
                 'name' => $customer->name,
                 'username' => $customer->telegram_username,
                 'phone' => $customer->phone,
             ],
-            'products' => Product::with('category')
-                ->where('active', true)
-                ->where('stock', '>', 0)
-                ->orderBy('id')
-                ->get()
-                ->map(
-                    fn($product) => ProductResource::make($product)->resolve(),
-                ),
+            'products' => $products->map(
+                fn($product) => ProductResource::make($product)->resolve(),
+            ),
+            'categories' => $products
+                ->pluck('category.name')
+                ->unique()
+                ->values(),
             'khqrImageUrl' => $this->khqrImageUrl(),
         ]);
     }

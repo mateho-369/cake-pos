@@ -24,6 +24,7 @@ type ApiProduct = {
   bestBefore: string
   imagePosition: string
   imageUrl?: string
+  images?: Product['images']
   active: boolean
 }
 type ProductInput = {
@@ -35,6 +36,7 @@ type ProductInput = {
   bestBefore?: string
   imagePosition?: string
   imageUrl?: string
+  images?: Array<{ url: string; caption?: string; sortOrder?: number }>
   active?: boolean
 }
 type ShiftResult = {
@@ -45,6 +47,7 @@ type ShiftResult = {
   closingCash?: number
   variance: number
   startedAt?: string
+  openedAt?: string
   status: 'Open' | 'Closed'
   closedAt?: string
 }
@@ -70,6 +73,7 @@ type SaleDataContextValue = {
     changeKhr?: number
     exchangeRateKhrPerUsd?: number
   }) => Promise<SaleOrder>
+  currentShift: ShiftResult | null | undefined
   openShift: (openingCash: number) => Promise<ShiftResult>
   closeShift: (closingCash: number) => Promise<ShiftResult>
 }
@@ -102,6 +106,9 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
   const [orders, setOrders] = useState<SaleOrder[]>([])
   const [categoryNames, setCategoryNames] = useState<string[]>([])
   const [nextOrderNumber, setNextOrderNumber] = useState(1)
+  const [currentShift, setCurrentShift] = useState<
+    ShiftResult | null | undefined
+  >(undefined)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -110,16 +117,19 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
       setProducts([])
       setOrders([])
       setCategoryNames([])
+      setCurrentShift(undefined)
       return
     }
     setLoading(true)
     setError(null)
     try {
-      const [apiProducts, apiCategories, apiOrders] = await Promise.all([
-        apiRequest<ApiProduct[]>('/api/products'),
-        apiRequest<SaleCategory[]>('/api/categories'),
-        apiRequest<SaleOrder[]>('/api/orders'),
-      ])
+      const [apiProducts, apiCategories, apiOrders, apiShift] =
+        await Promise.all([
+          apiRequest<ApiProduct[]>('/api/products'),
+          apiRequest<SaleCategory[]>('/api/categories'),
+          apiRequest<SaleOrder[]>('/api/orders'),
+          apiRequest<ShiftResult | null>('/api/shifts/current'),
+        ])
       const mappedProducts = apiProducts
         .filter((product) => product.active)
         .map(mapProduct)
@@ -144,6 +154,7 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
       setProducts(mappedProducts)
       setOrders(apiOrders)
       setCategoryNames(visibleCategories)
+      setCurrentShift(apiShift)
       const highestOrder = apiOrders.reduce(
         (highest, order) =>
           Math.max(highest, Number(order.id.replace(/^CS-/, '')) || 0),
@@ -198,22 +209,22 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
     [refresh],
   )
 
-  const openShift = useCallback(
-    (openingCash: number) =>
-      apiRequest<ShiftResult>('/api/shifts/open', {
-        method: 'POST',
-        body: JSON.stringify({ openingCash }),
-      }),
-    [],
-  )
-  const closeShift = useCallback(
-    (closingCash: number) =>
-      apiRequest<ShiftResult>('/api/shifts/close', {
-        method: 'POST',
-        body: JSON.stringify({ closingCash }),
-      }),
-    [],
-  )
+  const openShift = useCallback(async (openingCash: number) => {
+    const result = await apiRequest<ShiftResult>('/api/shifts/open', {
+      method: 'POST',
+      body: JSON.stringify({ openingCash }),
+    })
+    setCurrentShift(result)
+    return result
+  }, [])
+  const closeShift = useCallback(async (closingCash: number) => {
+    const result = await apiRequest<ShiftResult>('/api/shifts/close', {
+      method: 'POST',
+      body: JSON.stringify({ closingCash }),
+    })
+    setCurrentShift(null)
+    return result
+  }, [])
 
   const value = useMemo(
     () => ({
@@ -226,6 +237,7 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
       refresh,
       createProduct,
       createOrder,
+      currentShift,
       openShift,
       closeShift,
     }),
@@ -239,6 +251,7 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
       refresh,
       createProduct,
       createOrder,
+      currentShift,
       openShift,
       closeShift,
     ],

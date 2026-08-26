@@ -13,6 +13,13 @@ export type PageId =
 
 export type ProductStatus = 'Fresh' | '1 day left' | 'Expires today' | 'Expired'
 
+export type ProductImage = {
+  id?: number | null
+  url: string
+  caption?: string
+  sortOrder?: number
+}
+
 export type Product = {
   id: number
   name: string
@@ -26,6 +33,7 @@ export type Product = {
   bestBefore: string
   imagePosition: string
   imageUrl?: string | null
+  images?: ProductImage[]
   active: boolean
 }
 
@@ -94,6 +102,29 @@ export type Employee = {
   orders: number
 }
 
+export type Shift = {
+  id: number
+  employeeId: number
+  openingCash: number
+  closingCash?: number
+  expectedCash?: number
+  variance?: number
+  openedAt: string
+  closedAt?: string
+  status: 'Open' | 'Closed'
+  openingCashUsdCents: number
+  openingCashKhr: number
+  expectedCashUsdCents?: number
+  expectedCashKhr?: number
+  closingCashUsdCents?: number
+  closingCashKhr?: number
+  varianceUsdCents?: number
+  varianceKhr?: number
+  openedByEmployeeId?: number
+  closedByEmployeeId?: number
+  openedBy?: string
+}
+
 export type RevenuePoint = { day: string; value: number }
 export type TopProduct = {
   id: number
@@ -105,6 +136,17 @@ export type TopProduct = {
 export type ReportSummary = {
   todaySalesTotal: number
   todayOrdersCount: number
+  grossSalesCents?: number
+  totalDiscountsCents?: number
+  netSalesBeforeCorrectionsCents?: number
+  refundsCents?: number
+  voidsCents?: number
+  netRevenueCents?: number
+  completedOrderCount?: number
+  heldOrderCount?: number
+  averageOrderValueCents?: number
+  cashRevenueCents?: number
+  qrRevenueCents?: number
   revenueData: RevenuePoint[]
   topProducts: TopProduct[]
 }

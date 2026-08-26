@@ -247,7 +247,11 @@
     "saved": "Product details saved",
     "product": "Product",
     "expired": "Expired",
-    "beverages": "Beverages"
+    "beverages": "Beverages",
+    "partyHats": "Party Hats",
+    "partyDecor": "Party Décor",
+    "partySupplies": "Party Supplies",
+    "toys": "Toys & Games"
   },
   "orders": {
     "grossSales": "Gross sales",

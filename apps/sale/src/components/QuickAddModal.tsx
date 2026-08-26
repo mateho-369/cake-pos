@@ -38,7 +38,15 @@ export default function QuickAddModal({
     'Mini cakes': 'sale.miniCakes',
     Slices: 'sale.slices',
     Cupcakes: 'sale.cupcakes',
+    Drinks: 'sale.drinks',
+    'Party Hats': 'catalog.partyHats',
+    'Party Decor': 'catalog.partyDecor',
+    'Party Décor': 'catalog.partyDecor',
+    'Party Supplies': 'catalog.partySupplies',
+    Toys: 'catalog.toys',
+    'Toys & Games': 'catalog.toys',
   }
+  const categoryLabel = (item: string) => t(categoryKeys[item] || item)
   useEffect(() => {
     if (!open) return
     setPhoto(null)
@@ -177,7 +185,7 @@ export default function QuickAddModal({
                     key={item}
                   >
                     {category === item && <Check size={12} />}
-                    {t(categoryKeys[item] || 'sale.signatureCategory')}
+                    {categoryLabel(item)}
                   </button>
                 ))}
             </div>

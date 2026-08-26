@@ -460,8 +460,25 @@ function ReceiptSettings({
   onChange: (value: ReceiptConfig) => void
 }) {
   const { t } = useTranslation()
+  const [uploadingLogo, setUploadingLogo] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
   const set = <K extends keyof ReceiptConfig>(key: K, next: ReceiptConfig[K]) =>
     onChange({ ...value, [key]: next })
+  const uploadLogo = async (file?: File) => {
+    if (!file) return
+    setUploadingLogo(true)
+    setUploadError(null)
+    try {
+      const uploaded = await uploadImage(file, apiRequest)
+      set('logoUrl', uploaded.publicUrl)
+    } catch (reason) {
+      setUploadError(
+        reason instanceof Error ? reason.message : 'Logo upload failed',
+      )
+    } finally {
+      setUploadingLogo(false)
+    }
+  }
   return (
     <>
       <SettingHeader
@@ -524,6 +541,43 @@ function ReceiptSettings({
                   placeholder="https://…"
                 />
               </label>
+              <div className="span-two receipt-logo-upload">
+                <span>Logo image</span>
+                <div className="receipt-logo-upload-row">
+                  <span className="receipt-logo-preview">
+                    {value.logoUrl ? (
+                      <img src={value.logoUrl} alt="Receipt logo preview" />
+                    ) : (
+                      <ReceiptText size={20} />
+                    )}
+                  </span>
+                  <label className="secondary-button upload-button">
+                    Upload / replace logo
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      disabled={uploadingLogo}
+                      onChange={(event) => {
+                        void uploadLogo(event.target.files?.[0])
+                        event.target.value = ''
+                      }}
+                    />
+                  </label>
+                  {value.logoUrl && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => set('logoUrl', '')}
+                    >
+                      Remove
+                    </button>
+                  )}
+                  {uploadingLogo && <span>Uploading…</span>}
+                </div>
+                {uploadError && (
+                  <small className="form-error">{uploadError}</small>
+                )}
+              </div>
               <label className="span-two">
                 <span>Address</span>
                 <textarea

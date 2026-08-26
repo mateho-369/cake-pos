@@ -8,7 +8,6 @@ import {
   MoreHorizontal,
   Plus,
   Search,
-  SlidersHorizontal,
   Upload,
 } from 'lucide-react'
 import { type Product } from '../data'
@@ -38,6 +37,21 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
     { id: 'risk', label: 'catalog.freshnessRisk' },
     { id: 'out', label: 'catalog.outOfStock' },
   ]
+  const stockTotal = products.reduce((sum, product) => sum + product.stock, 0)
+  const retailValue = products.reduce(
+    (sum, product) => sum + product.stock * product.price,
+    0,
+  )
+  const riskUnits = products.filter((product) =>
+    ['1 day left', 'Expires today', 'Expired'].includes(product.status),
+  )
+  const riskValue = riskUnits.reduce(
+    (sum, product) => sum + product.stock * product.price,
+    0,
+  )
+  const soldTotal = products.reduce((sum, product) => sum + product.sold, 0)
+  const sellThrough =
+    soldTotal + stockTotal ? (soldTotal / (soldTotal + stockTotal)) * 100 : 0
   const visible = useMemo(
     () =>
       products.filter((product) => {
@@ -58,18 +72,44 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
   )
   const beginEdit = (product: Product) => {
     setPhotoError(null)
-    setEditing(product)
+    const existingImages =
+      product.images && product.images.length
+        ? product.images
+        : product.imageUrl
+          ? [{ url: product.imageUrl, caption: '' }]
+          : []
+    setEditing({ ...product, images: existingImages })
   }
 
-  const uploadProductPhoto = async (file?: File) => {
+  const uploadProductPhoto = async (file?: File, slotIndex = -1) => {
     if (!file || !editing) return
     setUploadingPhoto(true)
     setPhotoError(null)
     try {
       const uploaded = await uploadImage(file, apiRequest)
-      setEditing((current) =>
-        current ? { ...current, imageUrl: uploaded.publicUrl } : current,
-      )
+      setEditing((current) => {
+        if (!current) return current
+        const images = current.images ? [...current.images] : []
+        if (slotIndex >= 0 && slotIndex < images.length) {
+          images[slotIndex] = {
+            ...images[slotIndex],
+            url: uploaded.publicUrl,
+          }
+        } else if (images.length < 5) {
+          images.push({ url: uploaded.publicUrl, caption: '' })
+        } else {
+          images[images.length - 1] = {
+            ...images[images.length - 1],
+            url: uploaded.publicUrl,
+          }
+        }
+        const next = {
+          ...current,
+          images,
+          imageUrl: images[0]?.url || current.imageUrl,
+        }
+        return next
+      })
     } catch (reason) {
       setPhotoError(
         reason instanceof Error ? reason.message : 'Photo upload failed',
@@ -79,10 +119,62 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
     }
   }
 
+  const updateImage = (
+    index: number,
+    patch: { url?: string; caption?: string },
+  ) =>
+    setEditing((current) =>
+      current
+        ? {
+            ...current,
+            images: (current.images || []).map((image, i) =>
+              i === index ? { ...image, ...patch } : image,
+            ),
+          }
+        : current,
+    )
+
+  const removeImage = (index: number) =>
+    setEditing((current) =>
+      current
+        ? {
+            ...current,
+            images: (current.images || []).filter((_, i) => i !== index),
+          }
+        : current,
+    )
+
+  const addImageSlot = () =>
+    setEditing((current) => {
+      if (!current) return current
+      const images = current.images ? [...current.images] : []
+      if (images.length >= 5) return current
+      images.push({ url: '', caption: '' })
+      return { ...current, images }
+    })
+
+  const archiveEditing = async () => {
+    if (!editing) return
+    try {
+      await updateProduct(editing.id, { active: false })
+      setEditing(null)
+      onToast(t('common.archived'))
+    } catch (reason) {
+      onToast(reason instanceof Error ? reason.message : 'Archive failed')
+    }
+  }
+
   const saveEdit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!editing) return
     const form = new FormData(event.currentTarget)
+    const images = (editing.images || [])
+      .map((image) => ({
+        url: image.url,
+        caption: image.caption || '',
+        sortOrder: (editing.images || []).indexOf(image),
+      }))
+      .filter((image) => Boolean(image.url))
     await updateProduct(editing.id, {
       name: String(form.get('name') || editing.name),
       category: String(form.get('category') || editing.category),
@@ -90,7 +182,8 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
       stock: Number(form.get('stock') || editing.stock),
       madeAt: String(form.get('madeAt') || editing.madeAt),
       bestBefore: String(form.get('bestBefore') || editing.bestBefore),
-      imageUrl: editing.imageUrl || undefined,
+      imageUrl: images[0]?.url || editing.imageUrl || undefined,
+      images,
       active: form.get('active') === 'on',
     })
     setEditing(null)
@@ -101,23 +194,43 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
       <section className="catalog-summary">
         <div>
           <span>{t('catalog.allProducts')}</span>
-          <strong>52</strong>
-          <small>{t('catalog.activeProducts', { count: 48 })}</small>
+          <strong>{products.length}</strong>
+          <small>
+            {t('catalog.activeProducts', {
+              count: products.filter((product) => product.active).length,
+            })}
+          </small>
         </div>
         <div>
           <span>{t('catalog.unitsOnHand')}</span>
-          <strong>186</strong>
-          <small>{t('catalog.retailValue', { value: '2,946' })}</small>
+          <strong>{stockTotal}</strong>
+          <small>
+            {t('catalog.retailValue', {
+              value: retailValue.toLocaleString(undefined, {
+                maximumFractionDigits: 0,
+              }),
+            })}
+          </small>
         </div>
         <div>
           <span>{t('catalog.freshnessRisk')}</span>
-          <strong className="coral-text">5</strong>
-          <small>{t('catalog.retailValue', { value: '146' })}</small>
+          <strong className="coral-text">{riskUnits.length}</strong>
+          <small>
+            {t('catalog.retailValue', {
+              value: riskValue.toLocaleString(undefined, {
+                maximumFractionDigits: 0,
+              }),
+            })}
+          </small>
         </div>
         <div>
           <span>{t('catalog.soldToday')}</span>
-          <strong>82</strong>
-          <small>{t('catalog.sellThroughPercent', { percent: 68 })}</small>
+          <strong>{soldTotal}</strong>
+          <small>
+            {t('catalog.sellThroughPercent', {
+              percent: Math.round(sellThrough),
+            })}
+          </small>
         </div>
       </section>
       <section className="page-toolbar catalog-toolbar">
@@ -149,9 +262,6 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
             title={t('catalog.changeView')}
           >
             <Columns3 size={18} />
-          </button>
-          <button className="secondary-button">
-            <SlidersHorizontal size={16} /> {t('catalog.filters')}
           </button>
           <button
             className="secondary-button"
@@ -240,12 +350,6 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
           )}
           <div className="table-footer">
             <span>{t('catalog.showing', { shown: visible.length })}</span>
-            <div>
-              <button disabled>{t('common.previous')}</button>
-              <button>1</button>
-              <button>2</button>
-              <button>{t('common.next')}</button>
-            </div>
           </div>
         </section>
       ) : (
@@ -300,22 +404,65 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
         {editing && (
           <form className="modal-form" onSubmit={saveEdit}>
             <div className="edit-product-summary">
-              <label className="edit-product-photo-control">
-                <span
-                  className="edit-product-image"
-                  style={productImageStyle(editing)}
-                />
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  disabled={uploadingPhoto}
-                  onChange={(event) => {
-                    void uploadProductPhoto(event.target.files?.[0])
-                    event.target.value = ''
-                  }}
-                />
-                <small>{uploadingPhoto ? 'Uploading…' : 'Replace photo'}</small>
-              </label>
+              <div className="edit-product-gallery">
+                {(editing.images || []).map((image, index) => (
+                  <div className="edit-gallery-slot" key={index}>
+                    <label
+                      className={`edit-gallery-photo ${image.url ? 'has-photo' : ''}`}
+                      style={
+                        image.url
+                          ? {
+                              backgroundImage: `url(${image.url})`,
+                              backgroundSize: 'cover',
+                              backgroundPosition: 'center',
+                            }
+                          : undefined
+                      }
+                    >
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        disabled={uploadingPhoto}
+                        onChange={(event) => {
+                          void uploadProductPhoto(
+                            event.target.files?.[0],
+                            index,
+                          )
+                          event.target.value = ''
+                        }}
+                      />
+                      <span>
+                        {uploadingPhoto ? '…' : image.url ? 'Replace' : '+'}
+                      </span>
+                    </label>
+                    <input
+                      className="edit-gallery-caption"
+                      value={image.caption || ''}
+                      placeholder="Caption / details"
+                      onChange={(event) =>
+                        updateImage(index, { caption: event.target.value })
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="edit-gallery-remove"
+                      onClick={() => removeImage(index)}
+                      aria-label="Remove image"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                {(editing.images || []).length < 5 && (
+                  <button
+                    type="button"
+                    className="add-gallery-slot"
+                    onClick={addImageSlot}
+                  >
+                    <Plus size={17} /> Add image
+                  </button>
+                )}
+              </div>
               <div>
                 <span>
                   {t('catalog.sku', {
@@ -323,7 +470,10 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
                   })}
                 </span>
                 <strong>{editing.name}</strong>
-                <small>{t('catalog.created', { date: editing.madeAt })}</small>
+                <small>
+                  {t('catalog.created', { date: editing.madeAt })} ·{' '}
+                  {(editing.images || []).length}/5 images
+                </small>
               </div>
             </div>
             {photoError && (
@@ -337,15 +487,11 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
               <label>
                 <span>{t('catalog.category')}</span>
                 <select name="category" defaultValue={editing.category}>
-                  <option value="Signature">{t('catalog.signature')}</option>
-                  <option value="Chocolate">{t('catalog.chocolate')}</option>
-                  <option value="Cheesecakes">
-                    {t('catalog.cheesecakes')}
-                  </option>
-                  <option value="Birthday Cakes">
-                    {t('catalog.birthday')}
-                  </option>
-                  <option value="Mini cakes">{t('catalog.mini')}</option>
+                  {categories.map((item) => (
+                    <option key={item.name} value={item.name}>
+                      {translateCategory(t, item.name)}
+                    </option>
+                  ))}
                 </select>
                 <ChevronDown size={15} />
               </label>
@@ -394,7 +540,11 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
               <i />
             </label>
             <div className="modal-actions split-actions">
-              <button type="button" className="danger-text-button">
+              <button
+                type="button"
+                className="danger-text-button"
+                onClick={() => void archiveEditing()}
+              >
                 <Archive size={16} /> {t('catalog.archive')}
               </button>
               <span>
@@ -417,9 +567,10 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
   )
 }
 function productImageStyle(product: Product): CSSProperties {
-  return product.imageUrl
+  const primary = product.images?.[0]?.url || product.imageUrl
+  return primary
     ? {
-        backgroundImage: `url(${product.imageUrl})`,
+        backgroundImage: `url(${primary})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
       }

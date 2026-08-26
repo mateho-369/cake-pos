@@ -21,6 +21,21 @@
     0 1px 2px rgba(59, 10, 31, 0.035), 0 14px 42px rgba(59, 10, 31, 0.075);
   --shadow-raised: 0 24px 70px rgba(59, 10, 31, 0.18);
 
+  /* Typography scale. `--font-scale` intentionally makes every app's fixed
+     px values scale together, so POS/tablet layouts stay comfortable without
+     per-app overrides. Bullet points in bolder fonts are inherited by all
+     apps through the shared font-family stack below. */
+  --font-scale: 1.25;
+  --font-ui:
+    'Kantumruy Pro', 'DM Sans', 'SF Pro Rounded', -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-khmer: 'Kantumruy Pro', 'Noto Sans Khmer', 'Battambang', sans-serif;
+
+  /* Consistent focus ring that hugs rounded inputs/buttons. */
+  --focus-ring-width: 3px;
+  --focus-ring: 0 0 0 var(--focus-ring-width) rgba(190, 24, 93, 0.12);
+  --focus-outline: 2px solid rgba(190, 24, 93, 0.45);
+
   /* Backward-compatible aliases while component CSS migrates to semantic names. */
   --ink: var(--color-ink);
   --muted: var(--color-muted);

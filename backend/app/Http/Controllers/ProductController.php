@@ -11,6 +11,7 @@ class ProductController extends Controller
     public function index(): JsonResponse
     {
         $products = Product::with('category')
+            ->with('images')
             ->orderByDesc('active')
             ->orderBy('id')
             ->get();
@@ -20,11 +21,9 @@ class ProductController extends Controller
     }
     public function store(SaveProductRequest $request): JsonResponse
     {
-        $product = Product::create(
-            $this->products->values($request->validated()),
-        );
+        $product = $this->products->create($request->validated());
         return response()->json(
-            ProductResource::make($product)->resolve(),
+            ProductResource::make($product->load('images'))->resolve(),
             201,
         );
     }
@@ -32,11 +31,9 @@ class ProductController extends Controller
         SaveProductRequest $request,
         Product $product,
     ): JsonResponse {
-        $product->update(
-            $this->products->values($request->validated(), $product),
-        );
+        $this->products->update($request->validated(), $product);
         return response()->json(
-            ProductResource::make($product->fresh())->resolve(),
+            ProductResource::make($product->fresh('images'))->resolve(),
         );
     }
     public function destroy(Product $product)

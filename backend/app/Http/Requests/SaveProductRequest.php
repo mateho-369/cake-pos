@@ -19,6 +19,10 @@ class SaveProductRequest extends FormRequest
             'bestBefore' => ['sometimes'],
             'imagePosition' => ['sometimes', 'string'],
             'imageUrl' => ['sometimes', 'nullable', 'url', 'max:2048'],
+            'images' => ['sometimes', 'array', 'max:5'],
+            'images.*.url' => ['required_with:images', 'url', 'max:2048'],
+            'images.*.caption' => ['nullable', 'string', 'max:500'],
+            'images.*.sortOrder' => ['sometimes', 'integer', 'min:0'],
             'active' => ['sometimes', 'boolean'],
         ];
     }

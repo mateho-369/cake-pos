@@ -25,8 +25,40 @@ class ProductResource extends JsonResource
                 $this->best_before?->format('M j, Y') ?? 'Made to order',
             'imagePosition' => $this->image_position,
             'imageUrl' => $this->image_url,
+            'images' => $this->resolveImages(),
             'active' => (bool) $this->active,
         ];
+    }
+
+    private function resolveImages(): array
+    {
+        $images = $this->relationLoaded('images') ? $this->images : collect();
+
+        $gallery = $images
+            ->map(
+                fn($image) => [
+                    'id' => $image->id,
+                    'url' => $image->url,
+                    'caption' => $image->caption,
+                    'sortOrder' => $image->sort_order,
+                ],
+            )
+            ->values();
+
+        // Keep the legacy single-field behaviour working for any product that
+        // predates the gallery feature (and for the quick-add flow).
+        if ($gallery->isEmpty() && $this->image_url) {
+            $gallery = collect([
+                [
+                    'id' => null,
+                    'url' => $this->image_url,
+                    'caption' => '',
+                    'sortOrder' => 0,
+                ],
+            ]);
+        }
+
+        return $gallery->all();
     }
 
     private function freshnessStatus(): string
