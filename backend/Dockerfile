@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 FROM composer:2.8 AS vendor
 WORKDIR /app
-COPY composer.json ./
+COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --no-scripts --optimize-autoloader
 COPY . .
 RUN composer dump-autoload --no-dev --classmap-authoritative --no-interaction
