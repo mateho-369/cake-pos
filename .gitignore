@@ -7,3 +7,7 @@ dist/
 .DS_Store
 .vite/
 *.tsbuildinfo
+
+# e2e artifacts
+e2e/ui/artifacts/
+e2e/exports-verify/out/
