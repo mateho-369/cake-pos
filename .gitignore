@@ -11,3 +11,4 @@ dist/
 # e2e artifacts
 e2e/ui/artifacts/
 e2e/exports-verify/out/
+e2e/unit/out/
