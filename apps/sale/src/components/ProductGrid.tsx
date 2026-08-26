@@ -32,6 +32,16 @@ export default function ProductGrid({
 }) {
   const { t } = useTranslation()
   const { categories } = useSaleData()
+  const now = new Date()
+  const todayLabel = `${now
+    .toLocaleDateString('en', { weekday: 'long' })
+    .toUpperCase()} · ${now.getDate()} ${now
+    .toLocaleDateString('en', { month: 'long' })
+    .toUpperCase()}`
+  const nearBestBefore = products.filter(
+    (product) =>
+      product.freshness === 'today' || product.freshness === 'tomorrow',
+  ).length
   const categoryKeys: Record<string, string> = {
     All: 'sale.allCategory',
     Signature: 'sale.signatureCategory',
@@ -57,14 +67,18 @@ export default function ProductGrid({
     <section className="product-workspace">
       <div className="sale-welcome">
         <div>
-          <span>{t('sale.date')}</span>
+          <span>{todayLabel}</span>
           <h1>{t('sale.welcome')}</h1>
         </div>
         <div className="freshness-legend">
           <span>
             <i /> {t('sale.sellFirst')}
           </span>
-          <small>{t('sale.nearBestBefore')}</small>
+          <small>
+            {nearBestBefore > 0
+              ? t('sale.nearBestBefore', { count: nearBestBefore })
+              : t('sale.allFresh')}
+          </small>
         </div>
       </div>
       <label className="mobile-product-search">

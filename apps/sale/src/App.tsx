@@ -41,10 +41,12 @@ export default function App() {
 }
 function SaleTerminal() {
   const { t } = useTranslation()
+  const { employee } = useStaffAuth()
   const {
     products,
     orders,
     nextOrderNumber,
+    defaultShelfLifeDays,
     createProduct,
     createOrder,
     currentShift,
@@ -423,6 +425,8 @@ function SaleTerminal() {
         expectedCash={expectedCash}
         openingCash={shift?.openingCash || 0}
         cashSales={cashSales}
+        employeeName={employee?.name || ''}
+        shiftStartedAt={shift?.startedAt}
         onClose={() => setShiftModal(false)}
         onConfirm={confirmShift}
       />
@@ -430,6 +434,7 @@ function SaleTerminal() {
         open={quickAdd}
         onClose={() => setQuickAdd(false)}
         onAdd={addQuickProduct}
+        shelfLifeDays={defaultShelfLifeDays}
       />
       <OrderHistoryModal
         open={historyOpen}

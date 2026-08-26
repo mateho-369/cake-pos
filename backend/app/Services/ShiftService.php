@@ -87,28 +87,7 @@ class ShiftService
             }
             $usd = Money::fromDecimal($closingCash, 'closingCash');
             $khr = (int) $closingKhr;
-            $sales = Order::where('status', 'Completed')
-                ->where('payment', 'Cash')
-                ->where('created_at', '>=', $shift->opened_at)
-                ->with('payments')
-                ->get()
-                ->reduce(
-                    function ($a, $o) {
-                        $p = $o->payments
-                            ->where('method', 'cash')
-                            ->where('status', 'confirmed')
-                            ->first();
-                        return [
-                            $a[0] +
-                            ($p?->tendered_usd_cents ?? $o->total_cents) -
-                            ($p?->change_usd_cents ?? 0),
-                            $a[1] +
-                            ($p?->tendered_khr ?? 0) -
-                            ($p?->change_khr ?? 0),
-                        ];
-                    },
-                    [0, 0],
-                );
+            $sales = $this->cashSalesSince($shift);
             $expectedUsd = $shift->opening_cash_usd_cents + $sales[0];
             $expectedKhr = $shift->opening_cash_khr + $sales[1];
             $shift->update([
@@ -124,6 +103,38 @@ class ShiftService
             ]);
             return [$shift, $sales];
         });
+    }
+    /**
+     * Real cash received (tendered minus change) for completed cash orders
+     * recorded since the shift opened. Used while the shift is still open so
+     * the admin can see the live expected drawer, and at close time.
+     *
+     * @return array{0:int,1:int} [usd cents, khr]
+     */
+    public function cashSalesSince(Shift $shift): array
+    {
+        return Order::where('status', 'Completed')
+            ->where('payment', 'Cash')
+            ->where('created_at', '>=', $shift->opened_at)
+            ->with('payments')
+            ->get()
+            ->reduce(
+                function ($a, $o) {
+                    $p = $o->payments
+                        ->where('method', 'cash')
+                        ->where('status', 'confirmed')
+                        ->first();
+                    return [
+                        $a[0] +
+                        ($p?->tendered_usd_cents ?? $o->total_cents) -
+                        ($p?->change_usd_cents ?? 0),
+                        $a[1] +
+                        ($p?->tendered_khr ?? 0) -
+                        ($p?->change_khr ?? 0),
+                    ];
+                },
+                [0, 0],
+            );
     }
     private function conflict(string $message): never
     {

@@ -37,8 +37,16 @@ export default function EmployeesPage({
     <div className="page-content">
       <section className="page-toolbar">
         <div className="toolbar-context">
-          <strong>{t('employees.teamCount')}</strong>
-          <span>{t('employees.clockedIn')}</span>
+          <strong>
+            {t('employees.teamCount', { count: employees.length })}
+          </strong>
+          <span>
+            {t('employees.clockedIn', {
+              count: employees.filter(
+                (employee) => employee.status === 'On shift',
+              ).length,
+            })}
+          </span>
         </div>
         <div className="toolbar-actions">
           <button
@@ -100,47 +108,45 @@ export default function EmployeesPage({
         <div className="panel-heading">
           <div>
             <span className="section-kicker">{t('employees.security')}</span>
-            <h2>{t('employees.recentActivity')}</h2>
+            <h2>{t('employees.shiftActivity')}</h2>
           </div>
-          <button className="text-button">{t('common.viewAll')}</button>
         </div>
         <div className="access-row table-head">
           <span>{t('employees.employee')}</span>
           <span>{t('employees.event')}</span>
-          <span>{t('employees.device')}</span>
           <span>{t('dashboard.time')}</span>
           <span>{t('employees.result')}</span>
         </div>
-        <div className="access-row">
-          <strong>Sophea Chan</strong>
-          <span>{t('employees.pinLogin')}</span>
-          <span>{t('employees.deviceIpad')}</span>
-          <span>{t('employees.todayTime', { time: '7:54 AM' })}</span>
-          <span className="status-badge success">
-            <i />
-            {t('common.success')}
-          </span>
-        </div>
-        <div className="access-row">
-          <strong>Dara Lim</strong>
-          <span>{t('employees.pinLogin')}</span>
-          <span>{t('employees.deviceChrome')}</span>
-          <span>{t('employees.todayTime', { time: '8:01 AM' })}</span>
-          <span className="status-badge success">
-            <i />
-            {t('common.success')}
-          </span>
-        </div>
-        <div className="access-row">
-          <strong>Makara Piseth</strong>
-          <span>{t('employees.adminLogin')}</span>
-          <span>{t('employees.deviceSafari')}</span>
-          <span>{t('employees.todayTime', { time: '8:17 AM' })}</span>
-          <span className="status-badge success">
-            <i />
-            {t('common.success')}
-          </span>
-        </div>
+        {employees.map((employee) => {
+          const onShift = employee.status === 'On shift'
+          const hasShift = employee.shift !== 'No shift recorded'
+          const startTime = hasShift ? employee.shift.split(' – ')[0] : '—'
+          return (
+            <div className="access-row" key={employee.id}>
+              <strong>{employee.name}</strong>
+              <span>
+                {onShift
+                  ? t('employees.shiftOpened')
+                  : hasShift
+                    ? t('employees.shiftClosed')
+                    : t('employees.noShift')}
+              </span>
+              <span>{hasShift ? startTime : '—'}</span>
+              <span
+                className={`status-badge ${onShift ? 'success' : 'neutral'}`}
+              >
+                <i />
+                {employeeStatus(t, employee.status)}
+              </span>
+            </div>
+          )
+        })}
+        {employees.length === 0 && (
+          <div className="empty-state">
+            <UserCog size={24} />
+            <strong>{t('employees.noEmployees')}</strong>
+          </div>
+        )}
       </section>
       <Modal
         open={open}
@@ -278,8 +284,8 @@ export default function EmployeesPage({
   )
 }
 function shiftLabel(t: (key: string) => string, value: string) {
-  return value.startsWith('Yesterday')
-    ? t('employees.yesterdayShift')
+  return value === 'No shift recorded'
+    ? value
     : value.replace('now', t('employees.now'))
 }
 function roleLabel(t: (key: string) => string, value: string) {

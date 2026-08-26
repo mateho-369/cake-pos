@@ -473,7 +473,208 @@ class ApiContractTest extends TestCase
                 'todayOrdersCount',
                 'revenueData',
                 'topProducts',
+                'yesterdaySalesTotal',
+                'yesterdayOrdersCount',
+                'itemsSold',
+                'qrPaymentCount',
+                'ordersData',
             ]);
+    }
+
+    private function createPaidOrder(
+        Employee $cashier,
+        Product $product,
+        string $payment,
+        int $quantity = 1,
+        bool $confirmed = false,
+    ): string {
+        $payload = [
+            'payment' => $payment,
+            'items' => [['productId' => $product->id, 'quantity' => $quantity]],
+            'idempotencyKey' => (string) Str::uuid(),
+        ];
+        if ($confirmed) {
+            $payload['confirmed'] = true;
+        }
+        return $this->postJson('/api/orders', $payload, $this->auth($cashier))
+            ->assertCreated()
+            ->json('id');
+    }
+
+    public function test_walk_in_orders_are_counted_in_reports_summary(): void
+    {
+        $admin = Employee::where('role', 'admin')->first();
+        $cashier = Employee::where('role', 'cashier')->first();
+        $product = Product::first();
+        $product->update(['price_cents' => 2000, 'stock' => 50]);
+        // Cash order today: $20.00, 2 units.
+        $this->createPaidOrder($cashier, $product, 'Cash', 2);
+        // KHQR order today: $10.00, 1 unit, manually confirmed.
+        $this->createPaidOrder($cashier, $product, 'KHQR', 1, true);
+        // One more cash order yesterday so yesterdaySalesTotal is non-zero.
+        $yesterdayId = $this->createPaidOrder($cashier, $product, 'Cash', 1);
+        $yesterday = now()->subDay();
+        DB::table('orders')
+            ->where('id', $yesterdayId)
+            ->update(['created_at' => $yesterday]);
+        DB::table('order_payments')
+            ->where('order_id', $yesterdayId)
+            ->update(['confirmed_at' => $yesterday]);
+
+        $summary = $this->getJson('/api/reports/summary', $this->auth($admin))
+            ->assertOk()
+            ->json();
+
+        // Today: $20 + $10 = $30.00 net, 2 completed orders, 3 items sold,
+        // 1 KHQR payment confirmed.
+        $this->assertSame(30.0, $summary['todaySalesTotal']);
+        $this->assertSame(2, $summary['todayOrdersCount']);
+        $this->assertSame(3, $summary['itemsSold']);
+        $this->assertSame(1, $summary['qrPaymentCount']);
+        // Yesterday: one $20.00 order.
+        $this->assertSame(20.0, $summary['yesterdaySalesTotal']);
+        $this->assertSame(1, $summary['yesterdayOrdersCount']);
+        // ordersData spans the last 7 days for the "today" preset so the
+        // dashboard can compare today's pace against previous days. Days are
+        // bucketed in the store timezone (Asia/Phnom_Penh).
+        $today = now('Asia/Phnom_Penh')->format('Y-m-d');
+        $this->assertCount(7, $summary['ordersData']);
+        $this->assertSame(
+            $today,
+            $summary['ordersData'][count($summary['ordersData']) - 1]['day'],
+        );
+        $this->assertSame(
+            2,
+            collect($summary['ordersData'])->firstWhere('day', $today)['value'],
+        );
+    }
+
+    public function test_freshness_report_computes_from_real_inventory_and_waste(): void
+    {
+        $admin = Employee::where('role', 'admin')->first();
+        $employee = Employee::where('role', 'cashier')->first();
+        Product::query()->delete();
+        Product::create([
+            'name' => 'Fresh Cake',
+            'price_cents' => 1000,
+            'stock' => 6,
+            'made_at' => now()->toDateString(),
+            'best_before' => now()->addDays(3)->toDateString(),
+            'active' => true,
+        ]);
+        Product::create([
+            'name' => 'Today Cake',
+            'price_cents' => 1500,
+            'stock' => 2,
+            'made_at' => now()->toDateString(),
+            'best_before' => now()->toDateString(),
+            'active' => true,
+        ]);
+        Product::create([
+            'name' => 'Tomorrow Cake',
+            'price_cents' => 2000,
+            'stock' => 3,
+            'made_at' => now()->toDateString(),
+            'best_before' => now()->addDay()->toDateString(),
+            'active' => true,
+        ]);
+        DB::table('inventory_waste_events')->insert([
+            'product_id' => null,
+            'product_name_snapshot' => 'Today Cake',
+            'quantity' => 1,
+            'retail_value_cents' => 1500,
+            'reason' => 'expired',
+            'recorded_by_employee_id' => $employee->id,
+            'recorded_at' => now(),
+            'source' => 'admin',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $report = $this->getJson('/api/reports/freshness', $this->auth($admin))
+            ->assertOk()
+            ->json();
+
+        // 6 fresh + 2 today + 3 tomorrow = 11 units total.
+        $this->assertSame(11, $report['totalUnits']);
+        $this->assertSame(6, $report['freshUnits']);
+        $this->assertSame((int) round((6 / 11) * 100), $report['freshPercent']);
+        $this->assertSame(2, $report['expiresTodayUnits']);
+        $this->assertSame(3000, $report['expiresTodayValueCents']);
+        $this->assertSame(3, $report['expiresTomorrowUnits']);
+        $this->assertSame(6000, $report['expiresTomorrowValueCents']);
+        // Waste recorded a minute ago shows up in this week's total.
+        $this->assertSame(1500, $report['wasteThisWeekCents']);
+        $this->assertCount(1, $report['events']);
+        $this->assertSame('Today Cake', $report['events'][0]['productName']);
+        $this->assertSame(1.5, $report['events'][0]['retailValue']);
+    }
+
+    public function test_record_waste_decrements_stock_and_appends_audit_event(): void
+    {
+        $admin = Employee::where('role', 'admin')->first();
+        $product = Product::first();
+        $product->update(['stock' => 3]);
+        $response = $this->postJson(
+            '/api/inventory/waste',
+            [
+                'productId' => $product->id,
+                'quantity' => 2,
+                'reason' => 'damaged',
+                'note' => 'dropped during transport',
+            ],
+            $this->auth($admin),
+        )->assertCreated();
+        $response
+            ->assertJsonPath('quantity', 2)
+            ->assertJsonPath('reason', 'damaged')
+            ->assertJsonPath('remainingStock', 1);
+        $this->assertSame(1, $product->fresh()->stock);
+        $this->assertDatabaseHas('inventory_waste_events', [
+            'product_id' => $product->id,
+            'quantity' => 2,
+            'reason' => 'damaged',
+            'note' => 'dropped during transport',
+        ]);
+        // Recording more than on hand must fail and keep stock unchanged.
+        $this->postJson(
+            '/api/inventory/waste',
+            [
+                'productId' => $product->id,
+                'quantity' => 5,
+                'reason' => 'expired',
+            ],
+            $this->auth($admin),
+        )->assertStatus(422);
+        $this->assertSame(1, $product->fresh()->stock);
+    }
+
+    public function test_business_profile_settings_round_trip(): void
+    {
+        $admin = Employee::where('role', 'admin')->first();
+        $this->putJson(
+            '/api/settings/business-profile',
+            [
+                'businessName' => 'G-Cake Atelier',
+                'locationName' => 'BKK1',
+                'address' => 'Street 63, Phnom Penh',
+                'phone' => '+855 23 000 000',
+                'timezone' => 'Asia/Phnom_Penh',
+                'primaryCurrency' => 'USD',
+                'secondaryCurrency' => 'KHR',
+            ],
+            $this->auth($admin),
+        )->assertOk();
+        $this->getJson('/api/settings/business-profile', $this->auth($admin))
+            ->assertOk()
+            ->assertJsonPath('businessName', 'G-Cake Atelier');
+        // Cashiers may read settings but not change them.
+        $cashier = Employee::where('role', 'cashier')->first();
+        $this->putJson(
+            '/api/settings/business-profile',
+            ['businessName' => 'Hijacked'],
+            $this->auth($cashier),
+        )->assertForbidden();
     }
 }
 

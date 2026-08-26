@@ -16,6 +16,8 @@ export default function ShiftModal({
   expectedCash,
   openingCash,
   cashSales,
+  employeeName,
+  shiftStartedAt,
   onClose,
   onConfirm,
 }: {
@@ -24,6 +26,8 @@ export default function ShiftModal({
   expectedCash: number
   openingCash: number
   cashSales: number
+  employeeName: string
+  shiftStartedAt?: string
   onClose: () => void
   onConfirm: (amount: number) => void
 }) {
@@ -32,6 +36,11 @@ export default function ShiftModal({
   useEffect(() => {
     if (open) setAmount(mode === 'open' ? '100.00' : '')
   }, [open, mode])
+  const todayLabel = new Date().toLocaleDateString('en', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  })
   const numericAmount = Number(amount || 0)
   const variance = numericAmount - expectedCash
   const submit = (event: React.FormEvent) => {
@@ -68,8 +77,13 @@ export default function ShiftModal({
             </strong>
             <small>
               {mode === 'open'
-                ? t('shiftModal.openedPerson')
-                : t('shiftModal.openedToday')}
+                ? t('shiftModal.openedPerson', {
+                    date: todayLabel,
+                    name: employeeName,
+                  })
+                : t('shiftModal.openedToday', {
+                    time: shiftStartedAt || '—',
+                  })}
             </small>
           </div>
         </div>

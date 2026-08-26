@@ -8,6 +8,7 @@ import {
   Lightbulb,
   TrendingUp,
 } from 'lucide-react'
+import type { RevenuePoint } from '../data'
 import { useAdminData } from '../lib/data'
 import { translateCategory, useTranslation } from '../lib/i18n'
 import {
@@ -22,17 +23,14 @@ export default function ReportsPage({
   onToast: (message: string) => void
 }) {
   const { t } = useTranslation()
-  const { categories, products, revenueData, orders, summary } = useAdminData()
+  const { categories, products, revenueData, orders, summary, freshness } =
+    useAdminData()
   const kpiNetSales = summary?.todaySalesTotal ?? 0
   const kpiAverageOrder = (summary?.averageOrderValueCents ?? 0) / 100
   const kpiOrders = summary?.todayOrdersCount ?? orders.length
-  const atRiskProducts = products.filter((product) =>
-    ['Expires today', '1 day left'].includes(product.status),
-  )
-  const kpiWaste = atRiskProducts.reduce(
-    (sum, product) => sum + product.stock * product.price,
-    0,
-  )
+  const kpiWaste = (freshness?.wasteThisWeekCents ?? 0) / 100
+  const wasteShareOfSales =
+    kpiNetSales > 0 ? (kpiWaste / kpiNetSales) * 100 : null
   const totalCategoryRevenue = categories.reduce(
     (sum, category) => sum + category.revenue,
     0,
@@ -41,6 +39,22 @@ export default function ReportsPage({
     (sum, product) => sum + product.revenue,
     0,
   )
+  // Owner insight is computed from the real revenue series and the real
+  // top-selling product; there is no static marketing copy left on this page.
+  const bestDay = revenueData.reduce<RevenuePoint | null>(
+    (best, point) => (point.value > (best?.value ?? 0) ? point : best),
+    null,
+  )
+  const otherDays = revenueData.filter((point) => point !== bestDay)
+  const otherAverage = otherDays.length
+    ? otherDays.reduce((sum, point) => sum + point.value, 0) / otherDays.length
+    : 0
+  const bestDayDelta =
+    bestDay && otherAverage > 0
+      ? ((bestDay.value - otherAverage) / otherAverage) * 100
+      : null
+  const topProduct = summary?.topProducts?.[0]
+  const hasInsight = Boolean(bestDay && bestDay.value > 0)
   const [tab, setTab] = useState('sales')
   const today = new Date().toISOString().slice(0, 10)
   const [from, setFrom] = useState(today.slice(0, 8) + '01')
@@ -118,43 +132,50 @@ export default function ReportsPage({
         <ReportKpi
           label={t('dashboard.netSales')}
           value={`$${kpiNetSales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-          detail={t('reports.vsPrevious')}
+          detail={t('dashboard.today')}
         />
         <ReportKpi
           label={t('dashboard.averageOrder')}
           value={`$${kpiAverageOrder.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-          detail={t('reports.averageDetail')}
+          detail={t('reports.averageDetail', {
+            amount: kpiAverageOrder.toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }),
+          })}
         />
         <ReportKpi
           label={t('dashboard.orders')}
           value={String(kpiOrders)}
-          detail={t('reports.averageDetail')}
+          detail={t('reports.completedOrders')}
         />
         <ReportKpi
           label={t('reports.waste')}
           value={`$${kpiWaste.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-          detail={t('reports.netSalesPercent')}
+          detail={
+            wasteShareOfSales === null
+              ? t('reports.noWasteShare')
+              : t('reports.netSalesPercent', {
+                  percent: wasteShareOfSales.toFixed(1),
+                })
+          }
         />
       </section>
       <section className="report-main-grid">
         <div className="glass-panel report-chart-card">
           <div className="panel-heading">
             <div>
-              <span className="section-kicker">{t('reports.comparison')}</span>
+              <span className="section-kicker">{t('reports.trend')}</span>
               <h2>
                 {tab === 'waste'
                   ? t('reports.wasteTrend')
-                  : t('reports.salesProfit')}
+                  : t('reports.salesTrend')}
               </h2>
             </div>
             <div className="dual-legend">
               <span>
                 <i className="sales" />
-                {t('reports.sales')}
-              </span>
-              <span>
-                <i className="profit" />
-                {t('reports.grossProfit')}
+                {tab === 'waste' ? t('reports.wasteCost') : t('reports.sales')}
               </span>
             </div>
           </div>
@@ -165,21 +186,44 @@ export default function ReportsPage({
             <Lightbulb size={20} />
           </div>
           <span className="section-kicker">{t('reports.ownerInsight')}</span>
-          <h2>{t('reports.opportunity')}</h2>
-          <p>{t('reports.opportunityText')}</p>
-          <div className="insight-metric">
-            <TrendingUp size={18} />
-            <div>
-              <strong>{t('reports.recommended')}</strong>
-              <span>{t('reports.recommendedText')}</span>
-            </div>
-          </div>
-          <button
-            className="secondary-button full-button"
-            onClick={() => onToast(t('reports.recommendationSaved'))}
-          >
-            {t('reports.saveRecommendation')}
-          </button>
+          {hasInsight && bestDay ? (
+            <>
+              <h2>
+                {t('reports.opportunity', {
+                  day: dayName(bestDay.day),
+                })}
+              </h2>
+              <p>
+                {bestDayDelta !== null
+                  ? t('reports.opportunityText', {
+                      day: dayName(bestDay.day),
+                      delta: bestDayDelta.toFixed(1),
+                      product: topProduct?.name || t('reports.topProduct'),
+                    })
+                  : t('reports.opportunityNoDelta', {
+                      day: dayName(bestDay.day),
+                    })}
+              </p>
+              <div className="insight-metric">
+                <TrendingUp size={18} />
+                <div>
+                  <strong>{t('reports.recommended')}</strong>
+                  <span>
+                    {t('reports.recommendedText', {
+                      day: dayName(bestDay.day),
+                      product: topProduct?.name || t('reports.topProduct'),
+                      units:
+                        topProduct && topProduct.units > 0
+                          ? String(topProduct.units)
+                          : '—',
+                    })}
+                  </span>
+                </div>
+              </div>
+            </>
+          ) : (
+            <p>{t('reports.noInsight')}</p>
+          )}
         </div>
       </section>
       <section className="report-bottom-grid">
@@ -323,8 +367,9 @@ function ReportKpi({
 }
 function ComparisonChart({ waste }: { waste: boolean }) {
   const { t } = useTranslation()
-  const { revenueData } = useAdminData()
-  const maxValue = Math.max(1, ...revenueData.map((item) => item.value))
+  const { revenueData, freshness } = useAdminData()
+  const series = waste ? (freshness?.dailyWaste ?? []) : revenueData
+  const maxValue = Math.max(1, ...series.map((item) => item.value))
   const topLabel =
     maxValue >= 1000
       ? `$${(maxValue / 1000).toFixed(maxValue >= 10000 ? 0 : 1)}k`
@@ -341,20 +386,14 @@ function ComparisonChart({ waste }: { waste: boolean }) {
         <span>$0</span>
       </div>
       <div className="bar-plot">
-        {revenueData.map((item, index) => (
+        {series.map((item) => (
           <div className="bar-group" key={item.day}>
-            <div className="bar-tooltip">${item.value}</div>
+            <div className="bar-tooltip">${item.value.toFixed(2)}</div>
             <div className="bars">
               <i
                 className="sales-bar"
                 style={{
-                  height: `${waste ? 20 + (index % 5) * 5 : Math.min(100, (item.value / maxValue) * 100)}%`,
-                }}
-              />
-              <i
-                className="profit-bar"
-                style={{
-                  height: `${waste ? 12 + (index % 5) * 3 : Math.min(100, (item.value / maxValue) * 78)}%`,
+                  height: `${Math.min(100, (item.value / maxValue) * 100)}%`,
                 }}
               />
             </div>
@@ -362,6 +401,11 @@ function ComparisonChart({ waste }: { waste: boolean }) {
           </div>
         ))}
       </div>
+      {series.length === 0 && (
+        <div className="empty-state">
+          <span>{t('reports.noChartData')}</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -374,4 +418,12 @@ function formatReportDay(day: string) {
     day: 'numeric',
     month: 'short',
   })
+}
+function dayName(day: string) {
+  const [year, month, date] = day.split('-')
+  if (!date) return day
+  return new Date(`${year}-${month}-${date}T00:00:00`).toLocaleDateString(
+    'en',
+    { weekday: 'long' },
+  )
 }
