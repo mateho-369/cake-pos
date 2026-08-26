@@ -468,15 +468,24 @@ function RevenueChart() {
   const max = 1400
   const padX = 14
   const plotH = 170
+  // Data starts empty while the dashboard request is in flight, and a new
+  // installation can legitimately return only today's point. Avoid indexing
+  // an empty array and keep a single point centred (rather than dividing by 0).
+  const pointSpacing =
+    revenueData.length > 1
+      ? (width - padX * 2) / (revenueData.length - 1)
+      : 0
   const points = revenueData.map((item, index) => ({
     ...item,
-    x: padX + index * ((width - padX * 2) / (revenueData.length - 1)),
+    x: revenueData.length === 1 ? width / 2 : padX + index * pointSpacing,
     y: 186 - (item.value / max) * plotH,
   }))
   const line = points
     .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
     .join(' ')
-  const area = `${line} L ${points[points.length - 1].x} 190 L ${points[0].x} 190 Z`
+  const area = points.length
+    ? `${line} L ${points[points.length - 1].x} 190 L ${points[0].x} 190 Z`
+    : ''
   const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
   return (
     <div className="chart-container">
