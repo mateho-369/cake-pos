@@ -1,14 +1,18 @@
-import {
-  Check,
-  ChevronRight,
-  PackageOpen,
-  Plus,
-  Search,
-  Sparkles,
-} from 'lucide-react'
+import { Check, PackageOpen, Plus, Search, Sparkles } from 'lucide-react'
 import { type CartItem, type Product } from '../data'
+import type { CSSProperties } from 'react'
 import { useSaleData } from '../lib/data'
 import { useTranslation } from '../lib/i18n'
+function productPhotoStyle(product: Product): CSSProperties {
+  const primary = product.images?.[0]?.url || product.imageUrl
+  return primary
+    ? {
+        backgroundImage: `url(${primary})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      }
+    : { backgroundPosition: product.imagePosition }
+}
 export default function ProductGrid({
   products,
   category,
@@ -41,7 +45,14 @@ export default function ProductGrid({
     Slices: 'sale.slices',
     Cupcakes: 'sale.cupcakes',
     Drinks: 'sale.drinks',
+    'Party Hats': 'catalog.partyHats',
+    'Party Decor': 'catalog.partyDecor',
+    'Party Décor': 'catalog.partyDecor',
+    'Party Supplies': 'catalog.partySupplies',
+    Toys: 'catalog.toys',
+    'Toys & Games': 'catalog.toys',
   }
+  const categoryLabel = (item: string) => t(categoryKeys[item] || item)
   return (
     <section className="product-workspace">
       <div className="sale-welcome">
@@ -71,7 +82,7 @@ export default function ProductGrid({
             className={category === item ? 'active' : ''}
             onClick={() => onCategory(item)}
           >
-            {t(categoryKeys[item] || 'sale.wholeCakes')}
+            {categoryLabel(item)}
             {item === 'All' && <span>{products.length}</span>}
           </button>
         ))}
@@ -81,9 +92,6 @@ export default function ProductGrid({
           <Sparkles size={14} />{' '}
           {t('sale.productCount', { count: products.length })}
         </span>
-        <button>
-          {t('sale.bestBeforePriority')} <ChevronRight size={14} />
-        </button>
       </div>
       {products.length ? (
         <div className="product-grid">
@@ -100,15 +108,7 @@ export default function ProductGrid({
               >
                 <span
                   className="product-photo"
-                  style={
-                    product.imageUrl
-                      ? {
-                          backgroundImage: `url(${product.imageUrl})`,
-                          backgroundSize: 'cover',
-                          backgroundPosition: 'center',
-                        }
-                      : { backgroundPosition: product.imagePosition }
-                  }
+                  style={productPhotoStyle(product)}
                 >
                   {aging && (
                     <em className={`freshness-tag ${product.freshness}`}>
@@ -127,9 +127,7 @@ export default function ProductGrid({
                 </span>
                 <span className="product-info">
                   <span>
-                    <small>
-                      {t(categoryKeys[product.category] || 'sale.wholeCakes')}
-                    </small>
+                    <small>{categoryLabel(product.category)}</small>
                     <strong>{product.name}</strong>
                   </span>
                   <b>${product.price.toFixed(2)}</b>

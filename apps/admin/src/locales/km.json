@@ -94,7 +94,12 @@
     "varianceResolved": "ភាពខុសគ្នារបស់វេនត្រូវបានដោះស្រាយ",
     "closingNote": "Sophea បានបន្ថែមកំណត់ចំណាំពេលបិទវេន",
     "backupComplete": "ការបម្រុងទុកប្រចាំថ្ងៃរួចរាល់",
-    "backupTime": "ថ្ងៃនេះ ម៉ោង 3:00 ព្រឹក"
+    "backupTime": "ថ្ងៃនេះ ម៉ោង 3:00 ព្រឹក",
+    "profileMenu": "គណនី",
+    "accountSettings": "ការកំណត់គណនី",
+    "adminRole": "អ្នកគ្រប់គ្រង",
+    "cashierRole": "អ្នកលក់",
+    "signOut": "ចាកចេញ"
   },
   "auth": {
     "ownerOperations": "ការងាររបស់ម្ចាស់ហាង",
@@ -249,7 +254,11 @@
     "saved": "បានរក្សាទុកព័ត៌មានមុខទំនិញ",
     "product": "មុខទំនិញ",
     "expired": "ផុតកំណត់",
-    "beverages": "ភេសជ្ជៈ"
+    "beverages": "ភេសជ្ជៈ",
+    "partyHats": "មួកពិធីជប់លៀង",
+    "partyDecor": "ការតុបតែងពិធីជប់លៀង",
+    "partySupplies": "របស់ពិធីជប់លៀង",
+    "toys": "ប្រដាប់ក្មេងលេង"
   },
   "orders": {
     "grossSales": "ការលក់សរុប",
@@ -446,7 +455,10 @@
     "closeShift": "បិទវេន",
     "historyExported": "បាននាំចេញប្រវត្តិវេន",
     "openingFloat": "ប្រាក់ដើម",
-    "expectedCash": "សាច់ប្រាក់រំពឹងទុក"
+    "expectedCash": "សាច់ប្រាក់រំពឹងទុក",
+    "noActive": "មិនមានវេនបើក",
+    "closeFailed": "មិនអាចបិទវេនបានទេ",
+    "closing": "កំពុងបិទ…"
   },
   "reports": {
     "sales": "ការលក់",

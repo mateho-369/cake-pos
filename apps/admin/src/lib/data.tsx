@@ -17,6 +17,7 @@ import type {
   Product,
   ReportSummary,
   RevenuePoint,
+  Shift,
 } from '../data'
 
 type ProductInput = {
@@ -28,6 +29,7 @@ type ProductInput = {
   bestBefore?: string
   imagePosition?: string
   imageUrl?: string
+  images?: Array<{ url: string; caption?: string; sortOrder?: number }>
   active?: boolean
 }
 type CategoryInput = {
@@ -51,11 +53,16 @@ type AdminDataContextValue = {
   categories: Category[]
   employees: Employee[]
   customers: Customer[]
+  shifts: Shift[]
+  currentShift: Shift | null
   revenueData: RevenuePoint[]
   summary: ReportSummary | null
   loading: boolean
   error: string | null
   refresh: () => Promise<void>
+  loadDashboard: (
+    preset: 'today' | 'seven_days' | 'thirty_days',
+  ) => Promise<void>
   createProduct: (input: ProductInput) => Promise<Product>
   updateProduct: (id: number, input: Partial<ProductInput>) => Promise<Product>
   createCategory: (input: CategoryInput) => Promise<Category>
@@ -86,6 +93,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const [categories, setCategories] = useState<Category[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
+  const [shifts, setShifts] = useState<Shift[]>([])
+  const [currentShift, setCurrentShift] = useState<Shift | null>(null)
   const [summary, setSummary] = useState<ReportSummary | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -97,6 +106,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       setCategories([])
       setEmployees([])
       setCustomers([])
+      setShifts([])
+      setCurrentShift(null)
       setSummary(null)
       return
     }
@@ -109,6 +120,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         nextOrders,
         nextEmployees,
         nextCustomers,
+        nextShifts,
+        nextCurrentShift,
         nextSummary,
       ] = await Promise.all([
         apiRequest<Product[]>('/api/products'),
@@ -116,6 +129,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         apiRequest<Order[]>('/api/orders'),
         apiRequest<Employee[]>('/api/employees'),
         apiRequest<Customer[]>('/api/customers'),
+        apiRequest<Shift[]>('/api/shifts'),
+        apiRequest<Shift | null>('/api/shifts/current'),
         apiRequest<ReportSummary>('/api/reports/summary'),
       ])
       setProducts(nextProducts)
@@ -123,6 +138,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       setOrders(nextOrders)
       setEmployees(nextEmployees)
       setCustomers(nextCustomers)
+      setShifts(nextShifts)
+      setCurrentShift(nextCurrentShift)
       setSummary(nextSummary)
     } catch (reason) {
       setError(
@@ -136,6 +153,23 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  const loadDashboard = useCallback(
+    async (preset: 'today' | 'seven_days' | 'thirty_days') => {
+      if (!token) return
+      const apiPreset =
+        preset === 'seven_days'
+          ? 'this_week'
+          : preset === 'thirty_days'
+            ? 'this_month'
+            : 'today'
+      const nextSummary = await apiRequest<ReportSummary>(
+        `/api/reports/summary?preset=${apiPreset}`,
+      )
+      setSummary(nextSummary)
+    },
+    [token],
+  )
 
   const createProduct = useCallback(
     async (input: ProductInput) => {
@@ -218,11 +252,14 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       categories,
       employees,
       customers,
+      shifts,
+      currentShift,
       revenueData: summary?.revenueData || emptySummary.revenueData,
       summary,
       loading,
       error,
       refresh,
+      loadDashboard,
       createProduct,
       updateProduct,
       createCategory,
@@ -237,10 +274,13 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       categories,
       employees,
       customers,
+      shifts,
+      currentShift,
       summary,
       loading,
       error,
       refresh,
+      loadDashboard,
       createProduct,
       updateProduct,
       createCategory,

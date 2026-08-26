@@ -10,6 +10,9 @@ import {
 } from 'lucide-react'
 import Modal from '../components/Modal'
 import { useTranslation } from '../lib/i18n'
+import { useAdminData } from '../lib/data'
+import { apiRequest } from '../lib/api'
+import type { Shift } from '../data'
 
 export default function ShiftsPage({
   onToast,
@@ -17,12 +20,33 @@ export default function ShiftsPage({
   onToast: (message: string) => void
 }) {
   const { t } = useTranslation()
-  const [closeShift, setCloseShift] = useState(false)
-  const reconcile = (event: React.FormEvent) => {
+  const { shifts, currentShift, summary, refresh } = useAdminData()
+  const qrRevenueCents = summary?.qrRevenueCents ?? 0
+  const [closeShiftOpen, setCloseShiftOpen] = useState(false)
+  const [closingCash, setClosingCash] = useState('')
+  const [saving, setSaving] = useState(false)
+  const closeShift = async (event: React.FormEvent) => {
     event.preventDefault()
-    setCloseShift(false)
-    onToast(t('shifts.closedSaved'))
+    setSaving(true)
+    try {
+      await apiRequest('/api/shifts/close', {
+        method: 'POST',
+        body: JSON.stringify({ closingCash: Number(closingCash || 0) }),
+      })
+      setCloseShiftOpen(false)
+      await refresh()
+      onToast(t('shifts.closedSaved'))
+    } catch (reason) {
+      onToast(
+        reason instanceof Error ? reason.message : t('shifts.closeFailed'),
+      )
+    } finally {
+      setSaving(false)
+    }
   }
+  const currentExpectedUsd = (currentShift?.expectedCashUsdCents ?? 0) / 100
+  const currentOpeningUsd = (currentShift?.openingCashUsdCents ?? 0) / 100
+  const totalOrders = shifts.reduce((sum, shift) => sum + (shift.id ? 1 : 0), 0)
   return (
     <div className="page-content">
       <section className="shift-overview-grid">
@@ -32,27 +56,30 @@ export default function ShiftsPage({
               <span className="section-kicker">{t('shifts.current')}</span>
               <h2>{t('shifts.morning')}</h2>
             </div>
-            <span className="live-badge">
-              <i /> {t('common.open')}
+            <span className={`live-badge ${currentShift ? '' : 'muted'}`}>
+              <i />
+              {currentShift ? t('common.open') : t('shifts.noActive')}
             </span>
           </div>
           <div className="large-shift-time">
-            <strong>2:47:18</strong>
+            <strong>{formatShiftStart(currentShift)}</strong>
             <span>
               <Clock3 size={15} /> {t('shifts.openedBy')}
             </span>
           </div>
           <div className="shift-staff-row">
-            <span className="employee-avatar e1">SC</span>
-            <span className="employee-avatar e2 overlap">DL</span>
+            <span className="employee-avatar e1">
+              {initials(currentShift?.openedBy || '')}
+            </span>
             <div>
               <strong>{t('shifts.cashiersActive')}</strong>
-              <span>Sophea Chan · Dara Lim</span>
+              <span>{currentShift?.openedBy || t('shifts.noActive')}</span>
             </div>
           </div>
           <button
             className="danger-outline full-button"
-            onClick={() => setCloseShift(true)}
+            onClick={() => setCloseShiftOpen(true)}
+            disabled={!currentShift}
           >
             <LockKeyhole size={16} /> {t('shifts.closeReconcile')}
           </button>
@@ -65,23 +92,27 @@ export default function ShiftsPage({
             </div>
             <Banknote size={20} />
           </div>
-          <strong className="cash-total">$553.07</strong>
+          <strong className="cash-total">
+            ${currentExpectedUsd.toFixed(2)}
+          </strong>
           <div className="ledger-lines">
             <div>
               <span>{t('shifts.openingFloat')}</span>
-              <strong>$100.00</strong>
+              <strong>${currentOpeningUsd.toFixed(2)}</strong>
             </div>
             <div>
               <span>{t('shifts.cashSales')}</span>
-              <strong>+$453.07</strong>
+              <strong>
+                +${(currentExpectedUsd - currentOpeningUsd).toFixed(2)}
+              </strong>
             </div>
             <div>
               <span>{t('shifts.cashRefunds')}</span>
-              <strong>−$0.00</strong>
+              <strong>$0.00</strong>
             </div>
             <div>
               <span>{t('shifts.paidOut')}</span>
-              <strong>−$0.00</strong>
+              <strong>$0.00</strong>
             </div>
           </div>
         </article>
@@ -95,7 +126,9 @@ export default function ShiftsPage({
             </div>
             <ScanLine size={20} />
           </div>
-          <strong className="cash-total">$771.43</strong>
+          <strong className="cash-total">
+            ${(qrRevenueCents / 100).toFixed(2)}
+          </strong>
           <div className="reconcile-progress">
             <span>
               <i style={{ width: '100%' }} />
@@ -125,104 +158,58 @@ export default function ShiftsPage({
           <span>{t('shifts.dateShift')}</span>
           <span>{t('employees.employee')}</span>
           <span>{t('shifts.duration')}</span>
-          <span>{t('dashboard.netSales')}</span>
           <span>{t('shifts.expectedCash')}</span>
           <span>{t('shifts.countedCash')}</span>
           <span>{t('shifts.variance')}</span>
           <span>{t('catalog.status')}</span>
         </div>
-        <div className="shift-history-row current">
-          <span>
-            <strong>Aug 20 · {t('shifts.morning')}</strong>
-            <small>7:55 AM – {t('shifts.now')}</small>
-          </span>
-          <span>Sophea</span>
-          <span>2h 47m</span>
-          <strong>$1,224.50</strong>
-          <span>$553.07</span>
-          <span>—</span>
-          <span>—</span>
-          <span className="status-badge info">
-            <i />
-            {t('common.open')}
-          </span>
-        </div>
-        <div className="shift-history-row">
-          <span>
-            <strong>Aug 19 · {t('shifts.fullDay')}</strong>
-            <small>7:58 AM – 7:14 PM</small>
-          </span>
-          <span>Dara</span>
-          <span>11h 16m</span>
-          <strong>$2,486.20</strong>
-          <span>$1,082.60</span>
-          <span>$1,080.60</span>
-          <strong className="coral-text">−$2.00</strong>
-          <span className="status-badge success">
-            <i />
-            {t('common.closed')}
-          </span>
-        </div>
-        <div className="shift-history-row">
-          <span>
-            <strong>Aug 18 · {t('shifts.fullDay')}</strong>
-            <small>8:01 AM – 6:52 PM</small>
-          </span>
-          <span>Sophea</span>
-          <span>10h 51m</span>
-          <strong>$2,214.00</strong>
-          <span>$924.00</span>
-          <span>$924.00</span>
-          <strong className="green-text">$0.00</strong>
-          <span className="status-badge success">
-            <i />
-            {t('common.closed')}
-          </span>
-        </div>
-        <div className="shift-history-row">
-          <span>
-            <strong>Aug 17 · {t('shifts.fullDay')}</strong>
-            <small>7:49 AM – 7:02 PM</small>
-          </span>
-          <span>Dara</span>
-          <span>11h 13m</span>
-          <strong>$2,708.40</strong>
-          <span>$1,140.40</span>
-          <span>$1,145.40</span>
-          <strong className="amber-text">+$5.00</strong>
-          <span className="status-badge warning">
-            <i />
-            {t('shifts.reviewed')}
-          </span>
-        </div>
+        {shifts.map((shift) => (
+          <ShiftRow key={shift.id} shift={shift} />
+        ))}
+        {shifts.length === 0 && totalOrders === 0 && (
+          <div className="empty-state">
+            <Clock3 size={24} />
+            <strong>{t('shifts.noActive')}</strong>
+          </div>
+        )}
       </section>
       <Modal
-        open={closeShift}
-        onClose={() => setCloseShift(false)}
+        open={closeShiftOpen}
+        onClose={() => setCloseShiftOpen(false)}
         eyebrow={t('shifts.cashControl')}
         title={t('shifts.closeTitle')}
         size="medium"
       >
-        <form className="modal-form" onSubmit={reconcile}>
+        <form className="modal-form" onSubmit={closeShift}>
           <div className="reconcile-summary">
             <div>
               <span>{t('shifts.expectedCash')}</span>
-              <strong>$553.07</strong>
+              <strong>${currentExpectedUsd.toFixed(2)}</strong>
             </div>
             <div>
               <span>{t('shifts.khqrConfirmed')}</span>
-              <strong>$771.43</strong>
+              <strong>${(qrRevenueCents / 100).toFixed(2)}</strong>
             </div>
             <div>
               <span>{t('shifts.netSales')}</span>
-              <strong>$1,224.50</strong>
+              <strong>
+                ${(currentExpectedUsd - currentOpeningUsd).toFixed(2)}
+              </strong>
             </div>
           </div>
           <label>
             <span>{t('shifts.countedCash')}</span>
             <div className="currency-input">
               <span>$</span>
-              <input type="number" step="0.01" placeholder="0.00" required />
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={closingCash}
+                onChange={(event) => setClosingCash(event.target.value)}
+                placeholder="0.00"
+                required
+              />
             </div>
             <small>{t('shifts.countInstruction')}</small>
           </label>
@@ -238,16 +225,91 @@ export default function ShiftsPage({
             <button
               type="button"
               className="secondary-button"
-              onClick={() => setCloseShift(false)}
+              onClick={() => setCloseShiftOpen(false)}
             >
               {t('common.cancel')}
             </button>
-            <button className="primary-button">
-              <LockKeyhole size={16} /> {t('shifts.closeShift')}
+            <button
+              className="primary-button"
+              disabled={saving || !currentShift}
+            >
+              <LockKeyhole size={16} />
+              {saving ? t('shifts.closing') : t('shifts.closeShift')}
             </button>
           </div>
         </form>
       </Modal>
     </div>
   )
+}
+
+function ShiftRow({ shift }: { shift: Shift }) {
+  const { t } = useTranslation()
+  const expected = ((shift.expectedCashUsdCents ?? 0) / 100).toFixed(2)
+  const counted = ((shift.closingCashUsdCents ?? 0) / 100).toFixed(2)
+  const variance = (shift.varianceUsdCents ?? 0) / 100
+  const varianceLabel = `${variance < 0 ? '−' : variance > 0 ? '+' : ''}$${Math.abs(variance).toFixed(2)}`
+  const varianceClass =
+    variance < -0.01
+      ? 'coral-text'
+      : variance > 0.01
+        ? 'amber-text'
+        : 'green-text'
+  return (
+    <div className="shift-history-row">
+      <span>
+        <strong>{formatDate(shift.openedAt)}</strong>
+        <small>
+          {formatTime(shift.openedAt)}
+          {shift.closedAt
+            ? ` – ${formatTime(shift.closedAt)}`
+            : ` – ${t('shifts.now')}`}
+        </small>
+      </span>
+      <span>{shift.openedBy || '—'}</span>
+      <span>{duration(shift)}</span>
+      <strong>${expected}</strong>
+      <span>{shift.status === 'Closed' ? `$${counted}` : '—'}</span>
+      <strong className={varianceClass}>
+        {shift.status === 'Closed' ? varianceLabel : '—'}
+      </strong>
+      <span
+        className={`status-badge ${shift.status === 'Closed' ? 'success' : 'info'}`}
+      >
+        <i />
+        {shift.status === 'Closed' ? t('common.closed') : t('common.open')}
+      </span>
+    </div>
+  )
+}
+
+function formatShiftStart(shift: Shift | null) {
+  return shift ? formatTime(shift.openedAt) : '—'
+}
+function formatDate(value: string) {
+  return new Date(value).toLocaleDateString('en', {
+    day: 'numeric',
+    month: 'short',
+  })
+}
+function formatTime(value: string) {
+  return new Date(value).toLocaleTimeString('en', {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+function duration(shift: Shift) {
+  const start = new Date(shift.openedAt).getTime()
+  const end = shift.closedAt ? new Date(shift.closedAt).getTime() : Date.now()
+  const minutes = Math.max(0, Math.floor((end - start) / 60000))
+  const hours = Math.floor(minutes / 60)
+  return `${hours}h ${minutes % 60}m`
+}
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
 }

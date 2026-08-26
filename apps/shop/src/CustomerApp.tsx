@@ -31,6 +31,7 @@ type CustomerOrder = {
 type MenuResponse = {
   customer: Customer
   products: Product[]
+  categories?: string[]
   khqrImageUrl?: string
 }
 type Cart = Record<number, number>
@@ -40,6 +41,8 @@ export default function CustomerApp() {
   const { webApp, initData, botUrl, launchedInTelegram } = useTelegramIdentity()
   const { t } = useTranslation()
   const [menu, setMenu] = useState<MenuResponse | null>(null)
+  const [selectedCategory, setSelectedCategory] = useState('All')
+  const [activeGallery, setActiveGallery] = useState<Product | null>(null)
   const [cart, setCart] = useState<Cart>({})
   const [cartOpen, setCartOpen] = useState(false)
   const [contactPrompt, setContactPrompt] = useState(false)
@@ -82,6 +85,21 @@ export default function CustomerApp() {
     return () => window.clearInterval(timer)
   }, [order?.id, order?.status, initData])
 
+  const visibleProducts = useMemo(
+    () =>
+      (menu?.products || []).filter(
+        (product) =>
+          selectedCategory === 'All' || product.category === selectedCategory,
+      ),
+    [menu, selectedCategory],
+  )
+  const categories = useMemo(
+    () =>
+      menu?.categories || [
+        ...new Set((menu?.products || []).map((p) => p.category)),
+      ],
+    [menu],
+  )
   const items = useMemo(
     () =>
       menu?.products
@@ -254,11 +272,23 @@ export default function CustomerApp() {
             <span>OUR MENU</span>
             <h2>Fresh from the kitchen</h2>
           </div>
-          <small>{menu.products.length} treats today</small>
+          <small>{visibleProducts.length} treats today</small>
+        </div>
+        <div className="customer-category-nav">
+          {['All', ...categories].map((name) => (
+            <button
+              key={name}
+              className={selectedCategory === name ? 'active' : ''}
+              onClick={() => setSelectedCategory(name)}
+            >
+              {name}
+            </button>
+          ))}
         </div>
         <div className="customer-grid">
-          {menu.products.map((product) => {
+          {visibleProducts.map((product) => {
             const quantity = cart[product.id] || 0
+            const gallery = productImages(product)
             return (
               <article
                 className={`customer-product ${quantity ? 'selected' : ''}`}
@@ -267,10 +297,20 @@ export default function CustomerApp() {
                 <button
                   className="customer-product-photo"
                   style={productImageStyle(product)}
-                  onClick={() => change(product, 1)}
-                  aria-label={`Add ${product.name}`}
+                  onClick={() => {
+                    if (gallery.length > 1) setActiveGallery(product)
+                    else change(product, 1)
+                  }}
+                  aria-label={
+                    gallery.length > 1
+                      ? `View ${product.name} photos`
+                      : `Add ${product.name}`
+                  }
                 >
                   <i>Fresh today</i>
+                  {gallery.length > 1 && (
+                    <em className="photo-count">{gallery.length}</em>
+                  )}
                   {quantity > 0 && <b>{quantity}</b>}
                 </button>
                 <div className="customer-product-copy">
@@ -303,6 +343,50 @@ export default function CustomerApp() {
           })}
         </div>
       </section>
+      {activeGallery && (
+        <div className="customer-gallery-layer">
+          <button
+            className="customer-sheet-backdrop"
+            onClick={() => setActiveGallery(null)}
+            aria-label="Close gallery"
+          />
+          <section className="customer-gallery-sheet">
+            <i />
+            <header>
+              <div>
+                <small>{activeGallery.category}</small>
+                <h2>{activeGallery.name}</h2>
+              </div>
+              <button onClick={() => setActiveGallery(null)}>
+                <X size={19} />
+              </button>
+            </header>
+            <div className="customer-gallery-scroll">
+              {productImages(activeGallery).map((image, index) => (
+                <figure key={`${image.url}-${index}`}>
+                  <img
+                    src={image.url}
+                    alt={image.caption || activeGallery.name}
+                  />
+                  {image.caption && <figcaption>{image.caption}</figcaption>}
+                </figure>
+              ))}
+            </div>
+            <footer>
+              <span>${activeGallery.price.toFixed(2)}</span>
+              <button
+                className="customer-send"
+                onClick={() => {
+                  change(activeGallery, 1)
+                  setActiveGallery(null)
+                }}
+              >
+                <Plus size={17} /> Add to order
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
       {count > 0 && (
         <button
           className="customer-cart-dock"
@@ -418,10 +502,19 @@ export default function CustomerApp() {
   )
 }
 
+function productImages(product: Product) {
+  return product.images && product.images.length
+    ? product.images
+    : product.imageUrl
+      ? [{ url: product.imageUrl, caption: '' }]
+      : []
+}
+
 function productImageStyle(product: Product): CSSProperties {
-  return product.imageUrl
+  const first = productImages(product)[0]
+  return first?.url
     ? {
-        backgroundImage: `url(${product.imageUrl})`,
+        backgroundImage: `url(${first.url})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
       }

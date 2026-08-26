@@ -102,6 +102,13 @@ export function translateCategory(t: TranslationFunction, category: string) {
     Cupcakes: 'sale.cupcakes',
     Drinks: 'sale.drinks',
     Beverages: 'catalog.beverages',
+    'Party Hats': 'catalog.partyHats',
+    'Party Decor': 'catalog.partyDecor',
+    'Party Décor': 'catalog.partyDecor',
+    'Party Supplies': 'catalog.partySupplies',
+    Toys: 'catalog.toys',
+    'Birthday Toys': 'catalog.toys',
+    'Birthday Decor': 'catalog.partyDecor',
   }
   return keys[category] ? t(keys[category]) : category
 }

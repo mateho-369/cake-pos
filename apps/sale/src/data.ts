@@ -1,5 +1,12 @@
 export type Freshness = 'fresh' | 'tomorrow' | 'today'
 
+export type ProductImage = {
+  id?: number | null
+  url: string
+  caption?: string
+  sortOrder?: number
+}
+
 export type Product = {
   id: number
   name: string
@@ -10,6 +17,7 @@ export type Product = {
   freshness: Freshness
   bestBefore: string
   imageUrl?: string
+  images?: ProductImage[]
   sold?: number
   revenue?: number
   status?: 'Fresh' | '1 day left' | 'Expires today' | 'Expired'
