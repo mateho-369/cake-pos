@@ -3,28 +3,89 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronRight,
+  Download,
   Plus,
   Trash2,
 } from 'lucide-react'
 import { useAdminData } from '../lib/data'
 import Modal from '../components/Modal'
 import { useTranslation } from '../lib/i18n'
+import type { Product } from '../data'
 
 type Props = { onToast: (message: string) => void }
 export default function FreshnessPage({ onToast }: Props) {
   const { t } = useTranslation()
-  const { products } = useAdminData()
+  const { products, freshness, recordWaste } = useAdminData()
   const [wasteModal, setWasteModal] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [tab, setTab] = useState('queue')
   const tabs = [
     { id: 'queue', label: 'freshness.queue' },
     { id: 'waste', label: 'freshness.wasteLog' },
     { id: 'batches', label: 'freshness.batches' },
   ]
-  const submitWaste = (event: React.FormEvent) => {
+  const stats = freshness
+  const freshUnits = stats?.freshUnits ?? 0
+  const freshPercent = stats?.freshPercent ?? 0
+  const expiresTodayUnits = stats?.expiresTodayUnits ?? 0
+  const expiresTodayValue = (stats?.expiresTodayValueCents ?? 0) / 100
+  const expiresTomorrowUnits = stats?.expiresTomorrowUnits ?? 0
+  const expiresTomorrowValue = (stats?.expiresTomorrowValueCents ?? 0) / 100
+  const wasteWeek = (stats?.wasteThisWeekCents ?? 0) / 100
+  const wasteDelta = stats?.wasteDeltaPercent ?? null
+  const lastRecordedAt = stats?.lastRecordedAt
+    ? new Date(stats.lastRecordedAt)
+    : null
+  const updatedLabel = lastRecordedAt
+    ? t('freshness.updated', { time: timeAgo(lastRecordedAt) })
+    : t('freshness.updatedJustNow')
+  const events = stats?.events ?? []
+  const submitWaste = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    setWasteModal(false)
-    onToast(t('freshness.wasteSaved'))
+    const form = new FormData(event.currentTarget)
+    const productId = Number(form.get('productId'))
+    const quantity = Number(form.get('quantity'))
+    const reason = String(form.get('reason') || 'expired')
+    const note = String(form.get('note') || '')
+    if (!productId || quantity < 1) return
+    setSaving(true)
+    try {
+      await recordWaste({ productId, quantity, reason, note })
+      setWasteModal(false)
+      onToast(t('freshness.wasteSaved'))
+    } catch (reason) {
+      onToast(
+        reason instanceof Error ? reason.message : t('freshness.wasteFailed'),
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+  const exportReport = () => {
+    const rows = events.map((event) => [
+      event.recordedAt,
+      event.productName,
+      event.quantity,
+      event.reason,
+      event.retailValue.toFixed(2),
+      event.recordedBy || '',
+    ])
+    const content = [
+      ['Date', 'Product', 'Quantity', 'Reason', 'Retail value', 'Recorded by'],
+      ...rows,
+    ]
+      .map((row) => row.map((cell) => `"${cell}"`).join(','))
+      .join('\n')
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(
+      new Blob(['\uFEFF' + content], {
+        type: 'text/csv;charset=utf-8;',
+      }),
+    )
+    link.download = 'freshness-waste-log.csv'
+    link.click()
+    URL.revokeObjectURL(link.href)
+    onToast(t('freshness.reportExported'))
   }
   return (
     <div className="page-content">
@@ -40,56 +101,78 @@ export default function FreshnessPage({ onToast }: Props) {
             >
               <Plus size={17} /> {t('freshness.recordWaste')}
             </button>
-            <button
-              className="secondary-button"
-              onClick={() => onToast(t('freshness.reportExported'))}
-            >
-              {t('freshness.exportReport')}
+            <button className="secondary-button" onClick={exportReport}>
+              <Download size={16} /> {t('freshness.exportReport')}
             </button>
           </div>
         </div>
         <div className="freshness-score">
           <svg viewBox="0 0 120 120">
             <circle cx="60" cy="60" r="48" />
-            <circle className="score-progress" cx="60" cy="60" r="48" />
+            <circle
+              className="score-progress"
+              cx="60"
+              cy="60"
+              r="48"
+              style={{
+                strokeDasharray: `${
+                  (freshPercent / 100) * 2 * Math.PI * 48
+                } ${2 * Math.PI * 48}`,
+              }}
+            />
           </svg>
           <div>
-            <strong>94%</strong>
+            <strong>{freshPercent}%</strong>
             <span>{t('freshness.score')}</span>
           </div>
           <small>
-            <CheckCircle2 size={14} /> {t('freshness.healthy')}
+            <CheckCircle2 size={14} />{' '}
+            {freshPercent >= 90
+              ? t('freshness.healthy')
+              : freshUnits > 0
+                ? t('freshness.needsAttention')
+                : t('freshness.noInventory')}
           </small>
         </div>
       </section>
       <section className="kpi-grid compact-kpis freshness-kpis">
         <article className="mini-kpi glass-panel">
           <span>{t('freshness.freshSellable')}</span>
-          <strong>181 {t('common.units')}</strong>
+          <strong>
+            {freshUnits} {t('common.units')}
+          </strong>
           <small className="green-text">
-            {t('freshness.inventoryPercent')}
+            {t('freshness.inventoryPercent', { percent: freshPercent })}
           </small>
         </article>
         <article className="mini-kpi glass-panel">
           <span>{t('freshness.expiresToday')}</span>
-          <strong className="coral-text">3 {t('common.units')}</strong>
+          <strong className="coral-text">
+            {expiresTodayUnits} {t('common.units')}
+          </strong>
           <small>
-            $90{' '}
+            ${expiresTodayValue.toFixed(2)}{' '}
             {t('catalog.retailValue', { value: '' }).replace('$', '').trim()}
           </small>
         </article>
         <article className="mini-kpi glass-panel">
           <span>{t('freshness.expiresTomorrow')}</span>
-          <strong className="amber-text">2 {t('common.units')}</strong>
+          <strong className="amber-text">
+            {expiresTomorrowUnits} {t('common.units')}
+          </strong>
           <small>
-            $64{' '}
+            ${expiresTomorrowValue.toFixed(2)}{' '}
             {t('catalog.retailValue', { value: '' }).replace('$', '').trim()}
           </small>
         </article>
         <article className="mini-kpi glass-panel">
           <span>{t('freshness.wasteWeek')}</span>
-          <strong>$38.00</strong>
-          <small className="green-text">{t('freshness.lastWeek')}</small>
+          <strong>${wasteWeek.toFixed(2)}</strong>
+          <small className="green-text">
+            {wasteDelta === null
+              ? t('freshness.noLastWeek')
+              : t('freshness.lastWeek', { delta: wasteDelta })}
+          </small>
         </article>
       </section>
       <section className="filter-tabs standalone-tabs">
@@ -113,7 +196,7 @@ export default function FreshnessPage({ onToast }: Props) {
               <h2>{t('freshness.sellFirst')}</h2>
             </div>
             <span className="queue-updated">
-              <i /> {t('freshness.updated')}
+              <i /> {updatedLabel}
             </span>
           </div>
           <div className="freshness-row freshness-head">
@@ -139,14 +222,12 @@ export default function FreshnessPage({ onToast }: Props) {
                   />
                   <div>
                     <strong>{product.name}</strong>
-                    <small>
-                      {t('freshness.batch', { id: 2000 + product.id })}
-                    </small>
+                    <small>{skuLabel(t, product)}</small>
                   </div>
                 </div>
-                <span>{product.madeAt.replace(', 2026', '')}</span>
+                <span>{shortDate(product.madeAt)}</span>
                 <span>
-                  <strong>{product.bestBefore.replace(', 2026', '')}</strong>
+                  <strong>{shortDate(product.bestBefore)}</strong>
                   <small
                     className={`block-note ${product.status === 'Expires today' ? 'coral-text' : ''}`}
                   >
@@ -202,30 +283,33 @@ export default function FreshnessPage({ onToast }: Props) {
             <span>{t('freshness.costImpact')}</span>
             <span>{t('freshness.recordedBy')}</span>
           </div>
-          <div className="waste-log-row">
-            <span>Aug 19 · 6:14 PM</span>
-            <strong>Cocoa Mini</strong>
-            <span>2 {t('common.units')}</span>
-            <span className="reason-pill">{t('dashboard.expiresToday')}</span>
-            <strong>$14.00</strong>
-            <span>Sophea</span>
-          </div>
-          <div className="waste-log-row">
-            <span>Aug 18 · 4:32 PM</span>
-            <strong>Berry Basque</strong>
-            <span>1 {t('common.unit')}</span>
-            <span className="reason-pill">{t('freshness.damaged')}</span>
-            <strong>$18.00</strong>
-            <span>Dara</span>
-          </div>
-          <div className="waste-log-row">
-            <span>Aug 17 · 7:02 PM</span>
-            <strong>Vanilla Cupcake</strong>
-            <span>2 {t('common.units')}</span>
-            <span className="reason-pill">{t('freshness.quality')}</span>
-            <strong>$6.00</strong>
-            <span>Sophea</span>
-          </div>
+          {events.map((event) => (
+            <div className="waste-log-row" key={event.id}>
+              <span>
+                {new Date(event.recordedAt).toLocaleString('en', {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit',
+                })}
+              </span>
+              <strong>{event.productName}</strong>
+              <span>
+                {event.quantity} {t('common.units')}
+              </span>
+              <span className="reason-pill">
+                {reasonLabel(t, event.reason)}
+              </span>
+              <strong>${event.retailValue.toFixed(2)}</strong>
+              <span>{event.recordedBy || '—'}</span>
+            </div>
+          ))}
+          {events.length === 0 && (
+            <div className="empty-state">
+              <CheckCircle2 size={24} />
+              <strong>{t('freshness.noWasteRecorded')}</strong>
+            </div>
+          )}
         </section>
       )}
       {tab === 'batches' && (
@@ -243,12 +327,12 @@ export default function FreshnessPage({ onToast }: Props) {
                   {statusLabel(t, product.status)}
                 </span>
               </div>
-              <span>{t('freshness.batch', { id: 2000 + product.id })}</span>
+              <span>{skuLabel(t, product)}</span>
               <h3>{product.name}</h3>
               <dl>
                 <div>
                   <dt>{t('freshness.produced')}</dt>
-                  <dd>{product.madeAt.replace(', 2026', '')}</dd>
+                  <dd>{shortDate(product.madeAt)}</dd>
                 </div>
                 <div>
                   <dt>{t('freshness.initialYield')}</dt>
@@ -284,33 +368,45 @@ export default function FreshnessPage({ onToast }: Props) {
           <div className="form-grid">
             <label>
               <span>{t('freshness.productBatch')}</span>
-              <select required defaultValue="">
+              <select name="productId" required defaultValue="">
                 <option value="" disabled>
                   {t('freshness.selectProduct')}
                 </option>
                 {products.map((product) => (
-                  <option key={product.id}>{product.name}</option>
+                  <option key={product.id} value={product.id}>
+                    {product.name}
+                  </option>
                 ))}
               </select>
             </label>
             <div className="form-grid two-columns">
               <label>
                 <span>{t('freshness.quantity')}</span>
-                <input type="number" min="1" defaultValue="1" required />
+                <input
+                  name="quantity"
+                  type="number"
+                  min="1"
+                  defaultValue="1"
+                  required
+                />
               </label>
               <label>
                 <span>{t('freshness.reason')}</span>
-                <select>
-                  <option>{t('dashboard.expiresToday')}</option>
-                  <option>{t('freshness.damaged')}</option>
-                  <option>{t('freshness.qualityIssue')}</option>
-                  <option>{t('freshness.staffMeal')}</option>
+                <select name="reason" defaultValue="expired">
+                  <option value="expired">{t('dashboard.expiresToday')}</option>
+                  <option value="damaged">{t('freshness.damaged')}</option>
+                  <option value="quality">{t('freshness.qualityIssue')}</option>
+                  <option value="staff_meal">{t('freshness.staffMeal')}</option>
                 </select>
               </label>
             </div>
             <label>
               <span>{t('freshness.noteOptional')}</span>
-              <textarea placeholder={t('freshness.auditContext')} rows={3} />
+              <textarea
+                name="note"
+                placeholder={t('freshness.auditContext')}
+                rows={3}
+              />
             </label>
           </div>
           <div className="form-notice warning">
@@ -325,7 +421,7 @@ export default function FreshnessPage({ onToast }: Props) {
             >
               {t('common.cancel')}
             </button>
-            <button className="primary-button">
+            <button className="primary-button" disabled={saving}>
               <Trash2 size={16} /> {t('freshness.recordWaste')}
             </button>
           </div>
@@ -354,4 +450,43 @@ function statusLabel(
       : status === 'Expires today'
         ? t('dashboard.expiresToday')
         : t('catalog.expired')
+}
+function reasonLabel(
+  t: (key: string, variables?: Record<string, string | number>) => string,
+  reason: string,
+) {
+  switch (reason) {
+    case 'damaged':
+      return t('freshness.damaged')
+    case 'quality':
+      return t('freshness.qualityIssue')
+    case 'staff_meal':
+      return t('freshness.staffMeal')
+    default:
+      return t('dashboard.expiresToday')
+  }
+}
+function skuLabel(
+  t: (key: string, variables?: Record<string, string | number>) => string,
+  product: Product,
+) {
+  return t('catalog.sku', { id: String(product.id).padStart(3, '0') })
+}
+function shortDate(value: string) {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return parsed.toLocaleDateString('en', {
+    month: 'short',
+    day: 'numeric',
+  })
+}
+function timeAgo(value: Date) {
+  const minutes = Math.max(
+    0,
+    Math.floor((Date.now() - value.getTime()) / 60000),
+  )
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  return `${hours}h ago`
 }

@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@prettier/plugin-php": "^0.25.0",
+    "playwright": "^1.62.1",
     "prettier": "^3.9.6"
   }
 }

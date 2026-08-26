@@ -313,7 +313,7 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
                 </span>
                 <small className="block-note">
                   {t('catalog.bestBefore', {
-                    date: product.bestBefore.replace(', 2026', ''),
+                    date: shortDate(product.bestBefore),
                   })}
                 </small>
               </div>
@@ -349,7 +349,12 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
             </div>
           )}
           <div className="table-footer">
-            <span>{t('catalog.showing', { shown: visible.length })}</span>
+            <span>
+              {t('catalog.showing', {
+                shown: visible.length,
+                total: products.length,
+              })}
+            </span>
           </div>
         </section>
       ) : (
@@ -516,14 +521,18 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
               </label>
               <label>
                 <span>{t('catalog.madeAt')}</span>
-                <input name="madeAt" type="date" defaultValue="2026-08-20" />
+                <input
+                  name="madeAt"
+                  type="date"
+                  defaultValue={toDateInput(editing.madeAt)}
+                />
               </label>
               <label>
                 <span>{t('catalog.bestBeforeLabel')}</span>
                 <input
                   name="bestBefore"
                   type="date"
-                  defaultValue="2026-08-23"
+                  defaultValue={toDateInput(editing.bestBefore)}
                 />
               </label>
             </div>
@@ -577,6 +586,22 @@ function productImageStyle(product: Product): CSSProperties {
     : { backgroundPosition: product.imagePosition }
 }
 
+function toDateInput(value: string) {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return ''
+  const year = parsed.getFullYear()
+  const month = String(parsed.getMonth() + 1).padStart(2, '0')
+  const day = String(parsed.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+function shortDate(value: string) {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return parsed.toLocaleDateString('en', {
+    month: 'short',
+    day: 'numeric',
+  })
+}
 function statusClass(status: Product['status']) {
   return status === 'Fresh'
     ? 'fresh'

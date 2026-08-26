@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { GripVertical, MoreHorizontal, Plus, Tags } from 'lucide-react'
+import type { Category } from '../data'
 import { useAdminData } from '../lib/data'
 import Modal from '../components/Modal'
 import { translateCategory, useTranslation } from '../lib/i18n'
@@ -11,6 +12,27 @@ export default function CategoriesPage({
 }) {
   const { t } = useTranslation()
   const { categories, createCategory } = useAdminData()
+  const totalRevenue = categories.reduce(
+    (sum, category) => sum + category.revenue,
+    0,
+  )
+  const maxRevenue = categories.reduce(
+    (max, category) => Math.max(max, category.revenue),
+    0,
+  )
+  const topCategory = categories.reduce<Category | null>(
+    (top, category) =>
+      category.revenue > (top?.revenue ?? 0) ? category : top,
+    null,
+  )
+  const topRevenue = topCategory?.revenue ?? 0
+  const topShare = totalRevenue > 0 ? (topRevenue / totalRevenue) * 100 : 0
+  const totalItems = categories.reduce(
+    (sum, category) => sum + category.items,
+    0,
+  )
+  const topProductShare =
+    totalItems > 0 && topCategory ? (topCategory.items / totalItems) * 100 : 0
   const [open, setOpen] = useState(false)
   const submitCategory = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -90,30 +112,56 @@ export default function CategoriesPage({
             <Tags size={20} />
           </div>
           <span className="section-kicker">{t('categories.insight')}</span>
-          <h2>{t('categories.lead')}</h2>
-          <p>{t('categories.insightText')}</p>
-          <div className="category-bars">
-            {categories.slice(0, 4).map((category) => (
-              <div key={translateCategory(t, category.name)}>
-                <span>
-                  <strong>{translateCategory(t, category.name)}</strong>
-                  <small>${category.revenue.toLocaleString()}</small>
-                </span>
-                <i>
-                  <b
-                    style={{
-                      width: `${category.revenue / 20}%`,
-                      background: category.color,
-                    }}
-                  />
-                </i>
+          {topCategory && topRevenue > 0 ? (
+            <>
+              <h2>
+                {t('categories.leadCategory', {
+                  name: translateCategory(t, topCategory.name),
+                })}
+              </h2>
+              <p>
+                {t('categories.insightText', {
+                  percent: topShare.toFixed(1),
+                  productPercent: topProductShare.toFixed(0),
+                })}
+              </p>
+              <div className="category-bars">
+                {categories.slice(0, 4).map((category) => (
+                  <div key={translateCategory(t, category.name)}>
+                    <span>
+                      <strong>{translateCategory(t, category.name)}</strong>
+                      <small>${category.revenue.toLocaleString()}</small>
+                    </span>
+                    <i>
+                      <b
+                        style={{
+                          width: `${
+                            maxRevenue > 0
+                              ? Math.min(
+                                  100,
+                                  (category.revenue / maxRevenue) * 100,
+                                )
+                              : 0
+                          }%`,
+                          background: category.color,
+                        }}
+                      />
+                    </i>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <div className="insight-note">
-            <strong>{t('categories.recommendation')}</strong>
-            <span>{t('categories.recommendationText')}</span>
-          </div>
+              <div className="insight-note">
+                <strong>{t('categories.recommendation')}</strong>
+                <span>
+                  {t('categories.recommendationText', {
+                    name: translateCategory(t, topCategory.name),
+                  })}
+                </span>
+              </div>
+            </>
+          ) : (
+            <p>{t('categories.noData')}</p>
+          )}
         </aside>
       </section>
       <Modal

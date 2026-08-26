@@ -39,9 +39,20 @@ class ShiftController extends Controller
     public function current(): JsonResponse
     {
         $shift = $this->shifts->current();
-        return response()->json(
-            $shift ? ShiftResource::make($shift)->resolve() : null,
-        );
+        if (!$shift) {
+            return response()->json(null);
+        }
+        $data = ShiftResource::make($shift)->resolve();
+        if ($shift->status === 'Open') {
+            $cash = $this->shifts->cashSalesSince($shift);
+            $data['cashSalesUsdCents'] = $cash[0];
+            $data['cashSalesKhr'] = $cash[1];
+            $data['expectedCashUsdCents'] =
+                $shift->opening_cash_usd_cents + $cash[0];
+            $data['expectedCashKhr'] = $shift->opening_cash_khr + $cash[1];
+        }
+        $data['startedAt'] = $shift->opened_at->format('g:i A');
+        return response()->json($data);
     }
     public function index(): JsonResponse
     {

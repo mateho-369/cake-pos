@@ -37,6 +37,13 @@ export default function TerminalHeader({
   const { employee, signOut } = useStaffAuth()
   const { t } = useTranslation()
   const [profileOpen, setProfileOpen] = useState(false)
+  const employeeName = employee?.name || ''
+  const initials = employeeName
+    .split(/\s+/)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
   return (
     <header className="terminal-header">
       <div className="terminal-brand">
@@ -110,9 +117,9 @@ export default function TerminalHeader({
             className="cashier-profile"
             onClick={() => setProfileOpen(!profileOpen)}
           >
-            <span>SC</span>
+            <span>{initials}</span>
             <div>
-              <strong>{employee?.name || 'Sophea Chan'}</strong>
+              <strong>{employeeName || '—'}</strong>
               <small>{t('sale.cashierLocation')}</small>
             </div>
             <ChevronDown size={15} />
@@ -120,8 +127,8 @@ export default function TerminalHeader({
           {profileOpen && (
             <div className="profile-popover glass-panel">
               <div>
-                <span>SC</span>
-                <strong>{employee?.name || 'Sophea Chan'}</strong>
+                <span>{initials}</span>
+                <strong>{employeeName || '—'}</strong>
                 <small>{t('sale.cashierAccount')}</small>
               </div>
               <button>

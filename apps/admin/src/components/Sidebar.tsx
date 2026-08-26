@@ -16,15 +16,16 @@ import {
 } from 'lucide-react'
 import { GCakeLogo } from '@cake-pos/brand'
 import type { PageId } from '../data'
+import { useAdminData } from '../lib/data'
 import { useTranslation } from '../lib/i18n'
 
-type NavItem = { id: PageId; label: string; icon: LucideIcon; badge?: string }
+type NavItem = { id: PageId; label: string; icon: LucideIcon }
 const navGroups: { title: string; items: NavItem[] }[] = [
   {
     title: 'nav.workspace',
     items: [
       { id: 'overview', label: 'nav.overview', icon: LayoutDashboard },
-      { id: 'orders', label: 'nav.orders', icon: ReceiptText, badge: '47' },
+      { id: 'orders', label: 'nav.orders', icon: ReceiptText },
       { id: 'customers', label: 'nav.customers', icon: Users },
     ],
   },
@@ -32,12 +33,7 @@ const navGroups: { title: string; items: NavItem[] }[] = [
     title: 'nav.operations',
     items: [
       { id: 'products', label: 'nav.products', icon: CakeSlice },
-      {
-        id: 'freshness',
-        label: 'nav.freshness',
-        icon: PackageCheck,
-        badge: '5',
-      },
+      { id: 'freshness', label: 'nav.freshness', icon: PackageCheck },
       { id: 'categories', label: 'nav.categories', icon: Tags },
       { id: 'employees', label: 'nav.employees', icon: Users },
       { id: 'shifts', label: 'nav.shifts', icon: Clock3 },
@@ -71,6 +67,28 @@ export default function Sidebar({
   onToggleCollapsed,
 }: SidebarProps) {
   const { t } = useTranslation()
+  const { orders, customers, categories, products, summary } = useAdminData()
+  // Every badge is derived from the same live API collections the page bodies
+  // render; a store with no data shows no badges, never a hardcoded number.
+  const badgeFor = (id: PageId): string | undefined => {
+    switch (id) {
+      case 'orders':
+        return orders.length > 0 ? String(orders.length) : undefined
+      case 'customers':
+        return customers.length > 0 ? String(customers.length) : undefined
+      case 'categories':
+        return categories.length > 0 ? String(categories.length) : undefined
+      case 'freshness': {
+        const atRisk = products.filter((product) =>
+          ['Expires today', '1 day left'].includes(product.status),
+        ).length
+        return atRisk > 0 ? String(atRisk) : undefined
+      }
+      default:
+        return undefined
+    }
+  }
+  const liveSales = summary?.todaySalesTotal ?? 0
   return (
     <>
       {open && (
@@ -116,6 +134,7 @@ export default function Sidebar({
               )}
               {group.items.map((item) => {
                 const Icon = item.icon
+                const badge = badgeFor(item.id)
                 return (
                   <button
                     key={item.id}
@@ -128,7 +147,7 @@ export default function Sidebar({
                   >
                     <Icon size={19} strokeWidth={1.8} />
                     {!collapsed && <span>{t(item.label)}</span>}
-                    {!collapsed && item.badge && <em>{item.badge}</em>}
+                    {!collapsed && badge && <em>{badge}</em>}
                   </button>
                 )
               })}
@@ -141,7 +160,13 @@ export default function Sidebar({
             {!collapsed && (
               <div>
                 <span>{t('nav.liveSales')}</span>
-                <strong>$1,224.50</strong>
+                <strong>
+                  $
+                  {liveSales.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </strong>
               </div>
             )}
           </div>

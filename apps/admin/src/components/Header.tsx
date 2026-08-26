@@ -2,19 +2,21 @@ import { useEffect, useRef } from 'react'
 import {
   Bell,
   ChevronDown,
+  Clock3,
   LogOut,
   Menu,
+  PackageCheck,
   Plus,
   Search,
   Settings,
-  Store,
 } from 'lucide-react'
 import type { PageId } from '../data'
 import { useStaffAuth } from '../auth/StaffAuthContext'
+import { useAdminData } from '../lib/data'
 import { LanguageToggle, useTranslation } from '../lib/i18n'
 
 const titles: Record<PageId, { title: string; eyebrow: string }> = {
-  overview: { title: 'header.morning', eyebrow: 'header.date' },
+  overview: { title: 'nav.overview', eyebrow: 'header.performance' },
   orders: { title: 'nav.orders', eyebrow: 'header.transactions' },
   customers: { title: 'nav.customers', eyebrow: 'header.people' },
   products: { title: 'nav.products', eyebrow: 'header.inventory' },
@@ -59,8 +61,9 @@ export default function Header({
 }: HeaderProps) {
   const { t } = useTranslation()
   const { employee, signOut } = useStaffAuth()
+  const { products, currentShift } = useAdminData()
   const heading = titles[page]
-  const employeeName = employee?.name || 'Makara Piseth'
+  const employeeName = employee?.name || ''
   const initials = employeeName
     .split(/\s+/)
     .map((part) => part[0])
@@ -69,6 +72,45 @@ export default function Header({
     .toUpperCase()
   const roleLabel =
     employee?.role === 'admin' ? t('header.adminRole') : t('header.cashierRole')
+  const todayLabel = new Date().toLocaleDateString('en', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  })
+  const firstName = employeeName.split(/\s+/)[0] || ''
+  const greeting =
+    firstName && new Date().getHours() < 12
+      ? t('header.goodMorning', { name: firstName })
+      : firstName
+        ? t('header.goodAfternoon', { name: firstName })
+        : ''
+  const expiringToday = products.filter(
+    (product) => product.status === 'Expires today',
+  ).length
+  const notifications: Array<{
+    icon: 'coral' | 'blue'
+    title: string
+    detail: string
+  }> = []
+  if (expiringToday > 0) {
+    notifications.push({
+      icon: 'coral',
+      title: t('header.expireToday', { count: expiringToday }),
+      detail: t('header.reviewLunch'),
+    })
+  }
+  if (currentShift) {
+    notifications.push({
+      icon: 'blue',
+      title: t('header.shiftOpen'),
+      detail: t('header.shiftOpenedAt', {
+        time: new Date(currentShift.openedAt).toLocaleTimeString('en', {
+          hour: 'numeric',
+          minute: '2-digit',
+        }),
+      }),
+    })
+  }
   const profileRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     if (!profileOpen) return
@@ -99,8 +141,10 @@ export default function Header({
           <Menu size={20} />
         </button>
         <div>
-          <span>{t(heading.eyebrow)}</span>
-          <h1>{t(heading.title)}</h1>
+          <span>{page === 'overview' ? todayLabel : t(heading.eyebrow)}</span>
+          <h1>
+            {page === 'overview' && greeting ? greeting : t(heading.title)}
+          </h1>
         </div>
       </div>
 
@@ -116,41 +160,39 @@ export default function Header({
           aria-label={t('header.notifications')}
         >
           <Bell size={19} />
-          <span />
+          {notifications.length > 0 && <span />}
         </button>
         {notificationOpen && (
           <div className="notification-popover glass-panel">
             <div className="popover-title">
               <strong>{t('header.notifications')}</strong>
-              <span>{t('header.newCount')}</span>
+              {notifications.length > 0 && (
+                <span>
+                  {t('header.newCount', { count: notifications.length })}
+                </span>
+              )}
             </div>
-            <button>
-              <i className="alert-icon coral">
-                <Store size={15} />
-              </i>
-              <span>
-                <b>{t('header.expireToday')}</b>
-                <small>{t('header.reviewLunch')}</small>
-              </span>
-            </button>
-            <button>
-              <i className="alert-icon blue">
-                <CirclePulse />
-              </i>
-              <span>
-                <b>{t('header.varianceResolved')}</b>
-                <small>{t('header.closingNote')}</small>
-              </span>
-            </button>
-            <button>
-              <i className="alert-icon green">
-                <CheckMini />
-              </i>
-              <span>
-                <b>{t('header.backupComplete')}</b>
-                <small>{t('header.backupTime')}</small>
-              </span>
-            </button>
+            {notifications.length === 0 && (
+              <div className="notification-empty">
+                <PackageCheck size={18} />
+                <span>{t('header.noNotifications')}</span>
+              </div>
+            )}
+            {notifications.map((item, index) => (
+              <button key={index}>
+                <i className={`alert-icon ${item.icon}`}>
+                  {item.icon === 'coral' ? (
+                    <PackageCheck size={15} />
+                  ) : (
+                    <Clock3 size={15} />
+                  )}
+                </i>
+                <span>
+                  <b>{item.title}</b>
+                  <small>{item.detail}</small>
+                </span>
+              </button>
+            ))}
             <div className="popover-footer">
               {t('header.notificationCenter')}
             </div>
@@ -181,7 +223,7 @@ export default function Header({
                 <span className="profile-avatar-lg">{initials}</span>
                 <div>
                   <strong>{employeeName}</strong>
-                  <small>{employee?.email || 'owner@atelier.local'}</small>
+                  <small>{employee?.email || '—'}</small>
                 </div>
               </div>
               <div className="profile-menu-items">
@@ -205,11 +247,4 @@ export default function Header({
       </div>
     </header>
   )
-}
-
-function CirclePulse() {
-  return <span className="circle-pulse" />
-}
-function CheckMini() {
-  return <span className="check-mini">✓</span>
 }

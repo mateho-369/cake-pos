@@ -13,6 +13,7 @@ import type {
   Category,
   Customer,
   Employee,
+  FreshnessReport,
   Order,
   Product,
   ReportSummary,
@@ -76,6 +77,14 @@ type AdminDataContextValue = {
     input: { type: 'refund' | 'void'; amount?: number },
   ) => Promise<Order>
   customerOrders: (id: number) => Promise<Order[]>
+  freshness: FreshnessReport | null
+  defaultShelfLifeDays: number
+  recordWaste: (input: {
+    productId: number
+    quantity: number
+    reason: string
+    note?: string
+  }) => Promise<void>
 }
 
 const AdminDataContext = createContext<AdminDataContextValue | null>(null)
@@ -96,6 +105,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const [shifts, setShifts] = useState<Shift[]>([])
   const [currentShift, setCurrentShift] = useState<Shift | null>(null)
   const [summary, setSummary] = useState<ReportSummary | null>(null)
+  const [freshness, setFreshness] = useState<FreshnessReport | null>(null)
+  const [defaultShelfLifeDays, setDefaultShelfLifeDays] = useState(3)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -109,6 +120,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       setShifts([])
       setCurrentShift(null)
       setSummary(null)
+      setFreshness(null)
       return
     }
     setLoading(true)
@@ -123,6 +135,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         nextShifts,
         nextCurrentShift,
         nextSummary,
+        nextFreshness,
+        nextRules,
       ] = await Promise.all([
         apiRequest<Product[]>('/api/products'),
         apiRequest<Category[]>('/api/categories'),
@@ -132,6 +146,10 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         apiRequest<Shift[]>('/api/shifts'),
         apiRequest<Shift | null>('/api/shifts/current'),
         apiRequest<ReportSummary>('/api/reports/summary'),
+        apiRequest<FreshnessReport>('/api/reports/freshness'),
+        apiRequest<{ defaultShelfLifeDays?: number }>(
+          '/api/settings/pos-rules',
+        ),
       ])
       setProducts(nextProducts)
       setCategories(nextCategories)
@@ -141,6 +159,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       setShifts(nextShifts)
       setCurrentShift(nextCurrentShift)
       setSummary(nextSummary)
+      setFreshness(nextFreshness)
+      setDefaultShelfLifeDays(nextRules.defaultShelfLifeDays ?? 3)
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : 'Unable to load admin data',
@@ -245,6 +265,21 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     (id: number) => apiRequest<Order[]>(`/api/customers/${id}/orders`),
     [],
   )
+  const recordWaste = useCallback(
+    async (input: {
+      productId: number
+      quantity: number
+      reason: string
+      note?: string
+    }) => {
+      await apiRequest('/api/inventory/waste', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      })
+      await refresh()
+    },
+    [refresh],
+  )
   const value = useMemo(
     () => ({
       products,
@@ -256,6 +291,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       currentShift,
       revenueData: summary?.revenueData || emptySummary.revenueData,
       summary,
+      freshness,
+      defaultShelfLifeDays,
       loading,
       error,
       refresh,
@@ -267,6 +304,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       updateOrder,
       correctOrder,
       customerOrders,
+      recordWaste,
     }),
     [
       products,
@@ -277,6 +315,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       shifts,
       currentShift,
       summary,
+      freshness,
+      defaultShelfLifeDays,
       loading,
       error,
       refresh,
@@ -288,6 +328,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       updateOrder,
       correctOrder,
       customerOrders,
+      recordWaste,
     ],
   )
   return (

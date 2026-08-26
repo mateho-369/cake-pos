@@ -18,10 +18,12 @@ export default function QuickAddModal({
   open,
   onClose,
   onAdd,
+  shelfLifeDays,
 }: {
   open: boolean
   onClose: () => void
   onAdd: (product: Product) => void
+  shelfLifeDays: number
 }) {
   const { t } = useTranslation()
   const { categories } = useSaleData()
@@ -76,6 +78,15 @@ export default function QuickAddModal({
       event.target.value = ''
     }
   }
+  const effectiveShelfLife = Math.max(
+    1,
+    madeToday ? shelfLifeDays : shelfLifeDays - 1,
+  )
+  const bestBefore = new Date(Date.now() + effectiveShelfLife * 86_400_000)
+  const bestBeforeLabel = bestBefore.toLocaleDateString('en', {
+    month: 'short',
+    day: 'numeric',
+  })
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
     onAdd({
@@ -87,9 +98,7 @@ export default function QuickAddModal({
       imagePosition: '0% 0%',
       imageUrl: photo || undefined,
       freshness: 'fresh',
-      bestBefore: new Date(Date.now() + (madeToday ? 3 : 2) * 86_400_000)
-        .toISOString()
-        .slice(0, 10),
+      bestBefore: bestBefore.toISOString().slice(0, 10),
     })
   }
   return (
@@ -196,9 +205,7 @@ export default function QuickAddModal({
               <span>
                 <strong>{t('sale.madeToday')}</strong>
                 <small>
-                  {madeToday
-                    ? t('sale.bestBeforeAuto2')
-                    : t('sale.bestBefore22')}
+                  {t('sale.bestBeforeAuto', { date: bestBeforeLabel })}
                 </small>
               </span>
             </span>

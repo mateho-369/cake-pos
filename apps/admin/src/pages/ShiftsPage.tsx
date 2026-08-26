@@ -22,6 +22,10 @@ export default function ShiftsPage({
   const { t } = useTranslation()
   const { shifts, currentShift, summary, refresh } = useAdminData()
   const qrRevenueCents = summary?.qrRevenueCents ?? 0
+  const qrPaymentCount = summary?.qrPaymentCount ?? 0
+  const openShiftCount = shifts.filter(
+    (shift) => shift.status === 'Open',
+  ).length
   const [closeShiftOpen, setCloseShiftOpen] = useState(false)
   const [closingCash, setClosingCash] = useState('')
   const [saving, setSaving] = useState(false)
@@ -64,7 +68,12 @@ export default function ShiftsPage({
           <div className="large-shift-time">
             <strong>{formatShiftStart(currentShift)}</strong>
             <span>
-              <Clock3 size={15} /> {t('shifts.openedBy')}
+              <Clock3 size={15} />{' '}
+              {currentShift
+                ? t('shifts.openedBy', {
+                    name: currentShift.openedBy || '—',
+                  })
+                : t('shifts.noActive')}
             </span>
           </div>
           <div className="shift-staff-row">
@@ -72,7 +81,9 @@ export default function ShiftsPage({
               {initials(currentShift?.openedBy || '')}
             </span>
             <div>
-              <strong>{t('shifts.cashiersActive')}</strong>
+              <strong>
+                {t('shifts.cashiersActive', { count: openShiftCount })}
+              </strong>
               <span>{currentShift?.openedBy || t('shifts.noActive')}</span>
             </div>
           </div>
@@ -106,14 +117,6 @@ export default function ShiftsPage({
                 +${(currentExpectedUsd - currentOpeningUsd).toFixed(2)}
               </strong>
             </div>
-            <div>
-              <span>{t('shifts.cashRefunds')}</span>
-              <strong>$0.00</strong>
-            </div>
-            <div>
-              <span>{t('shifts.paidOut')}</span>
-              <strong>$0.00</strong>
-            </div>
           </div>
         </article>
         <article className="glass-panel payment-reconcile-card">
@@ -131,13 +134,28 @@ export default function ShiftsPage({
           </strong>
           <div className="reconcile-progress">
             <span>
-              <i style={{ width: '100%' }} />
+              <i
+                style={{
+                  width: qrPaymentCount > 0 ? '100%' : '0%',
+                }}
+              />
             </span>
-            <small>{t('shifts.paymentsConfirmed')}</small>
+            <small>
+              {qrPaymentCount > 0
+                ? t('shifts.paymentsConfirmed', {
+                    count: qrPaymentCount,
+                    total: qrPaymentCount,
+                  })
+                : t('shifts.noPayments')}
+            </small>
           </div>
           <div className="success-note">
             <CheckCircle2 size={16} />
-            <span>{t('shifts.noMismatches')}</span>
+            <span>
+              {qrPaymentCount > 0
+                ? t('shifts.noMismatches')
+                : t('shifts.noPayments')}
+            </span>
           </div>
         </article>
       </section>

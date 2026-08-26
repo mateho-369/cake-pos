@@ -63,18 +63,6 @@ class ProductResource extends JsonResource
 
     private function freshnessStatus(): string
     {
-        if (!$this->best_before) {
-            return 'Fresh';
-        }
-
-        $daysUntilExpiry = (int) now()
-            ->startOfDay()
-            ->diffInDays($this->best_before, false);
-
-        return match ($daysUntilExpiry) {
-            0 => 'Expires today',
-            1 => '1 day left',
-            default => $this->best_before->isPast() ? 'Expired' : 'Fresh',
-        };
+        return $this->resource->freshnessStatus();
     }
 }

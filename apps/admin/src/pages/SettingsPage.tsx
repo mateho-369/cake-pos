@@ -15,6 +15,8 @@ import {
   Store,
   TimerReset,
 } from 'lucide-react'
+import type { Order } from '../data'
+import { useAdminData } from '../lib/data'
 import { apiRequest, getApiUrl } from '../lib/api'
 import { useTranslation } from '../lib/i18n'
 import BroadcastSettings from './BroadcastSettings'
@@ -38,10 +40,28 @@ type ReceiptConfig = {
 const defaultReceipt: ReceiptConfig = {
   paperSize: '80mm',
   language: 'en',
-  businessName: 'Atelier Cake Shop',
-  address: 'Street 63, BKK1, Phnom Penh',
+  businessName: '',
+  address: '',
   logoUrl: '',
-  footerMessage: 'Thank you for your order!',
+  footerMessage: '',
+}
+type BusinessProfile = {
+  businessName: string
+  locationName: string
+  address: string
+  phone: string
+  timezone: string
+  primaryCurrency: 'USD' | 'KHR'
+  secondaryCurrency: 'none' | 'USD' | 'KHR'
+}
+const defaultBusinessProfile: BusinessProfile = {
+  businessName: '',
+  locationName: '',
+  address: '',
+  phone: '',
+  timezone: 'Asia/Phnom_Penh',
+  primaryCurrency: 'USD',
+  secondaryCurrency: 'none',
 }
 export default function SettingsPage({
   onToast,
@@ -49,8 +69,12 @@ export default function SettingsPage({
   onToast: (message: string) => void
 }) {
   const { t } = useTranslation()
+  const { orders } = useAdminData()
   const [tab, setTab] = useState('business')
   const [receipt, setReceipt] = useState<ReceiptConfig>(defaultReceipt)
+  const [business, setBusiness] = useState<BusinessProfile>(
+    defaultBusinessProfile,
+  )
   const [maxCashierDiscountPercent, setMaxCashierDiscountPercent] = useState(10)
   const [khqrImageUrl, setKhqrImageUrl] = useState('')
   const [exchangeRateKhrPerUsd, setExchangeRateKhrPerUsd] = useState(4100)
@@ -58,10 +82,15 @@ export default function SettingsPage({
   const [shiftClosingPolicy, setShiftClosingPolicy] =
     useState('opener_or_admin')
   const [staffNotificationChatId, setStaffNotificationChatId] = useState('')
+  const [defaultShelfLifeDays, setDefaultShelfLifeDays] = useState(3)
+  const [warningDays, setWarningDays] = useState(1)
   useEffect(() => {
     void Promise.all([
       apiRequest<ReceiptConfig>('/api/settings/receipt-template').then(
         setReceipt,
+      ),
+      apiRequest<BusinessProfile>('/api/settings/business-profile').then(
+        (value) => setBusiness({ ...defaultBusinessProfile, ...value }),
       ),
       apiRequest<{
         maxCashierDiscountPercent: number
@@ -70,6 +99,8 @@ export default function SettingsPage({
         khrRoundingIncrement?: number
         shiftClosingPolicy?: string
         staffNotificationChatId?: string
+        defaultShelfLifeDays?: number
+        warningDays?: number
       }>('/api/settings/pos-rules').then((value) => {
         setMaxCashierDiscountPercent(value.maxCashierDiscountPercent)
         setKhqrImageUrl(value.khqrImageUrl || '')
@@ -77,12 +108,21 @@ export default function SettingsPage({
         setKhrRoundingIncrement(value.khrRoundingIncrement ?? 100)
         setShiftClosingPolicy(value.shiftClosingPolicy ?? 'opener_or_admin')
         setStaffNotificationChatId(value.staffNotificationChatId ?? '')
+        setDefaultShelfLifeDays(value.defaultShelfLifeDays ?? 3)
+        setWarningDays(value.warningDays ?? 1)
       }),
     ]).catch(() => undefined)
   }, [])
   const save = async (event: React.FormEvent) => {
     event.preventDefault()
     try {
+      if (tab === 'business')
+        setBusiness(
+          await apiRequest<BusinessProfile>('/api/settings/business-profile', {
+            method: 'PUT',
+            body: JSON.stringify(business),
+          }),
+        )
       if (tab === 'receipts')
         setReceipt(
           await apiRequest<ReceiptConfig>('/api/settings/receipt-template', {
@@ -107,10 +147,27 @@ export default function SettingsPage({
             khrRoundingIncrement,
             shiftClosingPolicy,
             staffNotificationChatId,
+            defaultShelfLifeDays,
+            warningDays,
           }),
         })
         setMaxCashierDiscountPercent(result.maxCashierDiscountPercent)
         setKhqrImageUrl(result.khqrImageUrl || '')
+      }
+      if (tab === 'freshness') {
+        await apiRequest('/api/settings/pos-rules', {
+          method: 'PUT',
+          body: JSON.stringify({
+            maxCashierDiscountPercent,
+            khqrImageUrl,
+            exchangeRateKhrPerUsd,
+            khrRoundingIncrement,
+            shiftClosingPolicy,
+            staffNotificationChatId,
+            defaultShelfLifeDays,
+            warningDays,
+          }),
+        })
       }
       onToast(t('settings.settingsSaved'))
     } catch (reason) {
@@ -140,7 +197,9 @@ export default function SettingsPage({
         })}
       </aside>
       <form className="glass-panel settings-content" onSubmit={save}>
-        {tab === 'business' && <BusinessSettings />}
+        {tab === 'business' && (
+          <BusinessSettings value={business} onChange={setBusiness} />
+        )}
         {tab === 'broadcast' && <BroadcastSettings onToast={onToast} />}
         {tab === 'payments' && (
           <PaymentSettings
@@ -160,9 +219,22 @@ export default function SettingsPage({
           />
         )}
         {tab === 'receipts' && (
-          <ReceiptSettings value={receipt} onChange={setReceipt} />
+          <ReceiptSettings
+            value={receipt}
+            onChange={setReceipt}
+            latestOrder={
+              orders.find((order) => order.status === 'Completed') ?? null
+            }
+          />
         )}
-        {tab === 'freshness' && <FreshnessSettings />}
+        {tab === 'freshness' && (
+          <FreshnessSettings
+            shelfLifeDays={defaultShelfLifeDays}
+            onShelfLifeDays={setDefaultShelfLifeDays}
+            warningDays={warningDays}
+            onWarningDays={setWarningDays}
+          />
+        )}
         {tab === 'security' && <SecuritySettings onToast={onToast} />}
         <div className="settings-save-bar">
           <span>{t('settings.applyBoth')}</span>
@@ -194,8 +266,18 @@ function SettingHeader({
     </div>
   )
 }
-function BusinessSettings() {
+function BusinessSettings({
+  value,
+  onChange,
+}: {
+  value: BusinessProfile
+  onChange: (value: BusinessProfile) => void
+}) {
   const { t } = useTranslation()
+  const set = <K extends keyof BusinessProfile>(
+    key: K,
+    next: BusinessProfile[K],
+  ) => onChange({ ...value, [key]: next })
   return (
     <>
       <SettingHeader
@@ -209,24 +291,41 @@ function BusinessSettings() {
         <div className="form-grid two-columns">
           <label>
             <span>{t('settings.businessName')}</span>
-            <input defaultValue="Atelier Cake Shop" />
+            <input
+              value={value.businessName}
+              onChange={(event) => set('businessName', event.target.value)}
+              required
+            />
           </label>
           <label>
             <span>{t('settings.locationName')}</span>
-            <input defaultValue="BKK1 Flagship" />
+            <input
+              value={value.locationName}
+              onChange={(event) => set('locationName', event.target.value)}
+            />
           </label>
           <label className="span-two">
             <span>{t('settings.address')}</span>
-            <input defaultValue="Street 63, BKK1, Phnom Penh" />
+            <input
+              value={value.address}
+              onChange={(event) => set('address', event.target.value)}
+            />
           </label>
           <label>
             <span>{t('settings.phone')}</span>
-            <input defaultValue="+855 12 345 678" />
+            <input
+              value={value.phone}
+              onChange={(event) => set('phone', event.target.value)}
+              placeholder="+855 …"
+            />
           </label>
           <label>
             <span>{t('settings.timezone')}</span>
-            <select defaultValue="Asia/Phnom_Penh">
-              <option>Asia/Phnom_Penh</option>
+            <select
+              value={value.timezone}
+              onChange={(event) => set('timezone', event.target.value)}
+            >
+              <option value="Asia/Phnom_Penh">Asia/Phnom_Penh</option>
             </select>
           </label>
         </div>
@@ -236,16 +335,30 @@ function BusinessSettings() {
         <div className="form-grid two-columns">
           <label>
             <span>{t('settings.currency')}</span>
-            <select>
-              <option>{t('settings.usd')}</option>
-              <option>{t('settings.khr')}</option>
+            <select
+              value={value.primaryCurrency}
+              onChange={(event) =>
+                set('primaryCurrency', event.target.value as 'USD' | 'KHR')
+              }
+            >
+              <option value="USD">{t('settings.usd')}</option>
+              <option value="KHR">{t('settings.khr')}</option>
             </select>
           </label>
           <label>
             <span>{t('settings.secondary')}</span>
-            <select>
-              <option>{t('settings.conversion')}</option>
-              <option>{t('settings.none')}</option>
+            <select
+              value={value.secondaryCurrency}
+              onChange={(event) =>
+                set(
+                  'secondaryCurrency',
+                  event.target.value as 'none' | 'USD' | 'KHR',
+                )
+              }
+            >
+              <option value="none">{t('settings.none')}</option>
+              <option value="USD">{t('settings.usd')}</option>
+              <option value="KHR">{t('settings.khr')}</option>
             </select>
           </label>
         </div>
@@ -455,9 +568,11 @@ function PaymentSettings({
 function ReceiptSettings({
   value,
   onChange,
+  latestOrder,
 }: {
   value: ReceiptConfig
   onChange: (value: ReceiptConfig) => void
+  latestOrder: Order | null
 }) {
   const { t } = useTranslation()
   const [uploadingLogo, setUploadingLogo] = useState(false)
@@ -597,12 +712,19 @@ function ReceiptSettings({
             </div>
           </div>
         </div>
-        <ReceiptPreview value={value} />
+        <ReceiptPreview value={value} latestOrder={latestOrder} />
       </div>
     </>
   )
 }
-function ReceiptPreview({ value }: { value: ReceiptConfig }) {
+function ReceiptPreview({
+  value,
+  latestOrder,
+}: {
+  value: ReceiptConfig
+  latestOrder: Order | null
+}) {
+  const { t } = useTranslation()
   const km = value.language === 'km'
   return (
     <aside className={`receipt-live-preview paper-${value.paperSize}`}>
@@ -612,24 +734,41 @@ function ReceiptPreview({ value }: { value: ReceiptConfig }) {
         <h3>{value.businessName || 'Business name'}</h3>
         <p>{value.address}</p>
         <h4>{km ? 'បង្កាន់ដៃ' : 'RECEIPT'}</h4>
-        <section>
-          <span>{km ? 'ការបញ្ជាទិញ' : 'Order'}</span>
-          <b>CS-1052</b>
-          <span>Strawberry Cloud × 1</span>
-          <b>$28.00</b>
-          <span>Americano × 2</span>
-          <b>$5.00</b>
-        </section>
-        <strong>
-          <span>{km ? 'សរុប' : 'TOTAL'}</span>
-          <b>$33.00</b>
-        </strong>
+        {latestOrder ? (
+          <>
+            <section>
+              <span>{km ? 'ការបញ្ជាទិញ' : 'Order'}</span>
+              <b>{latestOrder.id}</b>
+              {latestOrder.detail.map((item) => (
+                <span key={item}>{item}</span>
+              ))}
+            </section>
+            <strong>
+              <span>{km ? 'សរុប' : 'TOTAL'}</span>
+              <b>${latestOrder.total.toFixed(2)}</b>
+            </strong>
+          </>
+        ) : (
+          <p className="receipt-preview-empty">
+            {t('settings.receiptPreviewEmpty')}
+          </p>
+        )}
         <footer>{value.footerMessage}</footer>
       </div>
     </aside>
   )
 }
-function FreshnessSettings() {
+function FreshnessSettings({
+  shelfLifeDays,
+  onShelfLifeDays,
+  warningDays,
+  onWarningDays,
+}: {
+  shelfLifeDays: number
+  onShelfLifeDays: (value: number) => void
+  warningDays: number
+  onWarningDays: (value: number) => void
+}) {
   const { t } = useTranslation()
   const fields = [
     ['highlightNear', true],
@@ -651,14 +790,28 @@ function FreshnessSettings() {
           <label>
             <span>{t('settings.shelfLife')}</span>
             <div className="suffix-input">
-              <input type="number" defaultValue="3" min="1" />
+              <input
+                type="number"
+                min="1"
+                max="30"
+                value={shelfLifeDays}
+                onChange={(event) =>
+                  onShelfLifeDays(Number(event.target.value))
+                }
+              />
               <span>{t('common.days')}</span>
             </div>
           </label>
           <label>
             <span>{t('settings.warningBegins')}</span>
             <div className="suffix-input">
-              <input type="number" defaultValue="1" min="0" />
+              <input
+                type="number"
+                min="0"
+                max="7"
+                value={warningDays}
+                onChange={(event) => onWarningDays(Number(event.target.value))}
+              />
               <span>{t('settings.dayBefore')}</span>
             </div>
           </label>

@@ -15,6 +15,7 @@ use App\Http\Controllers\{
     ShiftController,
     TelegramController,
     UploadController,
+    WasteController,
 };
 use Illuminate\Support\Facades\Route;
 
@@ -168,6 +169,14 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         ReportController::class,
         'waste',
     ])->middleware('admin');
+    Route::get('/reports/freshness', [
+        ReportController::class,
+        'freshness',
+    ])->middleware('admin');
+    Route::post('/inventory/waste', [
+        WasteController::class,
+        'store',
+    ])->middleware('admin');
     Route::get('/reports/customers', [
         ReportController::class,
         'customers',
@@ -190,6 +199,14 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::put('/settings/receipt-template', [
         SettingsController::class,
         'updateReceiptTemplate',
+    ])->middleware('admin');
+    Route::get('/settings/business-profile', [
+        SettingsController::class,
+        'businessProfile',
+    ]);
+    Route::put('/settings/business-profile', [
+        SettingsController::class,
+        'updateBusinessProfile',
     ])->middleware('admin');
     Route::get('/settings/pos-rules', [SettingsController::class, 'posRules']);
     Route::put('/settings/pos-rules', [

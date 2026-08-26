@@ -123,6 +123,8 @@ export type Shift = {
   openedByEmployeeId?: number
   closedByEmployeeId?: number
   openedBy?: string
+  cashSalesUsdCents?: number
+  cashSalesKhr?: number
 }
 
 export type RevenuePoint = { day: string; value: number }
@@ -147,6 +149,41 @@ export type ReportSummary = {
   averageOrderValueCents?: number
   cashRevenueCents?: number
   qrRevenueCents?: number
+  yesterdaySalesTotal?: number
+  yesterdayOrdersCount?: number
+  itemsSold?: number
+  qrPaymentCount?: number
+  ordersData?: RevenuePoint[]
   revenueData: RevenuePoint[]
   topProducts: TopProduct[]
+}
+
+export type WasteEvent = {
+  id: number
+  productName: string
+  category: string | null
+  quantity: number
+  reason: string
+  retailValue: number
+  recordedAt: string
+  recordedBy: string | null
+}
+
+export type FreshnessReport = {
+  totalUnits: number
+  freshUnits: number
+  freshValueCents: number
+  freshPercent: number
+  expiresTodayUnits: number
+  expiresTodayValueCents: number
+  expiresTomorrowUnits: number
+  expiresTomorrowValueCents: number
+  expiredUnits: number
+  expiredValueCents: number
+  wasteThisWeekCents: number
+  wasteLastWeekCents: number
+  wasteDeltaPercent: number | null
+  dailyWaste: RevenuePoint[]
+  events: WasteEvent[]
+  lastRecordedAt: string | null
 }

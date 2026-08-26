@@ -110,7 +110,7 @@ const commandItems: {
 export default function App() {
   const { token } = useStaffAuth()
   const { t } = useTranslation()
-  const { createProduct, categories } = useAdminData()
+  const { createProduct, categories, defaultShelfLifeDays } = useAdminData()
   const [page, setPage] = useState<PageId>('overview')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -171,7 +171,14 @@ export default function App() {
       ),
       bestBefore: String(
         form.get('bestBefore') ||
-          new Date(Date.now() + (madeToday ? 3 : 2) * 86_400_000)
+          new Date(
+            Date.now() +
+              Math.max(
+                1,
+                madeToday ? defaultShelfLifeDays : defaultShelfLifeDays - 1,
+              ) *
+                86_400_000,
+          )
             .toISOString()
             .slice(0, 10),
       ),
@@ -239,6 +246,7 @@ export default function App() {
         }}
         onSubmit={addProduct}
         categories={categories}
+        shelfLifeDays={defaultShelfLifeDays}
         photoPreview={photoPreview}
         setPhotoPreview={setPhotoPreview}
       />
@@ -272,6 +280,7 @@ function AddCakeModal({
   onClose,
   onSubmit,
   categories,
+  shelfLifeDays,
   photoPreview,
   setPhotoPreview,
 }: {
@@ -283,12 +292,21 @@ function AddCakeModal({
     madeToday: boolean,
   ) => void
   categories: Array<{ name: string }>
+  shelfLifeDays: number
   photoPreview: string | null
   setPhotoPreview: (value: string | null) => void
 }) {
   const { t } = useTranslation()
   const [category, setCategory] = useState(categories[0]?.name || 'Signature')
   const [madeToday, setMadeToday] = useState(true)
+  const bestBeforeDate = new Date(
+    Date.now() +
+      Math.max(1, madeToday ? shelfLifeDays : shelfLifeDays - 1) * 86_400_000,
+  )
+  const bestBeforeLabel = bestBeforeDate.toLocaleDateString('en', {
+    month: 'short',
+    day: 'numeric',
+  })
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const onPhoto = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -414,7 +432,7 @@ function AddCakeModal({
                 <strong>{t('sale.madeToday')}</strong>
                 <small>
                   {madeToday
-                    ? t('sale.bestBeforeAuto')
+                    ? t('sale.bestBeforeAuto', { date: bestBeforeLabel })
                     : t('sale.chooseProduction')}
                 </small>
               </span>

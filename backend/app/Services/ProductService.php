@@ -1,6 +1,6 @@
 <?php
 namespace App\Services;
-use App\Models\{Category, Product, ProductImage};
+use App\Models\{Category, Product, ProductImage, Setting};
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -58,7 +58,13 @@ class ProductService
         $bestBefore =
             $input['bestBefore'] ??
             ($existing?->best_before?->format('Y-m-d') ??
-                now()->addDays(3)->toDateString());
+                now()
+                    ->addDays(
+                        (int) (Setting::find('pos_rules')?->value_json[
+                            'defaultShelfLifeDays'
+                        ] ?? 3),
+                    )
+                    ->toDateString());
         $images = $this->normalizedImages($input['images'] ?? null, $existing);
         $primaryImageUrl =
             $input['imageUrl'] ?? ($images[0]['url'] ?? $existing?->image_url);

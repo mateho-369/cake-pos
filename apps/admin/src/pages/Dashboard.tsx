@@ -10,7 +10,6 @@ import {
   ReceiptText,
   ScanLine,
   ShoppingBag,
-  Sparkles,
   WalletCards,
 } from 'lucide-react'
 import { type PageId } from '../data'
@@ -50,6 +49,7 @@ export default function Dashboard({
   )
   const cashRevenue = (summary?.cashRevenueCents ?? 0) / 100
   const qrRevenue = (summary?.qrRevenueCents ?? 0) / 100
+  const qrPaymentCount = summary?.qrPaymentCount ?? 0
   const paymentTotal = cashRevenue + qrRevenue
   const cashPercent = paymentTotal ? (cashRevenue / paymentTotal) * 100 : 0
   const qrPercent = paymentTotal ? (qrRevenue / paymentTotal) * 100 : 0
@@ -60,6 +60,44 @@ export default function Dashboard({
     (sum, product) => sum + product.stock * product.price,
     0,
   )
+  const atRiskUnits = freshnessRisk.reduce(
+    (sum, product) => sum + product.stock,
+    0,
+  )
+  const yesterdaySales = summary?.yesterdaySalesTotal ?? 0
+  const itemsPerBasket =
+    completedOrders > 0 && summary?.itemsSold
+      ? summary.itemsSold / completedOrders
+      : 0
+  // Daily pace: today's completed orders vs the average of the earlier days in
+  // the selected window. Both values come from the real per-day series.
+  const ordersData = summary?.ordersData ?? []
+  const priorDays = ordersData.slice(0, -1)
+  const priorAverage = priorDays.length
+    ? priorDays.reduce((sum, point) => sum + point.value, 0) / priorDays.length
+    : null
+  const pace =
+    priorAverage === null
+      ? null
+      : Math.round((completedOrders - priorAverage) * 10) / 10
+  // Percentage change of the last day vs the previous day (used for 7/30-day
+  // periods, where "vs yesterday" is not meaningful).
+  const lastDayChange =
+    revenueData.length >= 2 && revenueData[revenueData.length - 2].value
+      ? ((revenueData[revenueData.length - 1].value -
+          revenueData[revenueData.length - 2].value) /
+          revenueData[revenueData.length - 2].value) *
+        100
+      : null
+  const shiftOpenedAt = currentShift?.openedAt
+    ? new Date(currentShift.openedAt)
+    : null
+  const shiftDuration = shiftOpenedAt
+    ? formatDuration(Date.now() - shiftOpenedAt.getTime())
+    : null
+  const shiftOpeningFloat = currentShift
+    ? (currentShift.openingCashUsdCents ?? 0) / 100
+    : 0
   const money = (value: number) =>
     `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   type PeriodId = 'today' | 'seven_days' | 'thirty_days'
@@ -92,7 +130,7 @@ export default function Dashboard({
     link.download = 'atelier-daily-summary.csv'
     link.click()
     URL.revokeObjectURL(link.href)
-    onToast(t('header.backupComplete'))
+    onToast(t('dashboard.exported'))
   }
   return (
     <div className="page-content dashboard-page">
@@ -121,28 +159,70 @@ export default function Dashboard({
         <MetricCard
           label={t('dashboard.netSales')}
           value={money(netRevenue)}
-          note={t('dashboard.yesterday')}
+          compare={
+            period === 'today'
+              ? yesterdaySales > 0
+                ? `$${yesterdaySales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                : undefined
+              : lastDayChange !== null
+                ? `${lastDayChange >= 0 ? '+' : ''}${lastDayChange.toFixed(1)}%`
+                : undefined
+          }
+          positive={
+            period === 'today'
+              ? yesterdaySales > 0
+                ? netRevenue >= yesterdaySales
+                : undefined
+              : lastDayChange === null
+                ? undefined
+                : lastDayChange >= 0
+          }
+          note={
+            period === 'today'
+              ? t('dashboard.yesterday')
+              : t('dashboard.vsPreviousDay')
+          }
           icon={<WalletCards size={19} />}
           tone="pink"
         />
         <MetricCard
           label={t('dashboard.orders')}
           value={String(completedOrders)}
-          note={t('dashboard.dailyPace')}
+          compare={
+            pace === null || pace === 0 ? undefined : `${Math.abs(pace)}`
+          }
+          positive={pace === null ? undefined : pace > 0}
+          note={
+            pace === null
+              ? t('dashboard.paceUnknown')
+              : pace === 0
+                ? t('dashboard.atPace')
+                : pace > 0
+                  ? t('dashboard.abovePace')
+                  : t('dashboard.belowPace')
+          }
           icon={<ReceiptText size={19} />}
           tone="blue"
         />
         <MetricCard
           label={t('dashboard.averageOrder')}
           value={money(averageOrder)}
-          note={t('dashboard.basket')}
+          note={
+            completedOrders > 0
+              ? t('dashboard.basket', {
+                  count: itemsPerBasket.toFixed(1),
+                })
+              : t('dashboard.paceUnknown')
+          }
           icon={<ShoppingBag size={19} />}
           tone="violet"
         />
         <MetricCard
           label={t('dashboard.freshnessRisk')}
           value={`${freshnessRisk.length} units`}
-          note={t('dashboard.riskValue')}
+          note={t('dashboard.riskValue', {
+            value: atRiskValue.toFixed(2),
+          })}
           icon={<CircleAlert size={19} />}
           tone="amber"
           alert
@@ -166,7 +246,7 @@ export default function Dashboard({
           <RevenueChart />
           <div className="chart-summary">
             <div>
-              <span>{t('dashboard.sevenDayAverage')}</span>
+              <span>{t('dashboard.periodAverage')}</span>
               <strong>{money(chartAverage)}</strong>
             </div>
             <div>
@@ -174,8 +254,14 @@ export default function Dashboard({
               <strong>{money(highestChart)}</strong>
             </div>
             <div>
-              <span>{t('dashboard.forecastToday')}</span>
-              <strong>{money(highestChart || chartAverage)}</strong>
+              <span>{t('dashboard.latestDay')}</span>
+              <strong>
+                {money(
+                  revenueData.length
+                    ? revenueData[revenueData.length - 1].value
+                    : 0,
+                )}
+              </strong>
             </div>
           </div>
         </div>
@@ -225,7 +311,11 @@ export default function Dashboard({
               </div>
               <div>
                 <strong>{t('dashboard.valueAtRisk')}</strong>
-                <span>{t('dashboard.moveUnits')}</span>
+                <span>
+                  {atRiskUnits > 0
+                    ? t('dashboard.moveUnits', { count: atRiskUnits })
+                    : t('dashboard.noUnitsAtRisk')}
+                </span>
               </div>
             </div>
           </div>
@@ -294,7 +384,15 @@ export default function Dashboard({
             </div>
           </div>
           <div className="donut-wrap">
-            <div className="donut-chart">
+            <div
+              className="donut-chart"
+              style={{
+                background:
+                  paymentTotal > 0
+                    ? `conic-gradient(var(--pink) 0 ${qrPercent}%, var(--blue) ${qrPercent}% 100%)`
+                    : '#eee8eb',
+              }}
+            >
               <div>
                 <strong>{money(paymentTotal || 0)}</strong>
                 <span>{t('dashboard.processed')}</span>
@@ -319,7 +417,13 @@ export default function Dashboard({
             <ScanLine size={17} />
             <div>
               <strong>{t('dashboard.settlementOnTrack')}</strong>
-              <span>{t('dashboard.paymentsConfirmed')}</span>
+              <span>
+                {qrPaymentCount > 0
+                  ? t('dashboard.paymentsConfirmed', {
+                      count: qrPaymentCount,
+                    })
+                  : t('dashboard.noQrPayments')}
+              </span>
             </div>
           </div>
         </div>
@@ -385,9 +489,20 @@ export default function Dashboard({
           <div className="shift-time">
             <Clock3 size={19} />
             <div>
-              <strong>{t('dashboard.shiftDuration')}</strong>
+              <strong>
+                {currentShift && shiftDuration
+                  ? shiftDuration
+                  : t('shifts.noActive')}
+              </strong>
               <span>
-                {currentShift ? t('dashboard.openedAt') : t('shifts.noActive')}
+                {currentShift && shiftOpenedAt
+                  ? t('dashboard.openedAtTime', {
+                      time: shiftOpenedAt.toLocaleTimeString('en', {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      }),
+                    })
+                  : t('shifts.noActive')}
               </span>
             </div>
           </div>
@@ -417,7 +532,11 @@ export default function Dashboard({
                       currentShift.openingCashUsdCents) / 100
                   ).toFixed(2)}
                 </strong>
-                <small>{t('dashboard.openingFloat')}</small>
+                <small>
+                  {t('dashboard.openingFloat', {
+                    amount: shiftOpeningFloat.toFixed(2),
+                  })}
+                </small>
               </div>
             </>
           ) : (
@@ -496,6 +615,12 @@ function initialsOf(name: string) {
     .slice(0, 2)
     .join('')
     .toUpperCase()
+}
+function formatDuration(milliseconds: number) {
+  const minutes = Math.max(0, Math.floor(milliseconds / 60000))
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  return hours > 0 ? `${hours}h ${rest}m` : `${rest}m`
 }
 function ProductThumb({ position }: { position: string }) {
   return (

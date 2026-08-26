@@ -67,6 +67,8 @@ class OrderService
                             ? 'Cash'
                             : 'KHQR',
                     'status' => 'Completed',
+                    'payment_status' => 'paid',
+                    'fulfillment_status' => 'Completed',
                     'detail_json' => collect($lines)
                         ->map(fn($line) => $line[0]->name . ' × ' . $line[1])
                         ->all(),

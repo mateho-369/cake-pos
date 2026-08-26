@@ -40,6 +40,13 @@ class PosRulesRequest extends FormRequest
                 'string',
                 'max:64',
             ],
+            'defaultShelfLifeDays' => [
+                'sometimes',
+                'integer',
+                'min:1',
+                'max:30',
+            ],
+            'warningDays' => ['sometimes', 'integer', 'min:0', 'max:7'],
         ];
     }
 }

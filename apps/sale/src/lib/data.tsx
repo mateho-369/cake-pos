@@ -57,6 +57,7 @@ type SaleDataContextValue = {
   orders: SaleOrder[]
   categories: string[]
   nextOrderNumber: number
+  defaultShelfLifeDays: number
   loading: boolean
   error: string | null
   refresh: () => Promise<void>
@@ -106,6 +107,7 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
   const [orders, setOrders] = useState<SaleOrder[]>([])
   const [categoryNames, setCategoryNames] = useState<string[]>([])
   const [nextOrderNumber, setNextOrderNumber] = useState(1)
+  const [defaultShelfLifeDays, setDefaultShelfLifeDays] = useState(3)
   const [currentShift, setCurrentShift] = useState<
     ShiftResult | null | undefined
   >(undefined)
@@ -123,13 +125,17 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     setError(null)
     try {
-      const [apiProducts, apiCategories, apiOrders, apiShift] =
+      const [apiProducts, apiCategories, apiOrders, apiShift, apiRules] =
         await Promise.all([
           apiRequest<ApiProduct[]>('/api/products'),
           apiRequest<SaleCategory[]>('/api/categories'),
           apiRequest<SaleOrder[]>('/api/orders'),
           apiRequest<ShiftResult | null>('/api/shifts/current'),
+          apiRequest<{ defaultShelfLifeDays?: number }>(
+            '/api/settings/pos-rules',
+          ),
         ])
+      setDefaultShelfLifeDays(apiRules.defaultShelfLifeDays ?? 3)
       const mappedProducts = apiProducts
         .filter((product) => product.active)
         .map(mapProduct)
@@ -232,6 +238,7 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
       orders,
       categories: ['All', ...categoryNames],
       nextOrderNumber,
+      defaultShelfLifeDays,
       loading,
       error,
       refresh,
@@ -246,6 +253,7 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
       orders,
       categoryNames,
       nextOrderNumber,
+      defaultShelfLifeDays,
       loading,
       error,
       refresh,
