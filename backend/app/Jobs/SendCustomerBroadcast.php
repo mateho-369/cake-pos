@@ -3,10 +3,13 @@ namespace App\Jobs;
 use App\Models\{Broadcast, Customer};
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Bus\Queueable;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
 class SendCustomerBroadcast implements ShouldQueue
 {
-    use Queueable;
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     public function __construct(public int $broadcastId) {}
     public function handle(): void
     {
