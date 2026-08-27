@@ -4,7 +4,6 @@ WORKDIR /app
 COPY composer.json ./
 RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --no-scripts --optimize-autoloader
 ARG CACHEBUST=1
-ARG CACHEBUST=1
 COPY . .
 RUN composer dump-autoload --no-dev --classmap-authoritative --no-interaction
 
