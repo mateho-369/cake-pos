@@ -5,6 +5,9 @@ on:
     paths:
       - 'backend/**'
   workflow_dispatch: {}
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
 jobs:
   deploy:
     runs-on: ubuntu-latest
