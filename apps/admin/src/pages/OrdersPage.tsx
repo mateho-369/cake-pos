@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  AlertTriangle,
   Banknote,
   FileSpreadsheet,
   FileText,
   MoreHorizontal,
+  Phone,
   Printer,
   ReceiptText,
   ScanLine,
@@ -16,12 +18,300 @@ import {
 import { type Order } from '../data'
 import { useTranslation } from '../lib/i18n'
 import { useAdminData } from '../lib/data'
+import { apiRequest } from '../lib/api'
 import { printReceipt } from '../lib/receipt'
 import {
   exportOrdersExcel,
   exportSummaryWord,
   ordersInRange,
 } from '../lib/exports'
+
+/**
+ * Live "pending customer orders" panel: Telegram self-orders that are held
+ * (unpaid) until the customer arrives. Polls every 15 s so new orders appear
+ * without any manual refresh.
+ */
+function PendingCustomerOrders({
+  onToast,
+}: {
+  onToast: (message: string) => void
+}) {
+  const { t } = useTranslation()
+  const { refresh, updateOrder } = useAdminData()
+  const [pending, setPending] = useState<Order[]>([])
+  const [paying, setPaying] = useState<Order | null>(null)
+  const [busy, setBusy] = useState(false)
+  const load = useCallback(() => {
+    apiRequest<Order[]>('/api/orders/pending')
+      .then(setPending)
+      .catch(() => undefined)
+  }, [])
+  useEffect(() => {
+    load()
+    const timer = window.setInterval(load, 15000)
+    return () => window.clearInterval(timer)
+  }, [load])
+  const setStatus = async (order: Order, next: Order['status']) => {
+    setBusy(true)
+    try {
+      await updateOrder(order.id, { status: next })
+      await load()
+    } catch (reason) {
+      onToast(reason instanceof Error ? reason.message : 'Update failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const cancelOrder = async (order: Order) => {
+    if (!window.confirm(t('orders.cancelPendingConfirm', { id: order.id })))
+      return
+    setBusy(true)
+    try {
+      await apiRequest(`/api/orders/${order.id}/cancel`, { method: 'POST' })
+      await refresh()
+      await load()
+    } catch (reason) {
+      onToast(reason instanceof Error ? reason.message : 'Cancel failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const submitPayment = async (
+    order: Order,
+    method: 'Cash' | 'KHQR',
+    usdReceived: string,
+  ) => {
+    setBusy(true)
+    try {
+      await apiRequest(`/api/orders/${order.id}/pay`, {
+        method: 'POST',
+        body: JSON.stringify(
+          method === 'Cash'
+            ? {
+                method: 'Cash',
+                usdReceivedCents: Math.round(Number(usdReceived || 0) * 100),
+              }
+            : { method: 'KHQR', confirmed: true },
+        ),
+      })
+      setPaying(null)
+      onToast(t('orders.pendingPaid', { id: order.id }))
+      await refresh()
+      await load()
+    } catch (reason) {
+      onToast(reason instanceof Error ? reason.message : 'Payment failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+  if (!pending.length)
+    return (
+      <section className="glass-panel pending-orders-panel">
+        <div className="panel-heading">
+          <div>
+            <span className="section-kicker">Telegram</span>
+            <h2>{t('reports.pendingOrders')}</h2>
+          </div>
+          <span className="live-badge">
+            <i /> {t('dashboard.live')}
+          </span>
+        </div>
+        <p className="pending-empty">{t('reports.noPendingOrders')}</p>
+      </section>
+    )
+  return (
+    <section className="glass-panel pending-orders-panel">
+      <div className="panel-heading">
+        <div>
+          <span className="section-kicker">Telegram</span>
+          <h2>{t('reports.pendingOrders')}</h2>
+        </div>
+        <span className="live-badge">
+          <i /> {t('dashboard.live')}
+        </span>
+      </div>
+      <div className="pending-orders-list">
+        {pending.map((order) => (
+          <article
+            className={`pending-order-card ${order.isStale ? 'stale' : ''}`}
+            key={order.id}
+          >
+            <div className="pending-order-code">
+              <span>{t('reports.orderCode')}</span>
+              <strong>{order.pickupCode || order.id}</strong>
+            </div>
+            <div className="pending-order-copy">
+              <strong>
+                {order.customer?.name || 'Customer'}
+                {order.isStale && (
+                  <em className="stale-flag">
+                    <AlertTriangle size={11} /> {t('reports.staleOrder')}
+                  </em>
+                )}
+              </strong>
+              <small>
+                {order.customer?.phone ? (
+                  <a href={`tel:${order.customer.phone}`}>
+                    <Phone size={11} /> {order.customer.phone}
+                  </a>
+                ) : (
+                  t('customers.phoneNotShared')
+                )}
+              </small>
+              <small>{order.detail.join('; ')}</small>
+              <small className="pending-order-meta">
+                {order.id} · {t('reports.placedAt')}{' '}
+                {new Date(order.createdAt).toLocaleString()} · {order.status}
+              </small>
+            </div>
+            <div className="pending-order-total">
+              <strong>${order.total.toFixed(2)}</strong>
+            </div>
+            <div className="pending-order-actions">
+              {order.status === 'Pending' && (
+                <button
+                  className="secondary-button"
+                  disabled={busy}
+                  onClick={() => void setStatus(order, 'Confirmed')}
+                >
+                  {t('reports.confirmOrder')}
+                </button>
+              )}
+              {order.status === 'Confirmed' && (
+                <button
+                  className="secondary-button"
+                  disabled={busy}
+                  onClick={() => void setStatus(order, 'Ready')}
+                >
+                  {t('reports.markReady')}
+                </button>
+              )}
+              <button
+                className="primary-button"
+                disabled={busy}
+                onClick={() => setPaying(order)}
+              >
+                <Banknote size={15} /> {t('reports.takePayment')}
+              </button>
+              <button
+                className="icon-button"
+                disabled={busy}
+                onClick={() => void cancelOrder(order)}
+                aria-label={t('common.cancel')}
+                title={t('common.cancel')}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+      {paying && (
+        <PayHeldOrderModal
+          order={paying}
+          busy={busy}
+          onClose={() => setPaying(null)}
+          onSubmit={submitPayment}
+        />
+      )}
+    </section>
+  )
+}
+
+function PayHeldOrderModal({
+  order,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  order: Order
+  busy: boolean
+  onClose: () => void
+  onSubmit: (order: Order, method: 'Cash' | 'KHQR', usdReceived: string) => void
+}) {
+  const { t } = useTranslation()
+  const [method, setMethod] = useState<'Cash' | 'KHQR'>('Cash')
+  const [received, setReceived] = useState(order.total.toFixed(2))
+  return (
+    <div className="modal-layer" role="dialog" aria-modal="true">
+      <button
+        className="modal-backdrop"
+        onClick={onClose}
+        aria-label={t('modal.closeDialog')}
+      />
+      <section className="modal-card modal-small">
+        <header className="modal-header">
+          <div>
+            <span>Telegram</span>
+            <h2>
+              {t('reports.takePayment')} — {order.pickupCode || order.id}
+            </h2>
+          </div>
+          <button
+            className="icon-button"
+            onClick={onClose}
+            aria-label={t('modal.close')}
+          >
+            <X size={19} />
+          </button>
+        </header>
+        <div className="modal-form pay-held-form">
+          <p className="pay-held-total">
+            {order.customer?.name || 'Customer'} ·{' '}
+            <strong>${order.total.toFixed(2)}</strong>
+          </p>
+          <div className="filter-tabs">
+            <button
+              className={method === 'Cash' ? 'active' : ''}
+              onClick={() => setMethod('Cash')}
+            >
+              <Banknote size={14} /> {t('payment.cash')}
+            </button>
+            <button
+              className={method === 'KHQR' ? 'active' : ''}
+              onClick={() => setMethod('KHQR')}
+            >
+              <ScanLine size={14} /> {t('payment.khqr')}
+            </button>
+          </div>
+          {method === 'Cash' && (
+            <label>
+              <span>{t('shifts.countedCash')}</span>
+              <div className="currency-input">
+                <span>$</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={received}
+                  onChange={(event) => setReceived(event.target.value)}
+                />
+              </div>
+            </label>
+          )}
+          <div className="modal-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={onClose}
+              disabled={busy}
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              disabled={busy || (method === 'Cash' && Number(received) <= 0)}
+              onClick={() => onSubmit(order, method, received)}
+            >
+              {t('orders.paymentConfirmedShort')}
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  )
+}
 
 type OrdersPageProps = {
   selectedId: string | null
@@ -100,32 +390,33 @@ export default function OrdersPage({
   }
   return (
     <div className="page-content">
+      <PendingCustomerOrders onToast={onToast} />
       <section className="kpi-grid compact-kpis">
         <article className="mini-kpi glass-panel">
-          <span>Telegram orders</span>
+          <span>{t('orders.telegramOrders')}</span>
           <strong>
             {orders.filter((order) => order.source === 'telegram').length}
           </strong>
-          <small>Customer Mini App</small>
+          <small>{t('orders.customerMiniApp')}</small>
         </article>
         <article className="mini-kpi glass-panel">
-          <span>Awaiting confirmation</span>
+          <span>{t('orders.awaitingConfirmation')}</span>
           <strong>
             {orders.filter((order) => order.status === 'Pending').length}
           </strong>
-          <small>Needs a reply</small>
+          <small>{t('orders.needsReply')}</small>
         </article>
         <article className="mini-kpi glass-panel">
           <span>{t('orders.transactions')}</span>
           <strong>{orders.length}</strong>
-          <small>All sources</small>
+          <small>{t('orders.allSources')}</small>
         </article>
         <article className="mini-kpi glass-panel">
-          <span>Ready for pickup</span>
+          <span>{t('orders.readyPickup')}</span>
           <strong>
             {orders.filter((order) => order.status === 'Ready').length}
           </strong>
-          <small>Notify customers</small>
+          <small>{t('orders.notifyCustomers')}</small>
         </article>
       </section>
       <section className="page-toolbar catalog-toolbar">
@@ -152,7 +443,7 @@ export default function OrdersPage({
         </div>
         <div className="toolbar-actions report-export-actions">
           <label>
-            From
+            {t('orders.from')}
             <input
               type="date"
               value={from}
@@ -160,7 +451,7 @@ export default function OrdersPage({
             />
           </label>
           <label>
-            To
+            {t('orders.to')}
             <input
               type="date"
               value={to}
@@ -192,13 +483,13 @@ export default function OrdersPage({
       <section className={`orders-layout ${selected ? 'with-detail' : ''}`}>
         <div className="glass-panel orders-full-table table-responsive">
           <div className="order-full-row phase2-order-row table-head">
-            <span>Order</span>
-            <span>Source</span>
-            <span>Customer / cashier</span>
-            <span>Items</span>
-            <span>Payment</span>
-            <span>Status</span>
-            <span>Total</span>
+            <span>{t('orders.order')}</span>
+            <span>{t('orders.source')}</span>
+            <span>{t('orders.customerCashier')}</span>
+            <span>{t('orders.items')}</span>
+            <span>{t('orders.payment')}</span>
+            <span>{t('orders.status')}</span>
+            <span>{t('orders.total')}</span>
             <span />
           </div>
           {visible.map((order) => (
@@ -215,7 +506,9 @@ export default function OrdersPage({
                   <Store size={13} />
                 )}
                 <strong>
-                  {order.source === 'telegram' ? 'Telegram' : 'Walk-in'}
+                  {order.source === 'telegram'
+                    ? t('orders.telegram')
+                    : t('orders.walkIn')}
                 </strong>
               </span>
               <span>
@@ -233,7 +526,7 @@ export default function OrdersPage({
                 ) : (
                   <ShoppingBag size={14} />
                 )}{' '}
-                {order.payment || 'Not paid'}
+                {order.payment || t('orders.notPaid')}
               </span>
               <span
                 className={`status-badge order-status-${order.status.toLowerCase()}`}

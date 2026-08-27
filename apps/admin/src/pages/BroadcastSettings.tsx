@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { uploadImage } from '@cake-pos/uploads'
 import { apiRequest } from '../lib/api'
 type Product = {
@@ -31,14 +31,18 @@ export default function BroadcastSettings({
   const [busy, setBusy] = useState(false)
   const [templates, setTemplates] = useState<Template[]>([])
   const [templateName, setTemplateName] = useState('')
+  const loadHistory = useCallback(
+    () => apiRequest<History[]>('/api/broadcasts').then(setHistory),
+    [],
+  )
   useEffect(() => {
     apiRequest<{ recipientCount: number }>('/api/broadcasts/preview').then(
       (v) => setCount(v.recipientCount),
     )
     apiRequest<Product[]>('/api/products').then(setProducts)
-    apiRequest<History[]>('/api/broadcasts').then(setHistory)
+    void loadHistory()
     apiRequest<Template[]>('/api/broadcast-templates').then(setTemplates)
-  }, [])
+  }, [loadHistory])
   const photo = async (file?: File) => {
     if (!file) return
     try {
@@ -125,6 +129,9 @@ export default function BroadcastSettings({
       onToast(`Broadcast queued for ${r.recipientCount} customers`)
       setCaption('')
       setImageUrl('')
+      // Refresh the history list so the new broadcast appears immediately —
+      // no manual reload needed.
+      await loadHistory()
     } catch (e) {
       onToast(e instanceof Error ? e.message : 'Broadcast failed')
     }
@@ -199,7 +206,22 @@ export default function BroadcastSettings({
               style={{ width: '100%', borderRadius: 14 }}
             />
             <p>{caption}</p>
-            <button type="button">🛒 Open Shop / បើកហាង</button>
+            {/* Static mock of the Telegram shop button — preview only. */}
+            <span
+              aria-hidden="true"
+              style={{
+                display: 'block',
+                padding: '8px 12px',
+                borderRadius: 10,
+                background: '#f3dbe7',
+                color: '#8d3a63',
+                fontWeight: 700,
+                fontSize: 12,
+                textAlign: 'center',
+              }}
+            >
+              🛒 Open Shop / បើកហាង
+            </span>
           </div>
         )}
         <div>

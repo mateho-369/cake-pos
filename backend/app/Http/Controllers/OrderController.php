@@ -14,7 +14,7 @@ use App\Services\PaymentService;
 use App\Http\Resources\OrderResource;
 use App\Models\Order;
 use App\Services\{OrderService, ReceiptService};
-use Illuminate\Http\JsonResponse;
+use Illuminate\Http\{JsonResponse, Request};
 
 class OrderController extends Controller
 {
@@ -51,9 +51,9 @@ class OrderController extends Controller
             OrderResource::make($order->fresh())->resolve(),
         );
     }
-    public function cancel(Order $order): JsonResponse
+    public function cancel(Request $request, Order $order): JsonResponse
     {
-        $this->orders->cancel($order);
+        $this->orders->cancel($order, $request->user());
         return response()->json(
             OrderResource::make($order->fresh())->resolve(),
         );
@@ -65,6 +65,22 @@ class OrderController extends Controller
                 Order::where('status', 'Held')->latest()->get(),
             )->resolve(),
         );
+    }
+
+    /**
+     * Open customer (Telegram) orders awaiting staff action — the live
+     * "pending customer orders" panel on the sale terminal and admin polls
+     * this lightweight endpoint.
+     */
+    public function pending(): JsonResponse
+    {
+        $orders = Order::with(['customer'])
+            ->where('source', 'telegram')
+            ->where('payment_status', '!=', 'paid')
+            ->whereIn('status', ['Pending', 'Confirmed', 'Ready'])
+            ->latest('created_at')
+            ->get();
+        return response()->json(OrderResource::collection($orders)->resolve());
     }
 
     public function index(): JsonResponse
@@ -95,7 +111,11 @@ class OrderController extends Controller
         UpdateTelegramOrderRequest $request,
         Order $order,
     ): JsonResponse {
-        $updated = $this->orders->updateTelegram($order, $request->validated());
+        $updated = $this->orders->updateTelegram(
+            $order,
+            $request->validated(),
+            $request->user(),
+        );
         if ($updated->status === 'Completed') {
             $this->receipts->ensure($updated, true);
         }

@@ -26,6 +26,7 @@ Route::post('/telegram/webhook', [TelegramController::class, 'webhook']);
 Route::post('/customer-products', [TelegramController::class, 'products']);
 Route::post('/customer-profile', [TelegramController::class, 'profile']);
 Route::post('/customer-orders', [TelegramController::class, 'order']);
+Route::post('/customer-orders/open', [TelegramController::class, 'openOrder']);
 Route::post('/customer-orders/{order}/status', [
     TelegramController::class,
     'status',
@@ -63,10 +64,21 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         'destroy',
     ])->middleware('admin');
     Route::get('/orders', [OrderController::class, 'index']);
-    Route::post('/orders', [OrderController::class, 'store']);
-    Route::post('/orders/hold', [OrderController::class, 'hold']);
+    // Sale-creating endpoints require an open store shift. Deliberately NOT
+    // gated: GET endpoints, cancel/corrections (bookkeeping on past orders),
+    // and the public customer/Telegram order flow.
+    Route::post('/orders', [OrderController::class, 'store'])->middleware(
+        'open-shift',
+    );
+    Route::post('/orders/hold', [OrderController::class, 'hold'])->middleware(
+        'open-shift',
+    );
     Route::get('/orders/held', [OrderController::class, 'held']);
-    Route::post('/orders/{order}/pay', [OrderController::class, 'pay']);
+    Route::get('/orders/pending', [OrderController::class, 'pending']);
+    Route::post('/orders/{order}/pay', [
+        OrderController::class,
+        'pay',
+    ])->middleware('open-shift');
     Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
     Route::patch('/orders/{order}', [
         OrderController::class,
@@ -180,6 +192,14 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::get('/reports/customers', [
         ReportController::class,
         'customers',
+    ])->middleware('admin');
+    Route::get('/reports/audit', [
+        ReportController::class,
+        'audit',
+    ])->middleware('admin');
+    Route::get('/reports/retention', [
+        ReportController::class,
+        'retention',
     ])->middleware('admin');
     Route::get('/reports/summary', [
         ReportController::class,

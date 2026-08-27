@@ -1,5 +1,7 @@
 {
-  "language": { "choose": "Choose language" },
+  "language": {
+    "choose": "Choose language"
+  },
   "gate": {
     "title": "Please open this from our Telegram bot to order",
     "body": "This shop verifies your Telegram account before showing the catalog.",
@@ -13,8 +15,13 @@
     "title": "Fresh from the kitchen",
     "treats": "{{count}} treats today",
     "fresh": "Fresh today",
+    "outOfStock": "Out of stock",
     "add": "Add {{name}}",
-    "view": "View your order"
+    "view": "View your order",
+    "openOrderBanner": "Your order is held — code",
+    "openOrderHint": "Add more items below; they join the same order.",
+    "pickupCodeLabel": "SHOW THIS CODE WHEN YOU ARRIVE",
+    "pickupCodeHint": "Tell it to our staff to find your order instantly."
   },
   "cart": {
     "label": "YOUR ORDER",

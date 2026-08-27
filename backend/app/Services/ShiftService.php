@@ -6,6 +6,8 @@ use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
 class ShiftService
 {
+    public function __construct(private readonly AuditService $audit) {}
+
     public function current(): ?Shift
     {
         return Shift::where('status', 'Open')
@@ -40,7 +42,7 @@ class ShiftService
             if ($khr < 0) {
                 $this->conflict('Opening KHR cannot be negative');
             }
-            return Shift::create([
+            $shift = Shift::create([
                 'employee_id' => $employee->id,
                 'opened_by_employee_id' => $employee->id,
                 'opening_cash_cents' => $usd,
@@ -49,6 +51,12 @@ class ShiftService
                 'opened_at' => now(),
                 'status' => 'Open',
             ]);
+            $this->audit->log($employee, 'shift.opened', null, [
+                'shiftId' => $shift->id,
+                'openingCashUsdCents' => $usd,
+                'openingCashKhr' => $khr,
+            ]);
+            return $shift;
         });
     }
     public function close(
@@ -100,6 +108,16 @@ class ShiftService
                 'closed_by_employee_id' => $employee->id,
                 'closed_at' => now(),
                 'status' => 'Closed',
+            ]);
+            // Cash variance is the key anti-theft signal: record who closed,
+            // what was expected, and what was actually counted.
+            $this->audit->log($employee, 'shift.closed', null, [
+                'shiftId' => $shift->id,
+                'openingCashUsdCents' => $shift->opening_cash_usd_cents,
+                'expectedCashUsdCents' => $expectedUsd,
+                'closingCashUsdCents' => $usd,
+                'varianceUsdCents' => $usd - $expectedUsd,
+                'varianceKhr' => $khr - $expectedKhr,
             ]);
             return [$shift, $sales];
         });

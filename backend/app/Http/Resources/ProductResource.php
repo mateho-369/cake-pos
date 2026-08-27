@@ -27,6 +27,17 @@ class ProductResource extends JsonResource
             'imageUrl' => $this->image_url,
             'images' => $this->resolveImages(),
             'active' => (bool) $this->active,
+            // Admin override for the out-of-stock presentation. The "Out of
+            // stock" state itself is purely derived from `stock` on the
+            // client; this only says "hide entirely instead" when stock = 0.
+            'hideWhenOutOfStock' => (bool) $this->hide_when_out_of_stock,
+            // Exposed when the caller eager-loads the count (catalog index).
+            // Lets the admin UI explain up-front why a product can't be
+            // hard-deleted instead of waiting for the 422 from DELETE.
+            'orderItemReferences' => $this->whenCounted(
+                'orderItems',
+                fn($count) => (int) $count,
+            ),
         ];
     }
 

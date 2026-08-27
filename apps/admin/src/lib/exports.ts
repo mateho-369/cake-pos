@@ -8,6 +8,26 @@ function download(blob: Blob, filename: string) {
   link.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
+/**
+ * UTF-8 BOM CSV download — same convention as the dashboard/freshness CSVs
+ * so Excel detects the encoding correctly.
+ */
+export function downloadCsv(
+  filename: string,
+  header: string[],
+  rows: Array<Array<string | number>>,
+) {
+  const escape = (cell: string | number) =>
+    `"${String(cell).replace(/"/g, '""')}"`
+  const content = [header, ...rows].map((row) => row.map(escape).join(','))
+  download(
+    new Blob(['\uFEFF' + content.join('\n')], {
+      type: 'text/csv;charset=utf-8;',
+    }),
+    filename,
+  )
+}
+
 export function ordersInRange(orders: Order[], from: string, to: string) {
   const start = from ? new Date(`${from}T00:00:00`).getTime() : -Infinity
   const end = to ? new Date(`${to}T23:59:59.999`).getTime() : Infinity

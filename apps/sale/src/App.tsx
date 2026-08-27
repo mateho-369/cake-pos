@@ -9,14 +9,18 @@ import ShiftModal from './components/ShiftModal'
 import QuickAddModal from './components/QuickAddModal'
 import SuccessOverlay from './components/SuccessOverlay'
 import OrderHistoryModal from './components/OrderHistoryModal'
+import PendingOrdersPanel from './components/PendingOrdersPanel'
 import { type CartItem, type Product } from './data'
 import { useTranslation } from './lib/i18n'
+import { apiRequest } from './lib/api'
 import { useSaleData } from './lib/data'
 import CustomerApp from './CustomerApp'
 import CustomerDisplay from './components/CustomerDisplay'
 
 type Shift = { startedAt: string; openingCash: number }
 type Success = { total: number; method: PaymentMethod; orderId: string }
+type PendingSaleAction =
+  { type: 'add'; product: Product } | { type: 'checkout' } | null
 export default function App() {
   const { token } = useStaffAuth()
   if (window.location.pathname.replace(/\/$/, '') === '/customer-display')
@@ -52,6 +56,7 @@ function SaleTerminal() {
     currentShift,
     openShift,
     closeShift,
+    refresh,
   } = useSaleData()
   const [cart, setCart] = useState<CartItem[]>([])
   const [category, setCategory] = useState('All')
@@ -73,6 +78,43 @@ function SaleTerminal() {
   const [success, setSuccess] = useState<Success | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  // A sale action that was blocked because no shift is open. Once the
+  // cashier opens a shift through the prompt, the action continues
+  // automatically instead of forcing them to click again.
+  const [pendingAction, setPendingAction] = useState<PendingSaleAction>(null)
+  const promptOpenShift = (action: PendingSaleAction) => {
+    setPendingAction(action)
+    setShiftMode('open')
+    setShiftModal(true)
+  }
+  // Generic "a shift must be open first" gate used by the pending-orders
+  // panel: run the action now when a shift is open, otherwise open the
+  // shift prompt and run it right after.
+  const [shiftResume, setShiftResume] = useState<(() => void) | null>(null)
+  const requestShiftThen = (resume: () => void) => {
+    if (shift) {
+      resume()
+      return
+    }
+    setShiftResume(() => resume)
+    setShiftMode('open')
+    setShiftModal(true)
+  }
+  const payPendingOrder = async (
+    orderId: string,
+    method: 'Cash' | 'KHQR',
+    usdReceivedCents: number,
+  ) => {
+    await apiRequest(`/api/orders/${orderId}/pay`, {
+      method: 'POST',
+      body: JSON.stringify(
+        method === 'Cash'
+          ? { method: 'Cash', usdReceivedCents }
+          : { method: 'KHQR', confirmed: true },
+      ),
+    })
+    await refresh()
+  }
   const openCustomerDisplay = (autoPlace = false) => {
     const features = autoPlace ? undefined : 'popup,width=700,height=900'
     if (autoPlace && 'getScreenDetails' in window) {
@@ -142,9 +184,12 @@ function SaleTerminal() {
   const cartTotal = Math.max(0, subtotal - discountAmount)
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0)
   // The shift is owned server-side. Hydrate it after any login/session return
-  // so a shift that is still open survives logout/login and only closes when a
-  // user explicitly closes it. `currentShift` is `undefined` until the first
-  // fetch completes, so we never show the open-shift gate prematurely.
+  // so a shift that is still open survives logout/login and only closes when
+  // a user explicitly closes it. `currentShift` is `undefined` until the
+  // first fetch completes. Login itself never opens or prompts for a shift —
+  // a cashier can browse the catalog freely; the open-shift prompt only
+  // appears when they actually try to make a sale (see addToCart /
+  // completePayment below) or click the shift banner/header button.
   useEffect(() => {
     if (currentShift === undefined) return
     if (currentShift) {
@@ -160,7 +205,7 @@ function SaleTerminal() {
       setShiftModal(false)
     } else {
       setShift(null)
-      setShiftModal(true)
+      setShiftModal(false)
     }
   }, [currentShift])
   useEffect(() => {
@@ -200,12 +245,7 @@ function SaleTerminal() {
     const timeout = window.setTimeout(() => setToast(null), 2600)
     return () => window.clearTimeout(timeout)
   }, [toast])
-  const addToCart = (product: Product) => {
-    if (!shift) {
-      setShiftMode('open')
-      setShiftModal(true)
-      return
-    }
+  const pushToCart = (product: Product) =>
     setCart((current) => {
       const existing = current.find((item) => item.product.id === product.id)
       if (existing)
@@ -216,6 +256,15 @@ function SaleTerminal() {
         )
       return [...current, { product, quantity: 1 }]
     })
+  const addToCart = (product: Product) => {
+    // Starting an order is a sale action: it needs an open shift. Prompt
+    // with the existing open-shift flow and add the product automatically
+    // once the shift is open.
+    if (!shift) {
+      promptOpenShift({ type: 'add', product })
+      return
+    }
+    pushToCart(product)
   }
   const changeQuantity = (productId: number, delta: number) =>
     setCart((current) =>
@@ -233,6 +282,10 @@ function SaleTerminal() {
     else setTendered('')
   }
   const completePayment = async () => {
+    if (!shift) {
+      promptOpenShift({ type: 'checkout' })
+      return
+    }
     try {
       const order = await createOrder({
         payment: payment === 'cash' ? 'Cash' : 'KHQR',
@@ -259,9 +312,15 @@ function SaleTerminal() {
       setMobileCart(false)
       if (payment === 'cash') setCashSales((current) => current + order.total)
     } catch (reason) {
-      setToast(
-        reason instanceof Error ? reason.message : t('sale.paymentFailed'),
-      )
+      const message =
+        reason instanceof Error ? reason.message : t('sale.paymentFailed')
+      // The backend enforces the shift gate too (409 + requires_open_shift).
+      // If the shift disappeared underneath us (e.g. closed on another
+      // terminal), re-prompt instead of just showing a toast.
+      if (!shift || message.toLowerCase().includes('no open shift')) {
+        promptOpenShift({ type: 'checkout' })
+      }
+      setToast(message)
     }
   }
   const openShiftAction = () => {
@@ -286,6 +345,13 @@ function SaleTerminal() {
             }).format(new Date()),
         })
         setToast(t('sale.shiftOpenedWith', { amount: amount.toFixed(2) }))
+        // Run the sale action that was waiting on the shift (e.g. taking
+        // payment for a held customer order).
+        if (shiftResume) {
+          const resume = shiftResume
+          setShiftResume(null)
+          resume()
+        }
       } else {
         const result = await closeShift(amount)
         setShift(null)
@@ -301,9 +367,31 @@ function SaleTerminal() {
       }
       setShiftModal(false)
     } catch (reason) {
-      setToast(reason instanceof Error ? reason.message : t('sale.shiftFailed'))
+      const message =
+        reason instanceof Error ? reason.message : t('sale.shiftFailed')
+      // Another terminal opened the store shift in the meantime: our open
+      // attempt is refused, but a shift DOES exist — re-sync from the
+      // server so this terminal picks it up (and any pending sale resumes).
+      if (message.toLowerCase().includes('already open')) {
+        void refresh()
+      }
+      setToast(message)
     }
   }
+  // Once a shift is open (whether via the prompted modal or the header
+  // button), resume the sale action that was blocked on it — the cashier
+  // should not have to click twice.
+  useEffect(() => {
+    if (!shift || !pendingAction) return
+    if (pendingAction.type === 'add') {
+      pushToCart(pendingAction.product)
+      setPendingAction(null)
+    } else {
+      setPendingAction(null)
+      void completePayment()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shift, pendingAction])
   const addQuickProduct = async (product: Product) => {
     try {
       await createProduct({
@@ -350,6 +438,12 @@ function SaleTerminal() {
           <b>{t('sale.openShift')}</b>
         </button>
       )}
+      <PendingOrdersPanel
+        shiftOpen={Boolean(shift)}
+        onPay={payPendingOrder}
+        onNeedShift={requestShiftThen}
+        onToast={setToast}
+      />
       <div className="terminal-layout">
         <ProductGrid
           products={visibleProducts}
@@ -427,7 +521,11 @@ function SaleTerminal() {
         cashSales={cashSales}
         employeeName={employee?.name || ''}
         shiftStartedAt={shift?.startedAt}
-        onClose={() => setShiftModal(false)}
+        onClose={() => {
+          setShiftModal(false)
+          setPendingAction(null)
+          setShiftResume(null)
+        }}
         onConfirm={confirmShift}
       />
       <QuickAddModal

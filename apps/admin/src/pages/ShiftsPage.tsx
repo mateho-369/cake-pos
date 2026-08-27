@@ -12,6 +12,7 @@ import Modal from '../components/Modal'
 import { useTranslation } from '../lib/i18n'
 import { useAdminData } from '../lib/data'
 import { apiRequest } from '../lib/api'
+import { downloadCsv } from '../lib/exports'
 import type { Shift } from '../data'
 
 export default function ShiftsPage({
@@ -51,6 +52,34 @@ export default function ShiftsPage({
   const currentExpectedUsd = (currentShift?.expectedCashUsdCents ?? 0) / 100
   const currentOpeningUsd = (currentShift?.openingCashUsdCents ?? 0) / 100
   const totalOrders = shifts.reduce((sum, shift) => sum + (shift.id ? 1 : 0), 0)
+  const exportHistory = () => {
+    downloadCsv(
+      'shift-history.csv',
+      [
+        'Opened',
+        'Closed',
+        'Opened by',
+        'Opening cash (USD)',
+        'Expected cash (USD)',
+        'Counted cash (USD)',
+        'Variance (USD)',
+        'Status',
+      ],
+      shifts.map((shift) => [
+        new Date(shift.openedAt).toLocaleString(),
+        shift.closedAt ? new Date(shift.closedAt).toLocaleString() : '',
+        shift.openedBy || '',
+        ((shift.openingCashUsdCents ?? 0) / 100).toFixed(2),
+        ((shift.expectedCashUsdCents ?? 0) / 100).toFixed(2),
+        shift.closedAt
+          ? ((shift.closingCashUsdCents ?? 0) / 100).toFixed(2)
+          : '',
+        shift.closedAt ? ((shift.varianceUsdCents ?? 0) / 100).toFixed(2) : '',
+        shift.status,
+      ]),
+    )
+    onToast(t('shifts.historyExported'))
+  }
   return (
     <div className="page-content">
       <section className="shift-overview-grid">
@@ -165,10 +194,7 @@ export default function ShiftsPage({
             <span className="section-kicker">{t('shifts.controlLog')}</span>
             <h2>{t('shifts.history')}</h2>
           </div>
-          <button
-            className="secondary-button"
-            onClick={() => onToast(t('shifts.historyExported'))}
-          >
+          <button className="secondary-button" onClick={exportHistory}>
             <Download size={16} /> {t('common.export')}
           </button>
         </div>

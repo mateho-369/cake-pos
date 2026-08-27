@@ -69,8 +69,10 @@ export default function CartPanel({
   const total = Math.max(0, subtotal - discount)
   const tenderedAmount = Number(tendered || 0)
   const change = Math.max(0, tenderedAmount - total)
+  // shiftOpen is deliberately NOT part of this: with items in the cart and
+  // no open shift, clicking "Complete" prompts the open-shift flow instead
+  // of silently refusing (the shift-required note below explains it).
   const canComplete =
-    shiftOpen &&
     cart.length > 0 &&
     (payment === 'khqr' ? khqrConfirmed : tenderedAmount >= total)
   const quickAmounts = [

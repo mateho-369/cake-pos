@@ -1,5 +1,6 @@
 <?php
 namespace App\Services;
+use App\Jobs\SendCustomerStatusNotification;
 use App\Jobs\SendStaffOrderNotification;
 use App\Models\{Employee, Order, OrderPayment, Product, OrderStatusEvent};
 use App\Support\ExchangeRate;
@@ -7,6 +8,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 final class PaymentService
 {
+    public function __construct(private readonly AuditService $audit) {}
+
     public function confirmCash(
         Order $order,
         array $input,
@@ -123,11 +126,22 @@ final class PaymentService
     private function settle(Order $order, OrderPayment $payment): void
     {
         $from = $order->status;
+        $employee = $payment->confirmed_by_employee_id
+            ? Employee::find($payment->confirmed_by_employee_id)
+            : null;
+        // Order-to-employee integrity: an order completed through the POS is
+        // always attributed to the specific logged-in employee who took the
+        // payment — including customer orders that started without a cashier.
+        $claimed = false;
+        if ($order->cashier_id === null && $employee) {
+            $claimed = true;
+        }
         $order->update([
             'status' => 'Completed',
             'payment_status' => 'paid',
             'fulfillment_status' => 'Completed',
             'payment' => $payment->method === 'cash' ? 'Cash' : 'KHQR',
+            ...$claimed ? ['cashier_id' => $employee->id] : [],
         ]);
         OrderStatusEvent::create([
             'order_id' => $order->id,
@@ -135,6 +149,15 @@ final class PaymentService
             'to_status' => 'Completed',
             'employee_id' => $payment->confirmed_by_employee_id,
         ]);
+        $this->audit->log($employee, 'order.completed', $order->id, [
+            'fromStatus' => $from,
+            'totalCents' => $order->total_cents,
+            'paymentMethod' => $payment->method,
+            'claimedFromUnassigned' => $claimed,
+        ]);
+        if ($order->source === 'telegram') {
+            SendCustomerStatusNotification::dispatch($order->id);
+        }
         foreach (
             $order->orderItems()->with('product')->lockForUpdate()->get()
             as $item

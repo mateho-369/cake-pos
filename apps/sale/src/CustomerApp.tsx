@@ -259,18 +259,33 @@ export default function CustomerApp() {
         <div className="customer-grid">
           {menu.products.map((product) => {
             const quantity = cart[product.id] || 0
+            // Derived out-of-stock state: stays visible with a label and no
+            // add button until stock goes back above 0.
+            const outOfStock = product.stock <= 0
             return (
               <article
-                className={`customer-product ${quantity ? 'selected' : ''}`}
+                className={`customer-product ${quantity ? 'selected' : ''} ${
+                  outOfStock ? 'out-of-stock' : ''
+                }`}
                 key={product.id}
               >
                 <button
                   className="customer-product-photo"
                   style={{ backgroundPosition: product.imagePosition }}
-                  onClick={() => change(product, 1)}
-                  aria-label={`Add ${product.name}`}
+                  onClick={() => {
+                    if (!outOfStock) change(product, 1)
+                  }}
+                  aria-label={
+                    outOfStock
+                      ? `${product.name} — Out of stock`
+                      : `Add ${product.name}`
+                  }
                 >
-                  <i>Fresh today</i>
+                  {outOfStock ? (
+                    <i className="oos">Out of stock</i>
+                  ) : (
+                    <i>Fresh today</i>
+                  )}
                   {quantity > 0 && <b>{quantity}</b>}
                 </button>
                 <div className="customer-product-copy">
@@ -288,6 +303,8 @@ export default function CustomerApp() {
                           <Plus size={13} />
                         </button>
                       </span>
+                    ) : outOfStock ? (
+                      <span className="customer-oos-note">Out of stock</span>
                     ) : (
                       <button
                         className="customer-add"

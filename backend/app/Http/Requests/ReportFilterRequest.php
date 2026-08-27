@@ -17,6 +17,8 @@ class ReportFilterRequest extends FormRequest
             'granularity' => 'nullable|in:day,month',
             'limit' => 'nullable|integer|min:1|max:50',
             'sort' => 'nullable|string|max:40',
+            'employee' => 'nullable|integer|min:1',
+            'action' => 'nullable|string|max:48',
         ];
     }
 }

@@ -10,13 +10,33 @@ import {
 } from 'lucide-react'
 import type { Customer, Order } from '../data'
 import { useAdminData } from '../lib/data'
+import { apiRequest } from '../lib/api'
+import { useTranslation } from '../lib/i18n'
+
+type Retention = {
+  customersWithOrders: number
+  newCustomers: number
+  returningCustomers: number
+  repeatRatePercent: number
+}
 
 export default function CustomersPage() {
+  const { t } = useTranslation()
   const { customers, customerOrders } = useAdminData()
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Customer | null>(null)
   const [history, setHistory] = useState<Order[]>([])
   const [loading, setLoading] = useState(false)
+  const [retention, setRetention] = useState<Retention | null>(null)
+  useEffect(() => {
+    let alive = true
+    apiRequest<Retention>('/api/reports/retention?preset=this_month')
+      .then((data) => alive && setRetention(data))
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
   const visible = useMemo(
     () =>
       customers.filter((customer) =>
@@ -37,25 +57,49 @@ export default function CustomersPage() {
     <div className="page-content">
       <section className="customer-admin-intro">
         <div>
-          <span>CUSTOMER DIRECTORY</span>
-          <h1>Telegram customers</h1>
-          <p>People who have ordered through your customer Mini App.</p>
+          <span>{t('customers.eyebrow')}</span>
+          <h1>{t('customers.title')}</h1>
+          <p>{t('customers.subtitle')}</p>
         </div>
         <div className="customer-admin-stat glass-panel">
           <UserRound size={20} />
           <span>
             <strong>{customers.length}</strong>
-            <small>Total customers</small>
+            <small>{t('customers.totalCustomers')}</small>
           </span>
         </div>
       </section>
+      {retention && (
+        <section className="retention-strip">
+          <div className="glass-panel retention-card">
+            <span>{t('reports.customersWithOrders')}</span>
+            <strong>{retention.customersWithOrders}</strong>
+            <small>{t('dashboard.today')}</small>
+          </div>
+          <div className="glass-panel retention-card">
+            <span>{t('reports.newCustomers')}</span>
+            <strong>{retention.newCustomers}</strong>
+            <small>{t('reports.thisMonth')}</small>
+          </div>
+          <div className="glass-panel retention-card">
+            <span>{t('reports.returningCustomers')}</span>
+            <strong>{retention.returningCustomers}</strong>
+            <small>{t('reports.thisMonth')}</small>
+          </div>
+          <div className="glass-panel retention-card accent">
+            <span>{t('reports.repeatRate')}</span>
+            <strong>{retention.repeatRatePercent}%</strong>
+            <small>{t('reports.thisMonth')}</small>
+          </div>
+        </section>
+      )}
       <section className="page-toolbar catalog-toolbar">
         <label className="inline-search">
           <Search size={17} />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search name, phone or username"
+            placeholder={t('customers.searchPlaceholder')}
           />
         </label>
       </section>
@@ -87,14 +131,18 @@ export default function CustomersPage() {
                 )}
                 <small>
                   <Phone size={12} />
-                  {customer.phone || 'Phone not shared'}
+                  {customer.phone || t('customers.phoneNotShared')}
                 </small>
               </div>
               <span className="customer-admin-totals">
                 <strong>${customer.totalSpent.toFixed(2)}</strong>
                 <small>
-                  {customer.totalOrders} order
-                  {customer.totalOrders === 1 ? '' : 's'}
+                  {t(
+                    customer.totalOrders === 1
+                      ? 'customers.ordersCount'
+                      : 'customers.ordersCountOther',
+                    { count: customer.totalOrders },
+                  )}
                 </small>
               </span>
             </button>
@@ -102,10 +150,8 @@ export default function CustomersPage() {
           {!visible.length && (
             <div className="glass-panel customer-admin-empty">
               <UserRound />
-              <strong>No customers found</strong>
-              <span>
-                Telegram customers appear here after opening the storefront.
-              </span>
+              <strong>{t('customers.noCustomers')}</strong>
+              <span>{t('customers.noCustomersHint')}</span>
             </div>
           )}
         </div>
@@ -116,14 +162,14 @@ export default function CustomersPage() {
                 <ChevronLeft size={17} />
               </button>
               <div>
-                <small>CUSTOMER</small>
+                <small>{t('customers.customer')}</small>
                 <h2>{selected.name}</h2>
               </div>
             </header>
             <div className="customer-history-contact">
               <span>
                 <Phone size={14} />
-                {selected.phone || 'Not shared'}
+                {selected.phone || t('customers.phoneNotShared')}
               </span>
               <span>
                 <Send size={14} />
@@ -132,9 +178,9 @@ export default function CustomersPage() {
                   : `Telegram ${selected.telegramUserId}`}
               </span>
             </div>
-            <h3>Order history</h3>
+            <h3>{t('customers.orderHistory')}</h3>
             {loading ? (
-              <p>Loading orders…</p>
+              <p>{t('customers.loadingOrders')}</p>
             ) : (
               <div className="customer-history-orders">
                 {history.map((order) => (
@@ -152,7 +198,7 @@ export default function CustomersPage() {
                     </div>
                   </article>
                 ))}
-                {!history.length && <p>No orders yet.</p>}
+                {!history.length && <p>{t('customers.noOrdersYet')}</p>}
               </div>
             )}
           </aside>

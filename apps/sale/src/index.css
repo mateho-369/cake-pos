@@ -3176,3 +3176,219 @@ button:disabled {
   background: var(--pink-deep);
   box-shadow: 0 3px 9px rgba(152, 20, 71, 0.22);
 }
+
+/* Pending customer orders panel */
+.pending-panel {
+  margin: 0 16px 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(152, 20, 71, 0.22);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(18px);
+}
+.pending-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.pending-panel-head span {
+  color: var(--pink-deep);
+  font-size: calc(9px * var(--font-scale));
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pending-panel-head em {
+  min-width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--pink-deep);
+  color: #fff;
+  font-style: normal;
+  font-size: calc(9px * var(--font-scale));
+  font-weight: 800;
+}
+.pending-panel-list {
+  display: flex;
+  gap: 9px;
+  overflow-x: auto;
+  padding-bottom: 3px;
+}
+.pending-card {
+  min-width: 215px;
+  max-width: 250px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: #fbf8f9;
+}
+.pending-card.stale {
+  border-color: rgba(169, 44, 54, 0.5);
+  background: #fdf1f2;
+}
+.pending-card-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.pending-code {
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: var(--pink-deep);
+  color: #fff;
+  font-size: calc(11px * var(--font-scale));
+  letter-spacing: 0.08em;
+}
+.pending-stale {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #a92c36;
+  color: #fff;
+  font-size: calc(7px * var(--font-scale));
+  font-weight: 800;
+}
+.pending-card-top b {
+  margin-left: auto;
+  font-size: calc(11px * var(--font-scale));
+}
+.pending-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pending-card-body strong {
+  font-size: calc(9.5px * var(--font-scale));
+}
+.pending-card-body small {
+  color: var(--muted);
+  font-size: calc(8px * var(--font-scale));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pending-phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--blue, #3b82f6);
+  text-decoration: none;
+  font-size: calc(8.5px * var(--font-scale));
+}
+.pending-pay-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #d9437d, #af164f);
+  color: #fff;
+  font-size: calc(9px * var(--font-scale));
+  font-weight: 800;
+  cursor: pointer;
+}
+.pending-pay-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.pending-pay-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(43, 12, 26, 0.45);
+  padding: 18px;
+}
+.pending-pay-card {
+  width: min(380px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(59, 10, 31, 0.25);
+}
+.pending-pay-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pending-pay-card header button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.pending-pay-methods {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+.pending-pay-methods button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font-size: calc(9px * var(--font-scale));
+  font-weight: 700;
+  cursor: pointer;
+}
+.pending-pay-methods button.active {
+  border-color: var(--pink-deep);
+  background: #fbe9f1;
+  color: var(--pink-deep);
+}
+.pending-pay-amount {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: calc(9px * var(--font-scale));
+}
+.pending-pay-amount input {
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: calc(11px * var(--font-scale));
+}
+.pending-pay-note,
+.pending-pay-shift-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(8.5px * var(--font-scale));
+  line-height: 1.45;
+}
+.pending-pay-shift-note {
+  color: #9a5e0f;
+}
+.pending-pay-confirm {
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #d9437d, #af164f);
+  color: #fff;
+  font-size: calc(10px * var(--font-scale));
+  font-weight: 800;
+  cursor: pointer;
+}
+.pending-pay-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
