@@ -36,6 +36,19 @@ services:
                 limits:
                     memory: 192M
 
+    queue:
+        build: .
+        restart: unless-stopped
+        env_file: .env
+        depends_on:
+            mysql:
+                condition: service_healthy
+        command: ['php', 'artisan', 'queue:work', '--sleep=3', '--tries=3']
+        deploy:
+            resources:
+                limits:
+                    memory: 128M
+
     migrate:
         build: .
         profiles: ['tools']
