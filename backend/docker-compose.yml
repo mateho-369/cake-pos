@@ -25,7 +25,10 @@ services:
                     memory: 384M
 
     app:
-        build: .
+        build:
+            context: .
+            args:
+                CACHEBUST: ${CACHEBUST:-1}
         restart: unless-stopped
         env_file: .env
         depends_on:
@@ -37,7 +40,10 @@ services:
                     memory: 192M
 
     migrate:
-        build: .
+        build:
+            context: .
+            args:
+                CACHEBUST: ${CACHEBUST:-1}
         profiles: ['tools']
         env_file: .env
         depends_on:

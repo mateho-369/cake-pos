@@ -20,7 +20,7 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             cd backend
-            docker compose up -d --build
+            CACHEBUST=$(git rev-parse HEAD) docker compose up -d --build
             sleep 5
             docker compose exec -T app php artisan config:clear
             docker compose exec -T app php artisan migrate --force
