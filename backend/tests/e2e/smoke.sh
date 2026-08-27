@@ -99,6 +99,13 @@ req "current shift" GET /api/shifts/current "" "$TOKEN_ADMIN"
 expect_code "GET /api/shifts/current returns 200" 200
 assert "reports no open shift (null)" "$([ "$(cat "$OUT/last.body")" = "null" ] && echo true || echo false)"
 
+step "3a-2. Sale endpoints are blocked while no shift is open"
+req "order without shift" POST /api/orders '{"payment":"Cash","items":[{"productId":1,"quantity":1}],"idempotencyKey":"smoke-no-shift"}' "$TOKEN_CASHIER"
+expect_code "POST /api/orders without shift returns 409" 409
+assert "refusal carries requires_open_shift flag" "$([ "$(jqget "$OUT/last.body" requires_open_shift)" = "true" ] && echo true || echo false)"
+req "hold without shift" POST /api/orders/hold '{"items":[{"productId":1,"quantity":1}]}' "$TOKEN_CASHIER"
+expect_code "POST /api/orders/hold without shift returns 409" 409
+
 step "3b. Cashier opens a shift with $100.00 opening cash"
 req "open shift" POST /api/shifts/open '{"openingCash":100.00}' "$TOKEN_CASHIER"
 expect_code "POST /api/shifts/open returns 201" 201
@@ -181,8 +188,16 @@ req "reports categories" GET /api/reports/categories "" "$TOKEN_ADMIN"
 expect_code "GET /api/reports/categories returns 200" 200
 req "reports peak-hours" GET /api/reports/peak-hours "" "$TOKEN_ADMIN"
 expect_code "GET /api/reports/peak-hours returns 200" 200
+# Regression: this endpoint 500'd in production with SQLSTATE 1052
+# (ambiguous created_at across the orders/employees join).
 req "reports cashiers" GET /api/reports/cashiers "" "$TOKEN_ADMIN"
 expect_code "GET /api/reports/cashiers returns 200" 200
+assert "cashiers report attributes the sale" "$([ "$(jqget "$OUT/last.body" 0.completedOrderCount)" = "1" ] && echo true || echo false)"
+assert "cashiers report exposes accountability fields" "$([ "$(jqget "$OUT/last.body" 0.discountCount)" = "0" ] && echo true || echo false)"
+assert "cashiers report exposes repeatedShortfall" "$([ "$(jqget "$OUT/last.body" 0.repeatedShortfall)" = "False" ] || [ "$(jqget "$OUT/last.body" 0.repeatedShortfall)" = "false" ] && echo true || echo false)"
+req "reports retention" GET /api/reports/retention "" "$TOKEN_ADMIN"
+expect_code "GET /api/reports/retention returns 200" 200
+assert "retention counts the walk-in customer-less sale as 0 customers" "$([ "$(jqget "$OUT/last.body" customersWithOrders)" = "0" ] && echo true || echo false)"
 
 # ---------- 5. Close shift ----------
 note "5. Close the shift"
@@ -198,6 +213,16 @@ req "current shift after close" GET /api/shifts/current "" "$TOKEN_ADMIN"
 expect_code "GET /api/shifts/current returns 200" 200
 assert "no open shift after close (null)" "$([ "$(cat "$OUT/last.body")" = "null" ] && echo true || echo false)"
 
+step "5b-2. Audit trail recorded who did what"
+req "audit trail" GET /api/reports/audit "" "$TOKEN_ADMIN"
+expect_code "GET /api/reports/audit returns 200" 200
+assert "audit trail has shift.opened" "$(grep -q '"shift.opened"' "$OUT/last.body" && echo true || echo false)"
+assert "audit trail has order.completed" "$(grep -q '"order.completed"' "$OUT/last.body" && echo true || echo false)"
+assert "audit trail has shift.closed" "$(grep -q '"shift.closed"' "$OUT/last.body" && echo true || echo false)"
+assert "audit trail names the cashier" "$(grep -q "$CASHIER_NAME" "$OUT/last.body" && echo true || echo false)"
+req "cashiers pending panel" GET /api/orders/pending "" "$TOKEN_ADMIN"
+expect_code "GET /api/orders/pending returns 200" 200
+
 step "5c. Closing again is rejected cleanly"
 req "close already-closed shift" POST /api/shifts/close '{"closingCash":120.00}' "$TOKEN_CASHIER"
 expect_code "second close returns 409" 409
@@ -209,6 +234,11 @@ req "open shift #3 while #2 open" POST /api/shifts/open '{"openingCash":50.00}' 
 expect_code "second open while open returns 409" 409
 req "cleanup: close shift #2" POST /api/shifts/close '{"closingCash":50.00}' "$TOKEN_ADMIN"
 expect_code "cleanup close returns 200" 200
+
+step "5e. With every shift closed, sale endpoints are blocked again"
+req "order after close" POST /api/orders '{"payment":"Cash","items":[{"productId":1,"quantity":1}],"idempotencyKey":"smoke-no-shift-2"}' "$TOKEN_CASHIER"
+expect_code "POST /api/orders after close returns 409" 409
+assert "refusal carries requires_open_shift flag" "$([ "$(jqget "$OUT/last.body" requires_open_shift)" = "true" ] && echo true || echo false)"
 
 # ---------- 6. Freshness & waste ----------
 note "6. Freshness & waste (real inventory math)"
@@ -275,7 +305,36 @@ req "shifts history" GET /api/shifts "" "$TOKEN_ADMIN"
 expect_code "GET /api/shifts returns 200" 200
 assert "shift history has 2 closed shifts" "$([ "$(jqget "$OUT/last.body" 1.status)" = "Closed" ] && echo true || echo false)"
 
-note "9. Admin logout"
+# ---------- 9. Product hard delete rules ----------
+note "9. Product delete (hard delete only when unreferenced)"
+step "9a. Sold product (has order_items) is refused with an explanation"
+req "delete sold product" DELETE "/api/products/$PRODUCT_ID" "" "$TOKEN_ADMIN"
+expect_code "DELETE referenced product returns 422" 422
+assert "refusal says referenced_by_orders" "$([ "$(jqget "$OUT/last.body" referenced_by_orders)" = "true" ] && echo true || echo false)"
+req "sold product still exists" GET /api/products "" "$TOKEN_ADMIN"
+assert "referenced product NOT deleted" "$(python3 - "$OUT/last.body" "$PRODUCT_ID" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+print("true" if any(p["id"] == int(sys.argv[2]) for p in d) else "false")
+PY
+)"
+
+step "9b. Never-sold product is hard deleted"
+req "create throwaway product" POST /api/products '{"name":"Throwaway Cake","category":"Smoke Test Cakes","price":1.00,"stock":1}' "$TOKEN_ADMIN"
+expect_code "create throwaway returns 201" 201
+THROWAWAY_ID="$(jqget "$OUT/last.body" id)"
+req "delete throwaway product" DELETE "/api/products/$THROWAWAY_ID" "" "$TOKEN_ADMIN"
+expect_code "DELETE unreferenced product returns 200" 200
+assert "response confirms deletion" "$([ "$(jqget "$OUT/last.body" deleted)" = "true" ] && echo true || echo false)"
+req "catalog after delete" GET /api/products "" "$TOKEN_ADMIN"
+assert "throwaway product is gone" "$(python3 - "$OUT/last.body" "$THROWAWAY_ID" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+print("true" if not any(p["id"] == int(sys.argv[2]) for p in d) else "false")
+PY
+)"
+
+note "10. Admin logout"
 req "admin logout" POST /api/logout '{}' "$TOKEN_ADMIN"
 expect_code "admin logout returns 200" 200
 

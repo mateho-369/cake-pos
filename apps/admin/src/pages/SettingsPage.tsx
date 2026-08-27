@@ -155,7 +155,12 @@ export default function SettingsPage({
         setKhqrImageUrl(result.khqrImageUrl || '')
       }
       if (tab === 'freshness') {
-        await apiRequest('/api/settings/pos-rules', {
+        // Sync back from the server response so the fields always reflect
+        // the stored values (no manual reload needed).
+        const result = await apiRequest<{
+          defaultShelfLifeDays?: number
+          warningDays?: number
+        }>('/api/settings/pos-rules', {
           method: 'PUT',
           body: JSON.stringify({
             maxCashierDiscountPercent,
@@ -168,6 +173,8 @@ export default function SettingsPage({
             warningDays,
           }),
         })
+        setDefaultShelfLifeDays(result.defaultShelfLifeDays ?? 3)
+        setWarningDays(result.warningDays ?? 1)
       }
       onToast(t('settings.settingsSaved'))
     } catch (reason) {
@@ -236,12 +243,16 @@ export default function SettingsPage({
           />
         )}
         {tab === 'security' && <SecuritySettings onToast={onToast} />}
-        <div className="settings-save-bar">
-          <span>{t('settings.applyBoth')}</span>
-          <button className="primary-button">
-            <Save size={16} /> {t('common.save')}
-          </button>
-        </div>
+        {/* The broadcast tab saves through its own buttons and the security
+            tab is read-only — no save bar to click with no effect. */}
+        {tab !== 'broadcast' && tab !== 'security' && (
+          <div className="settings-save-bar">
+            <span>{t('settings.applyBoth')}</span>
+            <button className="primary-button">
+              <Save size={16} /> {t('common.save')}
+            </button>
+          </div>
+        )}
       </form>
     </div>
   )

@@ -234,6 +234,27 @@
   background: linear-gradient(145deg, #d9437d, #af164f);
   box-shadow: 0 6px 15px rgba(190, 24, 93, 0.2);
 }
+.customer-product.out-of-stock .customer-product-photo {
+  filter: grayscale(0.55);
+  opacity: 0.85;
+}
+.customer-product-photo i.oos {
+  color: #8a3050;
+  border-color: rgba(255, 255, 255, 0.85);
+  background: rgba(252, 235, 241, 0.92);
+}
+.customer-oos-note {
+  padding: 6px 9px;
+  color: #8a3050;
+  border: 1px dashed rgba(138, 48, 80, 0.35);
+  border-radius: 10px;
+  background: rgba(252, 235, 241, 0.7);
+  font-size: calc(7px * var(--font-scale));
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
 .customer-stepper {
   height: 30px;
   display: grid;

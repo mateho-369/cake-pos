@@ -12,3 +12,6 @@ dist/
 e2e/ui/artifacts/
 e2e/exports-verify/out/
 e2e/unit/out/
+
+# ui-audit generated output
+e2e/ui-audit/out/

@@ -86,6 +86,9 @@ class ProductService
             'image_url' => $primaryImageUrl,
             'active' =>
                 (bool) ($input['active'] ?? ($existing?->active ?? true)),
+            'hide_when_out_of_stock' =>
+                (bool) ($input['hideWhenOutOfStock'] ??
+                    ($existing?->hide_when_out_of_stock ?? false)),
         ];
     }
     public function import(array $rows): array

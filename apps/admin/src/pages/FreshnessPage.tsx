@@ -238,21 +238,12 @@ export default function FreshnessPage({ onToast }: Props) {
                   {product.stock} {t('common.units')}
                 </strong>
                 <strong>${(product.stock * product.price).toFixed(2)}</strong>
-                {product.status === 'Expired' ? (
+                {product.status === 'Expired' && (
                   <button
                     className="text-button coral-text"
                     onClick={() => setWasteModal(true)}
                   >
                     {t('freshness.writeOff')} <ChevronRight size={15} />
-                  </button>
-                ) : (
-                  <button
-                    className="text-button"
-                    onClick={() =>
-                      onToast(t('freshness.flagged', { name: product.name }))
-                    }
-                  >
-                    {t('freshness.prioritize')} <ChevronRight size={15} />
                   </button>
                 )}
               </div>

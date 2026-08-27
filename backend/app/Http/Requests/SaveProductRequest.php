@@ -24,6 +24,7 @@ class SaveProductRequest extends FormRequest
             'images.*.caption' => ['nullable', 'string', 'max:500'],
             'images.*.sortOrder' => ['sometimes', 'integer', 'min:0'],
             'active' => ['sometimes', 'boolean'],
+            'hideWhenOutOfStock' => ['sometimes', 'boolean'],
         ];
     }
 }

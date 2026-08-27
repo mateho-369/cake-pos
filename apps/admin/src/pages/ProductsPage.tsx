@@ -8,6 +8,8 @@ import {
   MoreHorizontal,
   Plus,
   Search,
+  Send,
+  Trash2,
   Upload,
 } from 'lucide-react'
 import { type Product } from '../data'
@@ -23,14 +25,53 @@ type ProductsPageProps = {
 }
 export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
   const { t } = useTranslation()
-  const { products, categories, updateProduct, refresh } = useAdminData()
+  const { products, categories, updateProduct, deleteProduct, refresh } =
+    useAdminData()
   const [importOpen, setImportOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
   const [editing, setEditing] = useState<Product | null>(null)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [photoError, setPhotoError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleteConfirmProduct, setDeleteConfirmProduct] =
+    useState<Product | null>(null)
+  const [deleteInProgress, setDeleteInProgress] = useState(false)
+  const [listDeleteError, setListDeleteError] = useState<string | null>(null)
   const [view, setView] = useState<'table' | 'grid'>('table')
+  const [broadcastFor, setBroadcastFor] = useState<Product | null>(null)
+  const [broadcastCaption, setBroadcastCaption] = useState('')
+  const [broadcastSending, setBroadcastSending] = useState(false)
+  const openBroadcastFor = (product: Product) => {
+    setBroadcastCaption(`New: ${product.name} — $${product.price.toFixed(2)}`)
+    setBroadcastFor(product)
+  }
+  const sendBroadcast = async () => {
+    if (!broadcastFor) return
+    setBroadcastSending(true)
+    try {
+      const result = await apiRequest<{
+        recipientCount: number
+        status: string
+      }>('/api/broadcasts', {
+        method: 'POST',
+        body: JSON.stringify({
+          caption: broadcastCaption,
+          imageUrl:
+            broadcastFor.images?.[0]?.url || broadcastFor.imageUrl || null,
+        }),
+      })
+      onToast(t('catalog.broadcastQueued', { count: result.recipientCount }))
+      setBroadcastFor(null)
+      setBroadcastCaption('')
+    } catch (reason) {
+      onToast(
+        reason instanceof Error ? reason.message : t('catalog.broadcastFailed'),
+      )
+    } finally {
+      setBroadcastSending(false)
+    }
+  }
   const filters = [
     { id: 'all', label: 'catalog.allProducts' },
     { id: 'active', label: 'common.active' },
@@ -42,10 +83,16 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
     (sum, product) => sum + product.stock * product.price,
     0,
   )
-  const riskUnits = products.filter((product) =>
-    ['1 day left', 'Expires today', 'Expired'].includes(product.status),
+  // Same freshness-risk definition as the Overview dashboard so both pages
+  // always show the same number: near-expiry products, counted in UNITS.
+  const riskProducts = products.filter((product) =>
+    ['1 day left', 'Expires today'].includes(product.status),
   )
-  const riskValue = riskUnits.reduce(
+  const riskUnits = riskProducts.reduce(
+    (sum, product) => sum + product.stock,
+    0,
+  )
+  const riskValue = riskProducts.reduce(
     (sum, product) => sum + product.stock * product.price,
     0,
   )
@@ -164,6 +211,58 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
     }
   }
 
+  // The backend counts order_items rows per product on the catalog index and
+  // is the authority on deletability. When that count is missing (older
+  // payloads) we fall back to letting the backend answer with its 422.
+  const referencedByOrders = (product: Product) =>
+    (product.orderItemReferences ?? 0) > 0
+
+  const deleteEditing = async () => {
+    if (!editing) return
+    setDeleteError(null)
+    try {
+      await deleteProduct(editing.id)
+      setEditing(null)
+      onToast(t('catalog.deleted'))
+    } catch (reason) {
+      // The backend returns a 422 with a clear message when the product is
+      // referenced by past orders; surface that in the form notice so the
+      // user understands why delete is not available and what to do instead.
+      setDeleteError(
+        reason instanceof Error ? reason.message : t('catalog.deleteFailed'),
+      )
+    }
+  }
+
+  const openDeleteConfirm = (product: Product) => {
+    setDeleteConfirmProduct(product)
+    setListDeleteError(null)
+  }
+
+  const closeDeleteConfirm = () => {
+    setDeleteConfirmProduct(null)
+    setListDeleteError(null)
+  }
+
+  const executeDeleteFromList = async () => {
+    if (!deleteConfirmProduct) return
+    setDeleteInProgress(true)
+    try {
+      await deleteProduct(deleteConfirmProduct.id)
+      setDeleteConfirmProduct(null)
+      onToast(t('catalog.deleted'))
+    } catch (reason) {
+      // Show the explanation inside the dialog (covers the order-reference
+      // 422) instead of a toast the user might miss.
+      setListDeleteError(
+        reason instanceof Error ? reason.message : t('catalog.deleteFailed'),
+      )
+      setDeleteInProgress(false)
+      return
+    }
+    setDeleteInProgress(false)
+  }
+
   const saveEdit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!editing) return
@@ -185,6 +284,7 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
       imageUrl: images[0]?.url || editing.imageUrl || undefined,
       images,
       active: form.get('active') === 'on',
+      hideWhenOutOfStock: form.get('hideWhenOutOfStock') === 'on',
     })
     setEditing(null)
     onToast(t('catalog.saved'))
@@ -214,7 +314,9 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
         </div>
         <div>
           <span>{t('catalog.freshnessRisk')}</span>
-          <strong className="coral-text">{riskUnits.length}</strong>
+          <strong className="coral-text">
+            {riskUnits} {t('common.units')}
+          </strong>
           <small>
             {t('catalog.retailValue', {
               value: riskValue.toLocaleString(undefined, {
@@ -286,6 +388,7 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
             <span>{t('catalog.today')}</span>
             <span>{t('catalog.status')}</span>
             <span />
+            <span />
           </div>
           {visible.map((product) => (
             <div className="catalog-row" key={product.id}>
@@ -339,6 +442,20 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
               >
                 <MoreHorizontal size={18} />
               </button>
+              <button
+                className="icon-button"
+                onClick={() => openDeleteConfirm(product)}
+                aria-label={`${t('catalog.delete')} ${product.name}`}
+                disabled={deleteInProgress}
+                title={
+                  referencedByOrders(product)
+                    ? t('catalog.cantDelete')
+                    : t('catalog.delete')
+                }
+                style={{ color: '#e53e3e' }}
+              >
+                <Trash2 size={18} />
+              </button>
             </div>
           ))}
           {visible.length === 0 && (
@@ -370,13 +487,29 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
                 >
                   {statusLabel(t, product.status)}
                 </span>
-                <button
-                  className="icon-button"
-                  onClick={() => beginEdit(product)}
-                  aria-label={`${t('common.edit')} ${product.name}`}
-                >
-                  <MoreHorizontal size={18} />
-                </button>
+                <div className="card-actions">
+                  <button
+                    className="icon-button"
+                    onClick={() => beginEdit(product)}
+                    aria-label={`${t('common.edit')} ${product.name}`}
+                  >
+                    <MoreHorizontal size={18} />
+                  </button>
+                  <button
+                    className="icon-button"
+                    onClick={() => openDeleteConfirm(product)}
+                    aria-label={`${t('catalog.delete')} ${product.name}`}
+                    disabled={deleteInProgress}
+                    title={
+                      referencedByOrders(product)
+                        ? t('catalog.cantDelete')
+                        : t('catalog.delete')
+                    }
+                    style={{ color: '#e53e3e' }}
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
               </div>
               <div className="catalog-card-copy">
                 <span>{translateCategory(t, product.category)}</span>
@@ -399,6 +532,117 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
         onImported={refresh}
         onToast={onToast}
       />
+      {deleteConfirmProduct && (
+        <Modal
+          open={true}
+          onClose={closeDeleteConfirm}
+          eyebrow={t('catalog.catalogItem')}
+          title={t('catalog.deleteConfirm')}
+          size="small"
+        >
+          <div className="delete-confirm">
+            <div className="delete-confirm-product">
+              <strong>{deleteConfirmProduct.name}</strong>
+              <small>
+                {t('catalog.sku', {
+                  id: String(deleteConfirmProduct.id).padStart(3, '0'),
+                })}
+              </small>
+              <small>
+                {t('catalog.sold', { count: deleteConfirmProduct.sold })}
+              </small>
+            </div>
+            <p className="delete-confirm-message">
+              {t('catalog.deleteConfirmMessage')}
+            </p>
+            {referencedByOrders(deleteConfirmProduct) && (
+              <div className="form-notice warning" role="alert">
+                {t('catalog.cantDelete')}
+              </div>
+            )}
+            {listDeleteError && (
+              <div className="form-notice warning" role="alert">
+                {listDeleteError}
+              </div>
+            )}
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={deleteInProgress}
+                onClick={closeDeleteConfirm}
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                className="danger-button"
+                disabled={
+                  referencedByOrders(deleteConfirmProduct) || deleteInProgress
+                }
+                onClick={() => void executeDeleteFromList()}
+              >
+                {deleteInProgress ? '…' : <Trash2 size={16} />}{' '}
+                {t('catalog.delete')}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      <Modal
+        open={Boolean(broadcastFor)}
+        onClose={() => {
+          setBroadcastFor(null)
+          setBroadcastCaption('')
+        }}
+        eyebrow={t('reports.broadcastFromProduct')}
+        title={broadcastFor?.name || ''}
+        size="small"
+      >
+        {broadcastFor && (
+          <div className="modal-form broadcast-from-product">
+            {(broadcastFor.images?.[0]?.url || broadcastFor.imageUrl) && (
+              <img
+                className="broadcast-thumb"
+                src={
+                  broadcastFor.images?.[0]?.url || broadcastFor.imageUrl || ''
+                }
+                alt={broadcastFor.name}
+              />
+            )}
+            <label>
+              <span>{t('reports.broadcastCaption')}</span>
+              <textarea
+                rows={3}
+                value={broadcastCaption}
+                onChange={(event) => setBroadcastCaption(event.target.value)}
+              />
+            </label>
+            <p className="broadcast-hint">{t('catalog.broadcastHint')}</p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={broadcastSending}
+                onClick={() => {
+                  setBroadcastFor(null)
+                  setBroadcastCaption('')
+                }}
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={broadcastSending || !broadcastCaption.trim()}
+                onClick={() => void sendBroadcast()}
+              >
+                <Send size={15} />
+                {broadcastSending ? '…' : t('reports.sendBroadcast')}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
       <Modal
         open={Boolean(editing)}
         onClose={() => setEditing(null)}
@@ -484,6 +728,9 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
             {photoError && (
               <div className="form-notice warning">{photoError}</div>
             )}
+            {deleteError && (
+              <div className="form-notice warning">{deleteError}</div>
+            )}
             <div className="form-grid two-columns">
               <label>
                 <span>{t('catalog.productName')}</span>
@@ -548,14 +795,42 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
               />
               <i />
             </label>
+            <label className="toggle-field">
+              <span>
+                <strong>{t('catalog.hideWhenOutOfStock')}</strong>
+                <small>{t('catalog.hideWhenOutOfStockHint')}</small>
+              </span>
+              <input
+                name="hideWhenOutOfStock"
+                type="checkbox"
+                defaultChecked={Boolean(editing.hideWhenOutOfStock)}
+              />
+              <i />
+            </label>
             <div className="modal-actions split-actions">
-              <button
-                type="button"
-                className="danger-text-button"
-                onClick={() => void archiveEditing()}
-              >
-                <Archive size={16} /> {t('catalog.archive')}
-              </button>
+              <span className="edit-modal-left-actions">
+                <button
+                  type="button"
+                  className="danger-text-button"
+                  onClick={() => void deleteEditing()}
+                >
+                  <Trash2 size={16} /> {t('catalog.delete')}
+                </button>
+                <button
+                  type="button"
+                  className="danger-text-button"
+                  onClick={() => void archiveEditing()}
+                >
+                  <Archive size={16} /> {t('catalog.archive')}
+                </button>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => openBroadcastFor(editing)}
+                >
+                  <Send size={15} /> {t('reports.broadcastFromProduct')}
+                </button>
+              </span>
               <span>
                 <button
                   type="button"

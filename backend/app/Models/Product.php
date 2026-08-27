@@ -11,6 +11,7 @@ class Product extends Model
         'sold' => 'integer',
         'revenue_cents' => 'integer',
         'active' => 'boolean',
+        'hide_when_out_of_stock' => 'boolean',
         'made_at' => 'date:Y-m-d',
         'best_before' => 'date:Y-m-d',
     ];
@@ -22,6 +23,11 @@ class Product extends Model
     public function images()
     {
         return $this->hasMany(ProductImage::class)->orderBy('sort_order');
+    }
+
+    public function orderItems()
+    {
+        return $this->hasMany(OrderItem::class);
     }
 
     /**

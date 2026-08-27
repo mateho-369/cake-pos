@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\EnsureActiveEmployee;
 use App\Http\Middleware\RequireAdmin;
+use App\Http\Middleware\RequireOpenShift;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -14,8 +15,12 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__ . '/../routes/console.php',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->alias(['admin' => RequireAdmin::class, 'active' => \App\Http\Middleware\EnsureActiveEmployee::class]);
-        $middleware->redirectGuestsTo(fn () => null);
+        $middleware->alias([
+            'admin' => RequireAdmin::class,
+            'active' => EnsureActiveEmployee::class,
+            'open-shift' => RequireOpenShift::class,
+        ]);
+        $middleware->redirectGuestsTo(fn() => null);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(fn() => true);

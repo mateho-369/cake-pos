@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Data\CreatedOrder;
+use App\Jobs\SendCustomerStatusNotification;
 use App\Jobs\SendStaffOrderNotification;
 use App\Models\{
     Employee,
@@ -22,6 +23,8 @@ use Illuminate\Validation\ValidationException;
 
 class OrderService
 {
+    public function __construct(private readonly AuditService $audit) {}
+
     public function createWalkIn(array $input, Employee $employee): CreatedOrder
     {
         $key = $input['idempotencyKey'] ?? null;
@@ -74,6 +77,20 @@ class OrderService
                         ->all(),
                 ]);
 
+                if ($discountAmount > 0) {
+                    $this->audit->log(
+                        $employee,
+                        'discount.applied',
+                        $order->id,
+                        [
+                            'subtotalCents' => $subtotal,
+                            'discountType' => $discountType,
+                            'discountValue' => $discountValue,
+                            'discountAmountCents' => $discountAmount,
+                            'totalCents' => $total,
+                        ],
+                    );
+                }
                 $allocated = 0;
                 $lineIndex = 0;
                 $lineCount = count($lines);
@@ -189,6 +206,16 @@ class OrderService
                     ->map(fn($l) => $l[0]->name . ' × ' . $l[1])
                     ->all(),
             ]);
+            if ($discount > 0) {
+                $this->audit->log($employee, 'discount.applied', $order->id, [
+                    'subtotalCents' => $subtotal,
+                    'discountType' => $type,
+                    'discountValue' => $value,
+                    'discountAmountCents' => $discount,
+                    'totalCents' => $total,
+                    'note' => 'held order',
+                ]);
+            }
             OrderStatusEvent::create([
                 'order_id' => $order->id,
                 'to_status' => 'Held',
@@ -210,14 +237,25 @@ class OrderService
             return $order;
         });
     }
-    public function cancel(Order $order): void
+    public function cancel(Order $order, Employee $employee): void
     {
-        DB::transaction(function () use ($order) {
+        DB::transaction(function () use ($order, $employee) {
             $order = Order::whereKey($order->id)
                 ->lockForUpdate()
                 ->firstOrFail();
-            if ($order->status !== 'Held') {
-                $this->conflict('Only unpaid Held orders can be cancelled');
+            $cancellable =
+                $order->status === 'Held' ||
+                ($order->source === 'telegram' &&
+                    $order->payment_status !== 'paid' &&
+                    in_array(
+                        $order->status,
+                        ['Pending', 'Confirmed', 'Ready'],
+                        true,
+                    ));
+            if (!$cancellable) {
+                $this->conflict(
+                    'Only unpaid held/pending orders can be cancelled',
+                );
             }
             foreach ($order->orderItems()->lockForUpdate()->get() as $item) {
                 if ($item->product_id) {
@@ -236,12 +274,24 @@ class OrderService
                 'order_id' => $order->id,
                 'from_status' => $from,
                 'to_status' => 'Cancelled',
+                'employee_id' => $employee->id,
+            ]);
+            $this->audit->log($employee, 'order.cancelled', $order->id, [
+                'fromStatus' => $from,
+                'totalCents' => $order->total_cents,
+                'source' => $order->source,
             ]);
         });
+        if ($order->source === 'telegram') {
+            SendCustomerStatusNotification::dispatch($order->id);
+        }
     }
 
-    public function updateTelegram(Order $order, array $input): Order
-    {
+    public function updateTelegram(
+        Order $order,
+        array $input,
+        Employee $employee,
+    ): Order {
         if ($order->status === 'Completed') {
             $this->conflict(
                 'Completed orders are immutable; create a refund or void correction instead',
@@ -264,11 +314,20 @@ class OrderService
             ? Money::fromDecimal($input['total'], 'total')
             : $order->total_cents;
 
-        DB::transaction(function () use ($order, $status, $total) {
+        $statusChanged = false;
+        DB::transaction(function () use (
+            $order,
+            $status,
+            $total,
+            $employee,
+            &$statusChanged,
+        ) {
             $order->refresh();
             if ($order->status === 'Completed') {
                 $this->conflict('Completed orders are immutable');
             }
+            $fromStatus = $order->status;
+            $beforeTotal = $order->total_cents;
 
             if ($status === 'Completed') {
                 $lines = $order
@@ -283,6 +342,12 @@ class OrderService
                         $this->stockConflict($product);
                     }
                     $product->decrement('stock', $quantity);
+                    if ($product->reserved_stock) {
+                        $product->decrement(
+                            'reserved_stock',
+                            min($product->reserved_stock, $quantity),
+                        );
+                    }
                 }
                 $this->recordNetProductRevenue(
                     $lines,
@@ -305,9 +370,65 @@ class OrderService
                 )
                     ? 'KHQR'
                     : $order->payment,
+                'payment_status' =>
+                    $status === 'Completed' ? 'paid' : $order->payment_status,
+                // Order-to-employee integrity: a customer order that becomes a
+                // completed sale here is attributed to the employee handling
+                // it, so no completed sale ever lacks an owner.
+                ...$status === 'Completed' && $order->cashier_id === null
+                    ? ['cashier_id' => $employee->id]
+                    : [],
             ]);
+            if ($status === 'Completed' && $fromStatus !== 'Completed') {
+                $this->audit->log($employee, 'order.completed', $order->id, [
+                    'fromStatus' => $fromStatus,
+                    'totalCents' => $total,
+                    'paymentMethod' => 'KHQR',
+                    'claimedFromUnassigned' => $order->cashier_id === null,
+                    'source' => 'telegram',
+                ]);
+            }
+
+            if ($fromStatus !== $status) {
+                $statusChanged = true;
+                OrderStatusEvent::create([
+                    'order_id' => $order->id,
+                    'from_status' => $fromStatus,
+                    'to_status' => $status,
+                    'employee_id' => $employee->id,
+                ]);
+                $this->audit->log(
+                    $employee,
+                    'order.status_changed',
+                    $order->id,
+                    ['from' => $fromStatus, 'to' => $status],
+                );
+            }
+            if ($beforeTotal !== $total) {
+                // A total override on a customer order is a price change —
+                // exactly the kind of action the owner must be able to trace.
+                $this->audit->log(
+                    $employee,
+                    $discount > 0 ? 'discount.applied' : 'order.price_override',
+                    $order->id,
+                    [
+                        'beforeCents' => $beforeTotal,
+                        'afterCents' => $total,
+                        'subtotalCents' => $order->subtotal_cents,
+                        'source' => 'telegram',
+                    ],
+                );
+            }
         });
 
+        if ($statusChanged) {
+            SendCustomerStatusNotification::dispatch($order->id);
+            if ($status === 'Completed') {
+                // Staff receipt (gcake_pos) for every completed sale,
+                // whichever flow completed it.
+                SendStaffOrderNotification::dispatch($order->id);
+            }
+        }
         return $order->fresh();
     }
 
@@ -347,7 +468,7 @@ class OrderService
             }
 
             $status = $input['type'] === 'refund' ? 'Refunded' : 'Voided';
-            return Order::create([
+            $correction = Order::create([
                 'id' => 'RF-' . $this->nextOrderNumber('RF'),
                 'cashier_id' => $employee->id,
                 'customer_id' => $original->customer_id,
@@ -363,6 +484,17 @@ class OrderService
                 'status' => $status,
                 'detail_json' => ["$status correction for {$original->id}"],
             ]);
+            $this->audit->log(
+                $employee,
+                $status === 'Refunded' ? 'order.refunded' : 'order.voided',
+                $original->id,
+                [
+                    'correctionId' => $correction->id,
+                    'amountCents' => $amount,
+                    'originalTotalCents' => $original->total_cents,
+                ],
+            );
+            return $correction;
         });
     }
 

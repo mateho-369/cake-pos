@@ -27,7 +27,17 @@ type CustomerOrder = {
   total: number
   status: string
   detail: string[]
+  pickupCode?: string | null
 }
+type OpenOrderItem = {
+  productId: number
+  name: string
+  quantity: number
+  price: number
+}
+const newPlaceKey = () =>
+  globalThis.crypto?.randomUUID?.() ||
+  `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 type MenuResponse = {
   customer: Customer
   products: Product[]
@@ -50,6 +60,10 @@ export default function CustomerApp() {
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [openOrder, setOpenOrder] = useState<CustomerOrder | null>(null)
+  // One idempotency key per placement attempt: a double-tap on "Send Order"
+  // sends the same key twice, and the server returns the original order.
+  const [placeKey, setPlaceKey] = useState(newPlaceKey)
 
   useEffect(() => {
     if (!initData) {
@@ -57,11 +71,35 @@ export default function CustomerApp() {
       setError(t('errors.telegram'))
       return
     }
-    apiRequest<MenuResponse>('/api/customer-products', {
-      method: 'POST',
-      body: JSON.stringify({ initData }),
-    })
-      .then(setMenu)
+    Promise.all([
+      apiRequest<MenuResponse>('/api/customer-products', {
+        method: 'POST',
+        body: JSON.stringify({ initData }),
+      }),
+      // Reopen the customer's held order (if any) so they keep adding to
+      // the SAME order instead of creating a second one.
+      apiRequest<{ order: CustomerOrder | null; items: OpenOrderItem[] }>(
+        '/api/customer-orders/open',
+        { method: 'POST', body: JSON.stringify({ initData }) },
+      ).catch(() => ({ order: null, items: [] as OpenOrderItem[] })),
+    ])
+      .then(([menuResponse, open]) => {
+        setMenu(menuResponse)
+        if (open.order) {
+          setOpenOrder(open.order)
+          const restored: Cart = {}
+          const stockById = new Map(
+            menuResponse.products.map((product) => [product.id, product.stock]),
+          )
+          for (const item of open.items) {
+            const available = stockById.get(item.productId) ?? 0
+            if (available > 0) {
+              restored[item.productId] = Math.min(item.quantity, available)
+            }
+          }
+          setCart(restored)
+        }
+      })
       .catch((reason) =>
         setError(reason instanceof Error ? reason.message : t('errors.menu')),
       )
@@ -176,6 +214,7 @@ export default function CustomerApp() {
           method: 'POST',
           body: JSON.stringify({
             initData,
+            idempotencyKey: placeKey,
             items: items.map(({ product, quantity }) => ({
               productId: product.id,
               quantity,
@@ -185,8 +224,10 @@ export default function CustomerApp() {
         },
       )
       setOrder(result.order)
+      setOpenOrder(result.order)
       setCart({})
       setCartOpen(false)
+      setPlaceKey(newPlaceKey())
       webApp?.HapticFeedback?.notificationOccurred?.('success')
     } catch (reason) {
       setError(
@@ -266,6 +307,21 @@ export default function CustomerApp() {
           Telegram.
         </p>
       </section>
+      {openOrder && (
+        <section className="customer-open-order">
+          <span>
+            <ShoppingBag size={15} />
+          </span>
+          <div>
+            <strong>
+              {t('menu.openOrderBanner')}{' '}
+              <b>{openOrder.pickupCode || openOrder.id}</b>
+            </strong>
+            <small>{t('menu.openOrderHint')}</small>
+          </div>
+          <em>${openOrder.total.toFixed(2)}</em>
+        </section>
+      )}
       <section className="customer-menu">
         <div className="customer-section-title">
           <div>
@@ -289,9 +345,15 @@ export default function CustomerApp() {
           {visibleProducts.map((product) => {
             const quantity = cart[product.id] || 0
             const gallery = productImages(product)
+            // Out of stock is a purely derived state: stock <= 0. The card
+            // stays visible with a clear label and no way to add it; the
+            // moment stock goes back above 0 this disappears on its own.
+            const outOfStock = product.stock <= 0
             return (
               <article
-                className={`customer-product ${quantity ? 'selected' : ''}`}
+                className={`customer-product ${quantity ? 'selected' : ''} ${
+                  outOfStock ? 'out-of-stock' : ''
+                }`}
                 key={product.id}
               >
                 <button
@@ -299,15 +361,21 @@ export default function CustomerApp() {
                   style={productImageStyle(product)}
                   onClick={() => {
                     if (gallery.length > 1) setActiveGallery(product)
-                    else change(product, 1)
+                    else if (!outOfStock) change(product, 1)
                   }}
                   aria-label={
                     gallery.length > 1
                       ? `View ${product.name} photos`
-                      : `Add ${product.name}`
+                      : outOfStock
+                        ? `${product.name} — ${t('menu.outOfStock')}`
+                        : `Add ${product.name}`
                   }
                 >
-                  <i>Fresh today</i>
+                  {outOfStock ? (
+                    <i className="oos">{t('menu.outOfStock')}</i>
+                  ) : (
+                    <i>Fresh today</i>
+                  )}
                   {gallery.length > 1 && (
                     <em className="photo-count">{gallery.length}</em>
                   )}
@@ -327,6 +395,10 @@ export default function CustomerApp() {
                         <button onClick={() => change(product, 1)}>
                           <Plus size={13} />
                         </button>
+                      </span>
+                    ) : outOfStock ? (
+                      <span className="customer-oos-note">
+                        {t('menu.outOfStock')}
                       </span>
                     ) : (
                       <button
@@ -376,12 +448,20 @@ export default function CustomerApp() {
               <span>${activeGallery.price.toFixed(2)}</span>
               <button
                 className="customer-send"
+                disabled={activeGallery.stock <= 0}
                 onClick={() => {
+                  if (activeGallery.stock <= 0) return
                   change(activeGallery, 1)
                   setActiveGallery(null)
                 }}
               >
-                <Plus size={17} /> Add to order
+                {activeGallery.stock <= 0 ? (
+                  t('menu.outOfStock')
+                ) : (
+                  <>
+                    <Plus size={17} /> Add to order
+                  </>
+                )}
               </button>
             </footer>
           </section>
@@ -554,6 +634,13 @@ function OrderStatus({
           We’ll confirm your final price and any special details with you in
           Telegram.
         </p>
+        {order.pickupCode && (
+          <div className="status-pickup-code">
+            <small>{t('menu.pickupCodeLabel')}</small>
+            <strong>{order.pickupCode}</strong>
+            <span>{t('menu.pickupCodeHint')}</span>
+          </div>
+        )}
       </section>
       <section className="status-card">
         <div className="status-card-head">

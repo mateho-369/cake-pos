@@ -1,17 +1,21 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
+  AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
   Download,
   FileSpreadsheet,
   FileText,
   Lightbulb,
+  ShieldAlert,
   TrendingUp,
 } from 'lucide-react'
 import type { RevenuePoint } from '../data'
 import { useAdminData } from '../lib/data'
+import { apiRequest } from '../lib/api'
 import { translateCategory, useTranslation } from '../lib/i18n'
 import {
+  downloadCsv,
   exportOrdersExcel,
   exportSummaryWord,
   ordersInRange,
@@ -23,8 +27,16 @@ export default function ReportsPage({
   onToast: (message: string) => void
 }) {
   const { t } = useTranslation()
-  const { categories, products, revenueData, orders, summary, freshness } =
-    useAdminData()
+  const {
+    categories,
+    products,
+    revenueData,
+    orders,
+    summary,
+    freshness,
+    shifts,
+    employees,
+  } = useAdminData()
   const kpiNetSales = summary?.todaySalesTotal ?? 0
   const kpiAverageOrder = (summary?.averageOrderValueCents ?? 0) / 100
   const kpiOrders = summary?.todayOrdersCount ?? orders.length
@@ -66,6 +78,7 @@ export default function ReportsPage({
     { id: 'payments', label: 'reports.payments' },
     { id: 'team', label: 'reports.team' },
     { id: 'waste', label: 'reports.waste' },
+    { id: 'audit', label: 'reports.auditLog' },
   ]
   const libraries = [
     { key: 'dailySummary', label: 'reports.dailySummary' },
@@ -75,6 +88,113 @@ export default function ReportsPage({
     { key: 'freshWaste', label: 'reports.freshWaste' },
     { key: 'employeePerformance', label: 'reports.employeePerformance' },
   ]
+  // Each library item downloads a report that matches its label, built from
+  // the same live data shown elsewhere in the admin app.
+  const runLibraryExport = (key: string, label: string) => {
+    onToast(t('reports.prepared', { name: t(label) }))
+    const run = (): Promise<void> | void => {
+      switch (key) {
+        case 'dailySummary':
+          return exportSummaryWord(selectedOrders, from, to)
+        case 'sellThrough':
+          downloadCsv(
+            `product-sell-through-${from || 'all'}-${to || 'all'}.csv`,
+            ['Product', 'Category', 'Sold', 'On hand', 'Sell-through %'],
+            products.map((product) => {
+              const total = product.sold + product.stock
+              return [
+                product.name,
+                product.category,
+                product.sold,
+                product.stock,
+                total ? Math.round((product.sold / total) * 100) : 0,
+              ]
+            }),
+          )
+          return
+        case 'reconciliation':
+          downloadCsv(
+            `payment-reconciliation-${from || 'all'}-${to || 'all'}.csv`,
+            ['Order', 'Date', 'Payment', 'Status', 'Total (USD)'],
+            selectedOrders.map((order) => [
+              order.id,
+              new Date(order.createdAt).toLocaleDateString('en-CA'),
+              order.payment || 'Unpaid',
+              order.status,
+              order.total.toFixed(2),
+            ]),
+          )
+          return
+        case 'shiftVariance':
+          downloadCsv(
+            'shift-variance.csv',
+            [
+              'Opened',
+              'Closed',
+              'Opened by',
+              'Opening cash (USD)',
+              'Expected cash (USD)',
+              'Counted cash (USD)',
+              'Variance (USD)',
+              'Status',
+            ],
+            shifts.map((shift) => [
+              new Date(shift.openedAt).toLocaleString(),
+              shift.closedAt ? new Date(shift.closedAt).toLocaleString() : '',
+              shift.openedBy || '',
+              ((shift.openingCashUsdCents ?? 0) / 100).toFixed(2),
+              ((shift.expectedCashUsdCents ?? 0) / 100).toFixed(2),
+              shift.closedAt
+                ? ((shift.closingCashUsdCents ?? 0) / 100).toFixed(2)
+                : '',
+              shift.closedAt
+                ? ((shift.varianceUsdCents ?? 0) / 100).toFixed(2)
+                : '',
+              shift.status,
+            ]),
+          )
+          return
+        case 'freshWaste':
+          downloadCsv(
+            'freshness-waste.csv',
+            [
+              'Date',
+              'Product',
+              'Quantity',
+              'Reason',
+              'Retail value (USD)',
+              'Recorded by',
+            ],
+            (freshness?.events ?? []).map((event) => [
+              new Date(event.recordedAt).toLocaleString(),
+              event.productName,
+              event.quantity,
+              event.reason,
+              event.retailValue.toFixed(2),
+              event.recordedBy || '',
+            ]),
+          )
+          return
+        case 'employeePerformance':
+          downloadCsv(
+            'employee-performance.csv',
+            ['Employee', 'Role', 'Orders', 'Sales today (USD)'],
+            employees.map((employee) => [
+              employee.name,
+              employee.role,
+              employee.orders,
+              employee.sales.toFixed(2),
+            ]),
+          )
+          return
+        default:
+          return exportOrdersExcel(selectedOrders, from, to)
+      }
+    }
+    Promise.resolve(run()).catch((error) =>
+      onToast(error instanceof Error ? error.message : String(error)),
+    )
+  }
   return (
     <div className="page-content">
       <section className="reports-header">
@@ -166,20 +286,27 @@ export default function ReportsPage({
           <div className="panel-heading">
             <div>
               <span className="section-kicker">{t('reports.trend')}</span>
-              <h2>
-                {tab === 'waste'
-                  ? t('reports.wasteTrend')
-                  : t('reports.salesTrend')}
-              </h2>
+              <h2>{tabTitle(t, tab)}</h2>
             </div>
-            <div className="dual-legend">
-              <span>
-                <i className="sales" />
-                {tab === 'waste' ? t('reports.wasteCost') : t('reports.sales')}
-              </span>
-            </div>
+            {(tab === 'sales' || tab === 'waste') && (
+              <div className="dual-legend">
+                <span>
+                  <i className="sales" />
+                  {tab === 'waste'
+                    ? t('reports.wasteCost')
+                    : t('reports.sales')}
+                </span>
+              </div>
+            )}
           </div>
-          <ComparisonChart waste={tab === 'waste'} />
+          {tab === 'sales' && <ComparisonChart waste={false} />}
+          {tab === 'waste' && <ComparisonChart waste />}
+          {tab === 'products' && <TopProductsTable />}
+          {tab === 'payments' && <PaymentsBreakdown />}
+          {tab === 'team' && <TeamAccountability from={from} to={to} />}
+          {tab === 'audit' && (
+            <AuditLogPanel from={from} to={to} onToast={onToast} />
+          )}
         </div>
         <div className="glass-panel insight-panel">
           <div className="insight-icon">
@@ -226,6 +353,7 @@ export default function ReportsPage({
           )}
         </div>
       </section>
+      <PeriodComparison from={from} to={to} />
       <section className="report-bottom-grid">
         <div className="glass-panel category-report">
           <div className="panel-heading">
@@ -312,14 +440,7 @@ export default function ReportsPage({
           {libraries.map((item) => (
             <button
               key={item.key}
-              onClick={() => {
-                onToast(t('reports.prepared', { name: t(item.label) }))
-                void (
-                  item.key === 'dailySummary'
-                    ? exportSummaryWord(selectedOrders, from, to)
-                    : exportOrdersExcel(selectedOrders, from, to)
-                ).catch((error) => onToast(error.message))
-              }}
+              onClick={() => runLibraryExport(item.key, item.label)}
             >
               <FileSpreadsheet size={19} />
               <span>
@@ -334,6 +455,505 @@ export default function ReportsPage({
     </div>
   )
 }
+function tabTitle(t: (key: string) => string, tab: string) {
+  switch (tab) {
+    case 'waste':
+      return t('reports.wasteTrend')
+    case 'products':
+      return t('reports.productsTitle')
+    case 'payments':
+      return t('reports.paymentsTitle')
+    case 'team':
+      return t('reports.teamTitle')
+    default:
+      return t('reports.salesTrend')
+  }
+}
+
+function TopProductsTable() {
+  const { t } = useTranslation()
+  const { summary } = useAdminData()
+  const top = summary?.topProducts ?? []
+  if (!top.length)
+    return (
+      <div className="empty-state">
+        <span>{t('reports.noChartData')}</span>
+      </div>
+    )
+  return (
+    <div className="report-tab-table table-responsive">
+      <div className="table-row table-head">
+        <span>#</span>
+        <span>{t('dashboard.product')}</span>
+        <span>{t('dashboard.units')}</span>
+        <span>{t('dashboard.revenue')}</span>
+      </div>
+      {top.map((product, index) => (
+        <div className="table-row" key={`${product.id}-${product.name}`}>
+          <span className="rank">{index + 1}</span>
+          <strong>{product.name}</strong>
+          <span>{product.units}</span>
+          <strong className="numeric">${product.revenue.toFixed(2)}</strong>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function PaymentsBreakdown() {
+  const { t } = useTranslation()
+  const { summary } = useAdminData()
+  const cash = (summary?.cashRevenueCents ?? 0) / 100
+  const qr = (summary?.qrRevenueCents ?? 0) / 100
+  const qrCount = summary?.qrPaymentCount ?? 0
+  const total = cash + qr
+  if (!total)
+    return (
+      <div className="empty-state">
+        <span>{t('reports.noChartData')}</span>
+      </div>
+    )
+  const rows = [
+    { label: t('dashboard.cash'), value: cash, count: null },
+    { label: t('payment.khqr'), value: qr, count: qrCount },
+  ]
+  return (
+    <div className="report-tab-table table-responsive">
+      <div className="table-row table-head">
+        <span>{t('reports.channel')}</span>
+        <span>{t('dashboard.revenue')}</span>
+        <span>{t('reports.share')}</span>
+      </div>
+      {rows.map((row) => (
+        <div className="table-row" key={row.label}>
+          <strong>
+            {row.label}
+            {row.count !== null && (
+              <small className="block-note">
+                {t('reports.confirmedPayments', { count: row.count })}
+              </small>
+            )}
+          </strong>
+          <strong className="numeric">${row.value.toFixed(2)}</strong>
+          <span>{total ? Math.round((row.value / total) * 100) : 0}%</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+type CashierAccountability = {
+  cashier_id: number
+  name: string
+  completedOrderCount: number
+  netRevenueCents: number
+  discountsCents: number
+  discountCount: number
+  voidCount: number
+  voidAmountCents: number
+  refundCount: number
+  refundAmountCents: number
+  shiftsClosed: number
+  shortfallCount: number
+  repeatedShortfall: boolean
+  varianceHistory: Array<{
+    closedAt: string | null
+    openingCashUsdCents: number
+    expectedCashUsdCents: number
+    closingCashUsdCents: number
+    varianceUsdCents: number
+  }>
+}
+
+const cents = (value: number) => `$${(value / 100).toFixed(2)}`
+
+/**
+ * Employee accountability: normal sales numbers next to the anti-theft
+ * signals (discounts, voids, refunds, cash-variance history). Rows with a
+ * repeated negative-variance pattern are flagged for the owner.
+ */
+function TeamAccountability({ from, to }: { from: string; to: string }) {
+  const { t } = useTranslation()
+  const [rows, setRows] = useState<CashierAccountability[] | null>(null)
+  const [expanded, setExpanded] = useState<number | null>(null)
+  useEffect(() => {
+    let alive = true
+    apiRequest<CashierAccountability[]>(
+      `/api/reports/cashiers?from=${from}&to=${to}`,
+    )
+      .then((data) => alive && setRows(data))
+      .catch(() => alive && setRows([]))
+    return () => {
+      alive = false
+    }
+  }, [from, to])
+  if (!rows)
+    return (
+      <div className="empty-state">
+        <span>{t('reports.loadingData')}</span>
+      </div>
+    )
+  if (!rows.length)
+    return (
+      <div className="empty-state">
+        <span>{t('reports.noChartData')}</span>
+      </div>
+    )
+  return (
+    <div className="report-tab-table table-responsive accountability-table">
+      <div className="table-row table-head accountability-head">
+        <span>{t('employees.employee')}</span>
+        <span>{t('reports.ordersCol')}</span>
+        <span>{t('reports.netRevenue')}</span>
+        <span>{t('reports.discountsCol')}</span>
+        <span>{t('reports.voidsCol')}</span>
+        <span>{t('reports.cashVariance')}</span>
+        <span />
+      </div>
+      {rows.map((row) => (
+        <div key={row.cashier_id} className="accountability-row-wrap">
+          <div
+            className={`table-row accountability-head ${
+              row.repeatedShortfall ? 'flagged' : ''
+            }`}
+          >
+            <strong>
+              {row.name}
+              {row.repeatedShortfall && (
+                <span className="shortfall-flag">
+                  <AlertTriangle size={12} />
+                  {t('reports.shortfallPattern', {
+                    count: row.shortfallCount,
+                  })}
+                </span>
+              )}
+            </strong>
+            <span>{row.completedOrderCount}</span>
+            <span>{cents(row.netRevenueCents)}</span>
+            <span>
+              {row.discountCount} · {cents(row.discountsCents)}
+              {row.voidCount + row.refundCount > 0 && (
+                <small className="block-note">
+                  {t('reports.refundsCol')}: {row.refundCount} ·{' '}
+                  {cents(row.refundAmountCents)}
+                </small>
+              )}
+            </span>
+            <span>
+              {row.voidCount} · {cents(row.voidAmountCents)}
+            </span>
+            <span>
+              {row.shiftsClosed === 0
+                ? '—'
+                : t('reports.shiftsClosedShort', {
+                    count: row.shiftsClosed,
+                    short: row.shortfallCount,
+                  })}
+            </span>
+            <button
+              className="text-button"
+              onClick={() =>
+                setExpanded(expanded === row.cashier_id ? null : row.cashier_id)
+              }
+            >
+              {expanded === row.cashier_id
+                ? t('reports.hideHistory')
+                : t('reports.viewHistory')}
+            </button>
+          </div>
+          {expanded === row.cashier_id && (
+            <div className="variance-history">
+              {row.varianceHistory.length === 0 && (
+                <p>{t('reports.noShiftsInRange')}</p>
+              )}
+              {row.varianceHistory.map((shift, index) => (
+                <div className="table-row variance-row" key={index}>
+                  <span>
+                    {shift.closedAt
+                      ? new Date(shift.closedAt).toLocaleString()
+                      : '—'}
+                  </span>
+                  <span>{cents(shift.openingCashUsdCents)}</span>
+                  <span>{cents(shift.expectedCashUsdCents)}</span>
+                  <span>{cents(shift.closingCashUsdCents)}</span>
+                  <strong
+                    className={
+                      shift.varianceUsdCents < 0
+                        ? 'coral-text'
+                        : shift.varianceUsdCents > 0
+                          ? 'amber-text'
+                          : 'green-text'
+                    }
+                  >
+                    {shift.varianceUsdCents < 0 ? '−' : ''}
+                    {cents(Math.abs(shift.varianceUsdCents))}
+                  </strong>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+type AuditRow = {
+  id: number
+  at: string
+  employee: string
+  employeeId: number | null
+  action: string
+  orderId: string | null
+  details: Record<string, unknown>
+  ip: string | null
+}
+
+const auditActionGroups = [
+  { id: '', key: 'reports.allActions' },
+  { id: 'discount', key: 'reports.discountsCol' },
+  { id: 'order.voided', key: 'reports.voidsCol' },
+  { id: 'order.refunded', key: 'reports.refundsCol' },
+  { id: 'order.price_override', key: 'reports.priceOverride' },
+  { id: 'order.cancelled', key: 'reports.cancellations' },
+  { id: 'order.completed', key: 'reports.conversions' },
+  { id: 'shift', key: 'reports.shiftEvents' },
+  { id: 'customer_order', key: 'reports.customerOrders' },
+]
+
+function describeDetails(details: Record<string, unknown>): string {
+  const parts: string[] = []
+  const money = (key: string, label: string) => {
+    const value = details[key]
+    if (typeof value === 'number') parts.push(`${label} ${cents(value)}`)
+  }
+  if (typeof details.from === 'string' && typeof details.to === 'string')
+    parts.push(`${details.from} → ${details.to}`)
+  money('beforeCents', 'before')
+  money('afterCents', 'after')
+  money('discountAmountCents', 'discount')
+  money('amountCents', 'amount')
+  money('varianceUsdCents', 'variance')
+  money('expectedCashUsdCents', 'expected')
+  money('closingCashUsdCents', 'counted')
+  if (typeof details.pickupCode === 'string')
+    parts.push(`code ${details.pickupCode}`)
+  if (typeof details.phone === 'string') parts.push(String(details.phone))
+  return parts.join(' · ') || '—'
+}
+
+function AuditLogPanel({
+  from,
+  to,
+  onToast,
+}: {
+  from: string
+  to: string
+  onToast: (message: string) => void
+}) {
+  const { t } = useTranslation()
+  const { employees } = useAdminData()
+  const [rows, setRows] = useState<AuditRow[]>([])
+  const [employee, setEmployee] = useState('')
+  const [action, setAction] = useState('')
+  const [newestFirst, setNewestFirst] = useState(true)
+  useEffect(() => {
+    let alive = true
+    const params = new URLSearchParams({ from, to })
+    if (employee) params.set('employee', employee)
+    if (action) params.set('action', action)
+    apiRequest<AuditRow[]>(`/api/reports/audit?${params.toString()}`)
+      .then((data) => alive && setRows(data))
+      .catch((error) => {
+        if (alive) {
+          setRows([])
+          onToast(error instanceof Error ? error.message : 'Audit load failed')
+        }
+      })
+    return () => {
+      alive = false
+    }
+  }, [from, to, employee, action, onToast])
+  const sorted = newestFirst ? rows : [...rows].reverse()
+  const exportAudit = () =>
+    downloadCsv(
+      `audit-log-${from}-${to}.csv`,
+      ['Timestamp', 'Employee', 'Action', 'Order', 'Details'],
+      sorted.map((row) => [
+        new Date(row.at).toLocaleString(),
+        row.employee,
+        row.action,
+        row.orderId || '',
+        describeDetails(row.details),
+      ]),
+    )
+  return (
+    <div className="audit-log-panel">
+      <div className="audit-filters">
+        <select value={employee} onChange={(e) => setEmployee(e.target.value)}>
+          <option value="">{t('reports.allEmployees')}</option>
+          {employees.map((member) => (
+            <option key={member.id} value={member.id}>
+              {member.name}
+            </option>
+          ))}
+        </select>
+        <select value={action} onChange={(e) => setAction(e.target.value)}>
+          {auditActionGroups.map((group) => (
+            <option key={group.id} value={group.id}>
+              {t(group.key)}
+            </option>
+          ))}
+        </select>
+        <button
+          className="text-button"
+          onClick={() => setNewestFirst(!newestFirst)}
+        >
+          {newestFirst ? t('reports.newestFirst') : t('reports.oldestFirst')}
+        </button>
+        <button className="text-button" onClick={exportAudit}>
+          <Download size={14} /> {t('common.export')}
+        </button>
+      </div>
+      <div className="table-responsive">
+        <div className="table-row table-head audit-head">
+          <span>{t('dashboard.time')}</span>
+          <span>{t('employees.employee')}</span>
+          <span>{t('reports.actionCol')}</span>
+          <span>{t('orders.order')}</span>
+          <span>{t('reports.detailsCol')}</span>
+        </div>
+        {sorted.map((row) => (
+          <div className="table-row audit-row" key={row.id}>
+            <span>{new Date(row.at).toLocaleString()}</span>
+            <strong>{row.employee}</strong>
+            <span className="audit-action">{row.action}</span>
+            <span>{row.orderId || '—'}</span>
+            <small>{describeDetails(row.details)}</small>
+          </div>
+        ))}
+        {!sorted.length && (
+          <div className="empty-state">
+            <ShieldAlert size={22} />
+            <span>{t('reports.noAuditEvents')}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Period-over-period comparison: fetches the report summary for the selected
+ * range and for the equal-length range immediately before it, from the same
+ * /api/reports/summary endpoint the dashboard uses.
+ */
+function PeriodComparison({ from, to }: { from: string; to: string }) {
+  const { t } = useTranslation()
+  const [current, setCurrent] = useState<{
+    netRevenueCents: number
+    completedOrderCount: number
+  } | null>(null)
+  const [previous, setPrevious] = useState<{
+    netRevenueCents: number
+    completedOrderCount: number
+  } | null>(null)
+  useEffect(() => {
+    let alive = true
+    const start = new Date(`${from}T00:00:00`)
+    const end = new Date(`${to}T23:59:59`)
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return
+    const days = Math.max(
+      1,
+      Math.round((end.getTime() - start.getTime()) / 86400000) + 1,
+    )
+    const iso = (d: Date) => d.toISOString().slice(0, 10)
+    const prevEnd = new Date(start.getTime() - 86400000)
+    const prevStart = new Date(prevEnd.getTime() - (days - 1) * 86400000)
+    const pick = (data: {
+      netRevenueCents?: number
+      completedOrderCount?: number
+    }) => ({
+      netRevenueCents: data.netRevenueCents ?? 0,
+      completedOrderCount: data.completedOrderCount ?? 0,
+    })
+    type SummaryLite = {
+      netRevenueCents?: number
+      completedOrderCount?: number
+    }
+    Promise.all([
+      apiRequest<SummaryLite>(
+        `/api/reports/summary?from=${iso(start)}&to=${iso(end)}`,
+      ),
+      apiRequest<SummaryLite>(
+        `/api/reports/summary?from=${iso(prevStart)}&to=${iso(prevEnd)}`,
+      ),
+    ])
+      .then(([cur, prev]) => {
+        if (!alive) return
+        setCurrent(pick(cur))
+        setPrevious(pick(prev))
+      })
+      .catch(() => {
+        if (alive) {
+          setCurrent(null)
+          setPrevious(null)
+        }
+      })
+    return () => {
+      alive = false
+    }
+  }, [from, to])
+  if (!current || !previous) return null
+  const delta = (cur: number, prev: number) =>
+    prev === 0 ? null : ((cur - prev) / prev) * 100
+  const salesDelta = delta(current.netRevenueCents, previous.netRevenueCents)
+  const ordersDelta = delta(
+    current.completedOrderCount,
+    previous.completedOrderCount,
+  )
+  const renderDelta = (value: number | null) =>
+    value === null ? (
+      <span className="report-compare-neutral">
+        {t('reports.noPreviousData')}
+      </span>
+    ) : (
+      <span className={value >= 0 ? 'green-text' : 'coral-text'}>
+        {value >= 0 ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
+        {Math.abs(value).toFixed(1)}%
+      </span>
+    )
+  return (
+    <div className="glass-panel report-comparison">
+      <div className="panel-heading">
+        <div>
+          <span className="section-kicker">{t('reports.comparison')}</span>
+          <h2>{t('reports.vsPreviousPeriod')}</h2>
+        </div>
+      </div>
+      <div className="report-comparison-grid">
+        <div>
+          <span>{t('dashboard.netSales')}</span>
+          <strong>{cents(current.netRevenueCents)}</strong>
+          {renderDelta(salesDelta)}
+        </div>
+        <div>
+          <span>{t('dashboard.orders')}</span>
+          <strong>{current.completedOrderCount}</strong>
+          {renderDelta(ordersDelta)}
+        </div>
+        <div>
+          <span>{t('reports.previousPeriod')}</span>
+          <strong>{cents(previous.netRevenueCents)}</strong>
+          <small>
+            {previous.completedOrderCount} {t('reports.ordersShort')}
+          </small>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ReportKpi({
   label,
   value,

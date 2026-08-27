@@ -1,11 +1,20 @@
 <?php
 namespace Tests\Feature;
 
-use App\Models\{Employee, Order, Product, Setting};
+use App\Models\{
+    AuditEvent,
+    Customer,
+    Employee,
+    Order,
+    Product,
+    ProductImage,
+    Setting,
+    Shift,
+};
 use App\Services\ObjectUploadService;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\{Cache, DB, Storage};
+use Illuminate\Support\Facades\{Cache, DB, Http, Storage};
 use Illuminate\Support\Str;
 use App\Support\BotSeparation;
 use Tests\TestCase;
@@ -26,6 +35,22 @@ class ApiContractTest extends TestCase
                 $employee->createToken('test', ['*'], now()->addHours(12))
                     ->plainTextToken,
         ];
+    }
+    /**
+     * Sale-creating endpoints (POST /api/orders, /api/orders/hold,
+     * /api/orders/{id}/pay) require an open shift. Tests that only care
+     * about order semantics use this to satisfy the gate idempotently.
+     */
+    private function openShiftIfNone(Employee $employee): void
+    {
+        if (Shift::where('status', 'Open')->exists()) {
+            return;
+        }
+        $this->postJson(
+            '/api/shifts/open',
+            ['openingCash' => '100.00'],
+            $this->auth($employee),
+        )->assertCreated();
     }
     private function signedInitData(array $user): string
     {
@@ -120,6 +145,7 @@ class ApiContractTest extends TestCase
     public function test_money_is_stored_and_calculated_only_as_integer_cents(): void
     {
         $admin = Employee::where('role', 'admin')->first();
+        $this->openShiftIfNone($admin);
         $product = Product::first();
         $product->update(['price_cents' => 1001, 'stock' => 5]);
         $response = $this->postJson(
@@ -154,6 +180,7 @@ class ApiContractTest extends TestCase
         ]);
         $cashier = Employee::where('role', 'cashier')->first();
         $admin = Employee::where('role', 'admin')->first();
+        $this->openShiftIfNone($cashier);
         $p = Product::first();
         $p->update(['price_cents' => 1000, 'stock' => 10]);
         $this->postJson(
@@ -190,6 +217,7 @@ class ApiContractTest extends TestCase
     public function test_idempotency_returns_original_order_and_decrements_stock_once(): void
     {
         $employee = Employee::where('role', 'cashier')->first();
+        $this->openShiftIfNone($employee);
         $headers = $this->auth($employee);
         $p = Product::first();
         $before = $p->stock;
@@ -215,11 +243,12 @@ class ApiContractTest extends TestCase
     }
     public function test_order_creation_uses_for_update_and_rolls_back_stock_failure(): void
     {
+        $employee = Employee::where('role', 'cashier')->first();
+        $this->openShiftIfNone($employee);
         $sql = [];
         DB::listen(function ($query) use (&$sql) {
             $sql[] = $query->sql;
         });
-        $employee = Employee::where('role', 'cashier')->first();
         $headers = $this->auth($employee);
         $p = Product::first();
         $other = Product::where('id', '!=', $p->id)->first();
@@ -254,6 +283,7 @@ class ApiContractTest extends TestCase
     public function test_completed_order_is_immutable_and_correction_is_linked(): void
     {
         $admin = Employee::where('role', 'admin')->first();
+        $this->openShiftIfNone($admin);
         $headers = $this->auth($admin);
         $p = Product::first();
         $created = $this->postJson(
@@ -496,6 +526,7 @@ class ApiContractTest extends TestCase
         if ($confirmed) {
             $payload['confirmed'] = true;
         }
+        $this->openShiftIfNone($cashier);
         return $this->postJson('/api/orders', $payload, $this->auth($cashier))
             ->assertCreated()
             ->json('id');
@@ -649,6 +680,255 @@ class ApiContractTest extends TestCase
         $this->assertSame(1, $product->fresh()->stock);
     }
 
+    public function test_reports_cashiers_qualifies_joined_columns(): void
+    {
+        // Regression: /api/reports/cashiers 500'd in production with
+        // SQLSTATE[23000] 1052 "Column 'created_at' in where clause is
+        // ambiguous" because the orders⋈employees join left created_at
+        // unqualified. The query must run and attribute sales per cashier.
+        $admin = Employee::where('role', 'admin')->first();
+        $cashier = Employee::where('role', 'cashier')->first();
+        $product = Product::first();
+        $product->update(['price_cents' => 1500, 'stock' => 50]);
+        $this->createPaidOrder($cashier, $product, 'Cash', 2);
+
+        $rows = $this->getJson('/api/reports/cashiers', $this->auth($admin))
+            ->assertOk()
+            ->json();
+
+        $row = collect($rows)->first(
+            fn($r) => (int) ($r['cashier_id'] ?? 0) === (int) $cashier->id,
+        );
+        $this->assertNotNull($row, 'cashier row missing from report');
+        $this->assertSame($cashier->name, $row['name']);
+        $this->assertSame(1, (int) $row['completedOrderCount']);
+        $this->assertSame(3000, (int) $row['netRevenueCents']);
+    }
+
+    public function test_login_does_not_open_a_shift(): void
+    {
+        // Logging in (email/password or PIN) must never auto-open a shift.
+        $login = $this->postJson('/api/login', [
+            'email' => env('SEED_CASHIER_EMAIL', 'sophea@atelier.local'),
+            'password' => env('SEED_CASHIER_PASSWORD', 'ChangeMe123!'),
+        ])->assertOk();
+        $token = $login->json('token');
+        $this->assertSame(
+            'null',
+            $this->getJson('/api/shifts/current', [
+                'Authorization' => "Bearer $token",
+            ])->getContent(),
+        );
+        $pin = $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.99'])
+            ->postJson('/api/login', [
+                'pin_code' => env('SEED_CASHIER_PIN', '1234'),
+            ])
+            ->assertOk();
+        $this->assertSame(
+            'null',
+            $this->getJson('/api/shifts/current', [
+                'Authorization' => 'Bearer ' . $pin->json('token'),
+            ])->getContent(),
+        );
+    }
+
+    public function test_sale_endpoints_require_an_open_shift(): void
+    {
+        $cashier = Employee::where('role', 'cashier')->first();
+        $headers = $this->auth($cashier);
+        $p = Product::first();
+        $p->update(['price_cents' => 1000, 'stock' => 10]);
+        $items = ['items' => [['productId' => $p->id, 'quantity' => 1]]];
+
+        // No shift open: every sale-creating endpoint is refused with the
+        // structured "requires_open_shift" response the UI prompts on.
+        $this->postJson(
+            '/api/orders',
+            $items + [
+                'payment' => 'Cash',
+                'idempotencyKey' => (string) Str::uuid(),
+            ],
+            $headers,
+        )
+            ->assertStatus(409)
+            ->assertJsonPath('requires_open_shift', true);
+        $this->postJson('/api/orders/hold', $items, $headers)
+            ->assertStatus(409)
+            ->assertJsonPath('requires_open_shift', true);
+
+        // Open a shift through the normal flow: sales are allowed again.
+        $this->postJson(
+            '/api/shifts/open',
+            ['openingCash' => '50.00'],
+            $headers,
+        )->assertCreated();
+        $held = $this->postJson('/api/orders/hold', $items, $headers)
+            ->assertCreated()
+            ->json('id');
+        $this->postJson(
+            '/api/orders',
+            $items + [
+                'payment' => 'Cash',
+                'idempotencyKey' => (string) Str::uuid(),
+            ],
+            $headers,
+        )->assertCreated();
+
+        // Close the shift: checkout is blocked too.
+        $this->postJson(
+            '/api/shifts/close',
+            ['closingCash' => '60.00'],
+            $headers,
+        )->assertOk();
+        $this->postJson(
+            "/api/orders/$held/pay",
+            [
+                'method' => 'Cash',
+                'usdReceivedCents' => 1000,
+            ],
+            $headers,
+        )
+            ->assertStatus(409)
+            ->assertJsonPath('requires_open_shift', true);
+
+        // Reopen: the same checkout goes through.
+        $this->postJson(
+            '/api/shifts/open',
+            ['openingCash' => '50.00'],
+            $headers,
+        )->assertCreated();
+        $this->postJson(
+            "/api/orders/$held/pay",
+            [
+                'method' => 'Cash',
+                'usdReceivedCents' => 1000,
+            ],
+            $headers,
+        )->assertOk();
+    }
+
+    public function test_unreferenced_product_hard_deletes_assets_and_referenced_product_is_refused(): void
+    {
+        Storage::fake('s3');
+        config(['filesystems.disks.s3.url' => 'https://cdn.test']);
+        $admin = Employee::where('role', 'admin')->first();
+        $cashier = Employee::where('role', 'cashier')->first();
+
+        // Product A: never sold, has gallery rows + R2 objects.
+        $a = Product::create([
+            'name' => 'Mistake Cake',
+            'category_id' => \App\Models\Category::first()->id,
+            'price_cents' => 500,
+            'stock' => 1,
+            'made_at' => now()->toDateString(),
+            'active' => true,
+        ]);
+        Storage::disk('s3')->put('product-images/aaa.jpg', 'x');
+        Storage::disk('s3')->put('product-images/bbb.jpg', 'x');
+        ProductImage::create([
+            'product_id' => $a->id,
+            'url' => 'https://cdn.test/product-images/aaa.jpg',
+            'sort_order' => 0,
+        ]);
+        ProductImage::create([
+            'product_id' => $a->id,
+            'url' => 'https://cdn.test/product-images/bbb.jpg',
+            'sort_order' => 1,
+        ]);
+
+        // Product B: has order history.
+        $b = Product::first();
+        $b->update(['price_cents' => 800, 'stock' => 10]);
+        $this->createPaidOrder($cashier, $b, 'Cash', 1);
+
+        // Referenced product: refused with the explanatory 422, kept intact.
+        $this->deleteJson("/api/products/{$b->id}", [], $this->auth($admin))
+            ->assertStatus(422)
+            ->assertJsonPath('referenced_by_orders', true)
+            ->assertJsonPath(
+                'message',
+                "Can't delete — referenced by past orders, deactivate instead",
+            );
+        $this->assertDatabaseHas('products', ['id' => $b->id]);
+
+        // Unreferenced product: hard-deleted with images + R2 objects.
+        $this->deleteJson("/api/products/{$a->id}", [], $this->auth($admin))
+            ->assertOk()
+            ->assertJsonPath('deleted', true);
+        $this->assertDatabaseMissing('products', ['id' => $a->id]);
+        $this->assertDatabaseMissing('product_images', [
+            'product_id' => $a->id,
+        ]);
+        Storage::disk('s3')->assertMissing('product-images/aaa.jpg');
+        Storage::disk('s3')->assertMissing('product-images/bbb.jpg');
+    }
+
+    public function test_customer_storefront_out_of_stock_rules(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        $initData = $this->signedInitData([
+            'id' => 42,
+            'first_name' => 'Srey',
+            'username' => 'srey',
+        ]);
+        $category = \App\Models\Category::first();
+        Product::query()->update(['active' => false]);
+        $mk = fn(array $attrs) => Product::create(
+            $attrs + ['made_at' => now()->toDateString()],
+        );
+        $shownOos = $mk([
+            'name' => 'Shown OOS Cake',
+            'category_id' => $category->id,
+            'price_cents' => 1000,
+            'stock' => 0,
+            'active' => true,
+            'hide_when_out_of_stock' => false,
+        ]);
+        $hiddenOos = $mk([
+            'name' => 'Seasonal One-Off',
+            'category_id' => $category->id,
+            'price_cents' => 1200,
+            'stock' => 0,
+            'active' => true,
+            'hide_when_out_of_stock' => true,
+        ]);
+        $inStock = $mk([
+            'name' => 'In Stock Cake',
+            'category_id' => $category->id,
+            'price_cents' => 900,
+            'stock' => 4,
+            'active' => true,
+            'hide_when_out_of_stock' => false,
+        ]);
+
+        $names = fn() => collect(
+            $this->postJson('/api/customer-products', [
+                'initData' => $initData,
+            ])
+                ->assertOk()
+                ->json('products'),
+        )->pluck('name');
+
+        // Default: out-of-stock stays visible (flag is derived from stock on
+        // the client); the hide-when-OOS override removes its product.
+        $this->assertTrue($names()->contains('Shown OOS Cake'));
+        $this->assertFalse($names()->contains('Seasonal One-Off'));
+        $this->assertTrue($names()->contains('In Stock Cake'));
+
+        // Restock above 0 -> sellable again with no re-toggle...
+        $shownOos->update(['stock' => 3]);
+        $this->assertTrue($names()->contains('Shown OOS Cake'));
+        // ...and dropping back to 0 flips it back to shown-as-OOS only,
+        // because the override flag is off.
+        $shownOos->update(['stock' => 0]);
+        $this->assertTrue($names()->contains('Shown OOS Cake'));
+        $this->assertFalse($names()->contains('Seasonal One-Off'));
+
+        // The manual `active` toggle stays independent and wins.
+        $inStock->update(['active' => false]);
+        $this->assertFalse($names()->contains('In Stock Cake'));
+    }
+
     public function test_business_profile_settings_round_trip(): void
     {
         $admin = Employee::where('role', 'admin')->first();
@@ -675,6 +955,357 @@ class ApiContractTest extends TestCase
             ['businessName' => 'Hijacked'],
             $this->auth($cashier),
         )->assertForbidden();
+    }
+
+    public function test_cashiers_report_includes_discount_void_and_variance_history(): void
+    {
+        $admin = Employee::where('role', 'admin')->first();
+        $cashier = Employee::where('role', 'cashier')->first();
+        $product = Product::first();
+        $product->update(['price_cents' => 2000, 'stock' => 100]);
+
+        // Shift 1: cashier discounts an order, then closes $2 short.
+        $this->postJson(
+            '/api/shifts/open',
+            ['openingCash' => '100.00'],
+            $this->auth($cashier),
+        )->assertCreated();
+        // 2 x $20 = $40 with a $3 discount (7.5%, inside the cashier limit).
+        $orderId = $this->postJson(
+            '/api/orders',
+            [
+                'payment' => 'Cash',
+                'items' => [['productId' => $product->id, 'quantity' => 2]],
+                'discount' => ['type' => 'fixed', 'amount' => '3.00'],
+                'idempotencyKey' => (string) Str::uuid(),
+            ],
+            $this->auth($cashier),
+        )
+            ->assertCreated()
+            ->json('id');
+        // expected cash = 100 opening + 37 sale = 137; close at 135 -> -2.00
+        $this->postJson(
+            '/api/shifts/close',
+            ['closingCash' => '135.00'],
+            $this->auth($cashier),
+        )->assertOk();
+        // Admin voids $5 of that order (corrections are admin-only).
+        $this->postJson(
+            "/api/orders/$orderId/corrections",
+            ['type' => 'void', 'amount' => '5.00'],
+            $this->auth($admin),
+        )->assertCreated();
+        // Shift 2: cashier closes $1 short again -> a pattern.
+        $this->postJson(
+            '/api/shifts/open',
+            ['openingCash' => '50.00'],
+            $this->auth($cashier),
+        )->assertCreated();
+        $this->postJson(
+            '/api/shifts/close',
+            ['closingCash' => '49.00'],
+            $this->auth($cashier),
+        )->assertOk();
+
+        $rows = $this->getJson(
+            '/api/reports/cashiers?preset=today',
+            $this->auth($admin),
+        )
+            ->assertOk()
+            ->json();
+        $row = collect($rows)->first(
+            fn($r) => (int) ($r['cashier_id'] ?? 0) === (int) $cashier->id,
+        );
+        $this->assertNotNull($row, 'cashier row missing');
+        $this->assertSame(1, $row['completedOrderCount']);
+        $this->assertSame(3700, $row['netRevenueCents']);
+        $this->assertSame(300, $row['discountsCents']);
+        $this->assertSame(1, $row['discountCount']);
+        $this->assertSame(2, $row['shiftsClosed']);
+        $this->assertSame(2, $row['shortfallCount']);
+        $this->assertTrue($row['repeatedShortfall']);
+        $this->assertCount(2, $row['varianceHistory']);
+        $this->assertSame(-200, $row['varianceHistory'][0]['varianceUsdCents']);
+
+        $adminRow = collect($rows)->first(
+            fn($r) => (int) ($r['cashier_id'] ?? 0) === (int) $admin->id,
+        );
+        $this->assertNotNull($adminRow, 'admin row missing');
+        $this->assertSame(1, $adminRow['voidCount']);
+        $this->assertSame(500, $adminRow['voidAmountCents']);
+    }
+
+    public function test_audit_log_records_discount_void_cancel_and_conversion(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        $admin = Employee::where('role', 'admin')->first();
+        $cashier = Employee::where('role', 'cashier')->first();
+        $product = Product::first();
+        $product->update(['price_cents' => 1500, 'stock' => 50]);
+        $this->openShiftIfNone($cashier);
+
+        // Walk-in order with a discount.
+        $walkInId = $this->postJson(
+            '/api/orders',
+            [
+                'payment' => 'Cash',
+                'items' => [['productId' => $product->id, 'quantity' => 1]],
+                'discount' => ['type' => 'percentage', 'amount' => '10'],
+                'idempotencyKey' => (string) Str::uuid(),
+            ],
+            $this->auth($cashier),
+        )
+            ->assertCreated()
+            ->json('id');
+        // Admin voids part of it.
+        $this->postJson(
+            "/api/orders/$walkInId/corrections",
+            ['type' => 'void', 'amount' => '3.00'],
+            $this->auth($admin),
+        )->assertCreated();
+
+        // Telegram customer order, then an admin price override, then cancel.
+        $initData = $this->signedInitData([
+            'id' => 42,
+            'first_name' => 'Srey',
+            'username' => 'srey',
+        ]);
+        $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'requestedTotal' => '15.00',
+        ])->assertStatus(409); // no phone yet
+        Customer::where('telegram_user_id', '42')->update([
+            'phone' => '+855 12 345 678',
+        ]);
+        $tgId = $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'requestedTotal' => '15.00',
+        ])
+            ->assertCreated()
+            ->json('order.id');
+        $this->patchJson(
+            "/api/orders/$tgId",
+            ['total' => 12.0],
+            $this->auth($admin),
+        )->assertOk();
+        $this->postJson(
+            "/api/orders/$tgId/cancel",
+            [],
+            $this->auth($admin),
+        )->assertOk();
+
+        $events = $this->getJson(
+            '/api/reports/audit?preset=today',
+            $this->auth($admin),
+        )
+            ->assertOk()
+            ->json();
+        $actions = collect($events)->pluck('action', 'orderId');
+        $discountEvent = collect($events)->first(
+            fn($e) => $e['action'] === 'discount.applied' &&
+                $e['orderId'] === $walkInId,
+        );
+        $this->assertNotNull($discountEvent, 'discount audit event missing');
+        $this->assertSame($cashier->name, $discountEvent['employee']);
+        $this->assertSame(
+            150,
+            $discountEvent['details']['discountAmountCents'],
+        );
+        $this->assertNotNull(
+            collect($events)->first(
+                fn($e) => $e['action'] === 'order.voided' &&
+                    $e['orderId'] === $walkInId,
+            ),
+            'void audit event missing',
+        );
+        $override = collect($events)->first(
+            fn($e) => $e['orderId'] === $tgId &&
+                in_array(
+                    $e['action'],
+                    ['order.price_override', 'discount.applied'],
+                    true,
+                ),
+        );
+        $this->assertNotNull($override, 'price-override audit event missing');
+        $this->assertSame(1500, $override['details']['beforeCents']);
+        $this->assertSame(1200, $override['details']['afterCents']);
+        $this->assertSame($admin->name, $override['employee']);
+        $this->assertNotNull(
+            collect($events)->first(
+                fn($e) => $e['action'] === 'order.cancelled' &&
+                    $e['orderId'] === $tgId,
+            ),
+            'cancel audit event missing',
+        );
+        $this->assertNotNull(
+            collect($events)->first(
+                fn($e) => $e['action'] === 'customer_order.created' &&
+                    $e['orderId'] === $tgId,
+            ),
+            'customer_order.created audit event missing',
+        );
+        // Cashier cannot see the audit trail.
+        $this->getJson(
+            '/api/reports/audit?preset=today',
+            $this->auth($cashier),
+        )->assertForbidden();
+    }
+
+    public function test_customer_self_order_flow_hold_merge_convert(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        $admin = Employee::where('role', 'admin')->first();
+        $cashier = Employee::where('role', 'cashier')->first();
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 7,
+            'first_name' => 'Bora',
+            'username' => 'bora',
+        ]);
+        Customer::where('telegram_user_id', '7')->update([
+            'phone' => '+855 99 887 766',
+        ]);
+
+        // Place order -> held, unpaid, reserved, with a pickup code.
+        $first = $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'requestedTotal' => '10.00',
+        ])->assertCreated();
+        $orderId = $first->json('order.id');
+        $code = $first->json('order.pickupCode');
+        $this->assertNotEmpty($code);
+        $this->assertLessThanOrEqual(8, strlen($code));
+        $this->assertSame('Pending', $first->json('order.status'));
+        $this->assertSame('unpaid', $first->json('order.paymentStatus'));
+        $this->assertSame(1, $product->fresh()->reserved_stock);
+        $this->assertSame(10, $product->fresh()->stock);
+
+        // Reopen + add items: SAME order is updated, never a second one.
+        $second = $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 2]],
+            'requestedTotal' => '20.00',
+        ])->assertCreated();
+        $this->assertSame($orderId, $second->json('order.id'));
+        $this->assertSame(
+            2000,
+            (int) round($second->json('order.total') * 100),
+        );
+        $this->assertSame(2, $product->fresh()->reserved_stock);
+        $this->assertSame(
+            1,
+            Order::where(
+                'customer_id',
+                Customer::where('telegram_user_id', '7')->value('id'),
+            )
+                ->whereIn('status', ['Pending', 'Confirmed'])
+                ->count(),
+        );
+
+        // Visible in the pending panel with pickup code, not stale yet.
+        $pending = $this->getJson('/api/orders/pending', $this->auth($admin))
+            ->assertOk()
+            ->json();
+        $entry = collect($pending)->firstWhere('id', $orderId);
+        $this->assertNotNull($entry, 'pending panel missing the order');
+        $this->assertSame($code, $entry['pickupCode']);
+        $this->assertFalse($entry['isStale']);
+
+        // Left overnight -> flagged stale.
+        DB::table('orders')
+            ->where('id', $orderId)
+            ->update(['created_at' => now()->subDay()]);
+        $pending2 = $this->getJson(
+            '/api/orders/pending',
+            $this->auth($admin),
+        )->json();
+        $this->assertTrue(
+            collect($pending2)->firstWhere('id', $orderId)['isStale'],
+        );
+
+        // Converting to a paid sale requires an open shift...
+        $this->postJson(
+            "/api/orders/$orderId/pay",
+            ['method' => 'Cash', 'usdReceivedCents' => 2000],
+            $this->auth($cashier),
+        )
+            ->assertStatus(409)
+            ->assertJsonPath('requires_open_shift', true);
+        // ...and once open, completes and is attributed to the cashier.
+        $this->postJson(
+            '/api/shifts/open',
+            ['openingCash' => '50.00'],
+            $this->auth($cashier),
+        )->assertCreated();
+        $this->postJson(
+            "/api/orders/$orderId/pay",
+            ['method' => 'Cash', 'usdReceivedCents' => 2000],
+            $this->auth($cashier),
+        )->assertOk();
+        $completed = Order::find($orderId);
+        $this->assertSame('Completed', $completed->status);
+        $this->assertSame('paid', $completed->payment_status);
+        $this->assertSame($cashier->id, $completed->cashier_id);
+        $this->assertSame(8, $product->fresh()->stock);
+        $this->assertSame(0, $product->fresh()->reserved_stock);
+        // The conversion is in the audit trail.
+        $this->assertNotNull(
+            AuditEvent::where('action', 'order.completed')
+                ->where('order_id', $orderId)
+                ->where('employee_id', $cashier->id)
+                ->first(),
+        );
+    }
+
+    public function test_sales_endpoints_cannot_create_anonymous_sales(): void
+    {
+        $product = Product::first();
+        $product->update(['stock' => 10]);
+        // No token at all -> 401, no order created.
+        $this->postJson('/api/orders', [
+            'payment' => 'Cash',
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+        ])->assertUnauthorized();
+        $this->assertSame(0, Order::count());
+    }
+
+    public function test_staff_webhook_today_command_reuses_reports_source(): void
+    {
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        config([
+            'services.telegram.staff_bot_token' => '123:staff-token',
+            'services.telegram.webhook_secret' => 'sekret',
+        ]);
+        $admin = Employee::where('role', 'admin')->first();
+        $cashier = Employee::where('role', 'cashier')->first();
+        $product = Product::first();
+        $product->update(['price_cents' => 2000, 'stock' => 50]);
+        $this->createPaidOrder($cashier, $product, 'Cash', 2);
+
+        $this->postJson(
+            '/api/telegram/webhook',
+            ['message' => ['text' => '/today', 'from' => ['id' => 99]]],
+            ['X-Telegram-Bot-Api-Secret-Token' => 'sekret'],
+        )->assertOk();
+
+        Http::assertSent(function ($request) {
+            return str_contains(
+                $request->url(),
+                'bot123:staff-token/sendMessage',
+            ) &&
+                str_contains((string) $request['text'], 'Net sales: $40.00') &&
+                str_contains((string) $request['text'], 'Completed orders: 1');
+        });
+        // Wrong secret is rejected.
+        $this->postJson(
+            '/api/telegram/webhook',
+            ['message' => ['text' => '/today', 'from' => ['id' => 99]]],
+            ['X-Telegram-Bot-Api-Secret-Token' => 'wrong'],
+        )->assertUnauthorized();
     }
 }
 

@@ -13,8 +13,19 @@ class OrderResource extends JsonResource
     {
         $this->resource->loadMissing(['cashier', 'customer']);
 
+        // An open order left over from before today is stale: flag it so the
+        // pending-orders view can highlight it instead of letting it pile up.
+        $open = in_array(
+            $this->status,
+            ['Pending', 'Confirmed', 'Ready', 'Held'],
+            true,
+        );
+        $isStale = $open && $this->created_at < now()->startOfDay();
+
         return [
             'id' => $this->id,
+            'pickupCode' => $this->pickup_code,
+            'isStale' => $isStale,
             'time' => $this->time,
             'date' => $this->date,
             'createdAt' => $this->created_at->toISOString(),

@@ -24,8 +24,8 @@ const titles: Record<PageId, { title: string; eyebrow: string }> = {
   categories: { title: 'nav.categories', eyebrow: 'header.catalogStructure' },
   employees: { title: 'nav.employees', eyebrow: 'header.people' },
   shifts: { title: 'nav.shifts', eyebrow: 'header.cashControl' },
-  reports: { title: 'header.reports', eyebrow: 'header.performance' },
-  settings: { title: 'header.settings', eyebrow: 'header.configuration' },
+  reports: { title: 'nav.reports', eyebrow: 'header.performance' },
+  settings: { title: 'nav.settings', eyebrow: 'header.configuration' },
   media: { title: 'nav.media', eyebrow: 'header.configuration' },
 }
 

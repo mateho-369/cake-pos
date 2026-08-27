@@ -82,4 +82,12 @@ class ReportController extends Controller
     {
         return $this->get('customers', $r);
     }
+    public function audit(ReportFilterRequest $r): JsonResponse
+    {
+        return $this->get('audit', $r);
+    }
+    public function retention(ReportFilterRequest $r): JsonResponse
+    {
+        return $this->get('retention', $r);
+    }
 }

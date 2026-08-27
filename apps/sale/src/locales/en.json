@@ -748,5 +748,18 @@
     "thankYou": "Thank you!",
     "orderNumber": "Order {{number}}",
     "ready": "Your payment was received"
+  },
+  "pending": {
+    "title": "Pending customer orders",
+    "stale": "STALE",
+    "customer": "Customer",
+    "takePayment": "Take payment",
+    "cash": "Cash",
+    "khqr": "KHQR",
+    "received": "Cash received ($)",
+    "khqrNote": "Confirm the KHQR payment was received, then confirm.",
+    "shiftNote": "No shift open — you will be asked to open one before the payment is recorded.",
+    "confirmPayment": "Confirm payment",
+    "paid": "Order {{id}} paid"
   }
 }

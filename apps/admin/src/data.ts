@@ -35,10 +35,23 @@ export type Product = {
   imageUrl?: string | null
   images?: ProductImage[]
   active: boolean
+  /**
+   * Number of order_items rows referencing this product. Present on the
+   * catalog list response; > 0 means the product cannot be hard-deleted.
+   */
+  orderItemReferences?: number
+  /**
+   * Admin override (default false): hide the product from the customer
+   * storefront entirely once stock hits 0, instead of showing it with an
+   * "Out of stock" label. Kept separate from `active` on purpose.
+   */
+  hideWhenOutOfStock?: boolean
 }
 
 export type Order = {
   id: string
+  pickupCode?: string | null
+  isStale?: boolean
   time: string
   date: string
   createdAt: string

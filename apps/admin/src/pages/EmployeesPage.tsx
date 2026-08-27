@@ -2,12 +2,15 @@ import { useState } from 'react'
 import {
   Check,
   KeyRound,
-  MoreHorizontal,
+  Pencil,
   Plus,
   ShieldCheck,
   UserCog,
+  UserX,
 } from 'lucide-react'
+import type { Employee } from '../data'
 import { useAdminData } from '../lib/data'
+import { useStaffAuth } from '../auth/StaffAuthContext'
 import Modal from '../components/Modal'
 import { useTranslation } from '../lib/i18n'
 
@@ -17,22 +20,81 @@ export default function EmployeesPage({
   onToast: (message: string) => void
 }) {
   const { t } = useTranslation()
-  const { employees, createEmployee } = useAdminData()
+  const { employees, createEmployee, updateEmployee, deactivateEmployee } =
+    useAdminData()
+  const { employee: me } = useStaffAuth()
   const [open, setOpen] = useState(false)
   const [accessOpen, setAccessOpen] = useState(false)
+  const [editing, setEditing] = useState<Employee | null>(null)
+  const [saving, setSaving] = useState(false)
+
   const submitEmployee = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    await createEmployee({
-      name: String(form.get('name') || ''),
-      email: String(form.get('email') || ''),
-      role: String(form.get('role') || 'Cashier'),
-      password: String(form.get('password') || ''),
-      pin_code: String(form.get('pin_code') || ''),
-    })
-    setOpen(false)
-    onToast(t('employees.employeeCreated'))
+    setSaving(true)
+    try {
+      await createEmployee({
+        name: String(form.get('name') || ''),
+        email: String(form.get('email') || ''),
+        role: String(form.get('role') || 'cashier'),
+        password: String(form.get('password') || ''),
+        pin_code: String(form.get('pin_code') || ''),
+        active: form.get('active') === 'on',
+      })
+      setOpen(false)
+      onToast(t('employees.employeeCreated'))
+    } catch (reason) {
+      onToast(
+        reason instanceof Error ? reason.message : t('employees.updateFailed'),
+      )
+    } finally {
+      setSaving(false)
+    }
   }
+
+  const submitEdit = async (event: React.FormEvent<HTMLFormElement>) => {
+    if (!editing) return
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const pin = String(form.get('pin_code') || '').trim()
+    const password = String(form.get('password') || '').trim()
+    setSaving(true)
+    try {
+      await updateEmployee(editing.id, {
+        name: String(form.get('name') || editing.name),
+        email: String(form.get('email') || '') || undefined,
+        role: String(form.get('role') || 'cashier'),
+        active: form.get('active') === 'on',
+        ...(pin ? { pin_code: pin } : {}),
+        ...(password ? { password } : {}),
+      })
+      setEditing(null)
+      onToast(t('employees.updated'))
+    } catch (reason) {
+      onToast(
+        reason instanceof Error ? reason.message : t('employees.updateFailed'),
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const deactivate = async (employee: Employee) => {
+    if (
+      !window.confirm(t('employees.deactivateConfirm', { name: employee.name }))
+    )
+      return
+    try {
+      await deactivateEmployee(employee.id)
+      setEditing(null)
+      onToast(t('employees.deactivated'))
+    } catch (reason) {
+      onToast(
+        reason instanceof Error ? reason.message : t('employees.updateFailed'),
+      )
+    }
+  }
+
   return (
     <div className="page-content">
       <section className="page-toolbar">
@@ -62,13 +124,18 @@ export default function EmployeesPage({
       </section>
       <section className="employee-grid">
         {employees.map((employee, index) => (
-          <article className="glass-panel employee-card" key={employee.name}>
+          <article className="glass-panel employee-card" key={employee.id}>
             <div className="employee-card-head">
-              <span className={`employee-avatar e${index}`}>
+              <span className={`employee-avatar e${index % 3}`}>
                 {employee.initials}
               </span>
-              <button className="icon-button" aria-label={t('common.edit')}>
-                <MoreHorizontal size={18} />
+              <button
+                className="icon-button"
+                onClick={() => setEditing(employee)}
+                aria-label={`${t('common.edit')} ${employee.name}`}
+                title={t('common.edit')}
+              >
+                <Pencil size={16} />
               </button>
             </div>
             <h3>{employee.name}</h3>
@@ -95,9 +162,7 @@ export default function EmployeesPage({
             </div>
             <button
               className="secondary-button full-button"
-              onClick={() =>
-                onToast(t('employees.profileOpened', { name: employee.name }))
-              }
+              onClick={() => setEditing(employee)}
             >
               <UserCog size={16} /> {t('employees.manage')}
             </button>
@@ -171,7 +236,7 @@ export default function EmployeesPage({
             </label>
             <label>
               <span>{t('employees.role')}</span>
-              <select name="role">
+              <select name="role" defaultValue="cashier">
                 <option value="cashier">{t('employees.cashier')}</option>
                 <option value="admin">{t('employees.admin')}</option>
               </select>
@@ -187,12 +252,7 @@ export default function EmployeesPage({
             </label>
             <label>
               <span>{t('employees.temporaryPassword')}</span>
-              <input
-                name="password"
-                type="password"
-                defaultValue="TempPass123!"
-                required
-              />
+              <input name="password" type="password" required />
             </label>
           </div>
           <div className="pin-setup">
@@ -206,6 +266,7 @@ export default function EmployeesPage({
             <input
               name="pin_code"
               inputMode="numeric"
+              minLength={4}
               maxLength={4}
               placeholder="••••"
               required
@@ -216,7 +277,7 @@ export default function EmployeesPage({
               <strong>{t('employees.activeImmediately')}</strong>
               <small>{t('employees.activeHelp')}</small>
             </span>
-            <input type="checkbox" defaultChecked />
+            <input name="active" type="checkbox" defaultChecked />
             <i />
           </label>
           <div className="modal-actions">
@@ -227,11 +288,110 @@ export default function EmployeesPage({
             >
               {t('common.cancel')}
             </button>
-            <button className="primary-button">
+            <button className="primary-button" disabled={saving}>
               <Plus size={16} /> {t('employees.createAccount')}
             </button>
           </div>
         </form>
+      </Modal>
+      <Modal
+        open={Boolean(editing)}
+        onClose={() => setEditing(null)}
+        eyebrow={t('employees.account')}
+        title={t('employees.editTitle')}
+        size="medium"
+      >
+        {editing && (
+          <form className="modal-form" onSubmit={submitEdit}>
+            <div className="form-grid two-columns">
+              <label>
+                <span>{t('employees.fullName')}</span>
+                <input name="name" defaultValue={editing.name} required />
+              </label>
+              <label>
+                <span>{t('employees.role')}</span>
+                <select
+                  name="role"
+                  defaultValue={
+                    editing.role === 'Owner · Admin' ? 'admin' : 'cashier'
+                  }
+                >
+                  <option value="cashier">{t('employees.cashier')}</option>
+                  <option value="admin">{t('employees.admin')}</option>
+                </select>
+              </label>
+              <label>
+                <span>{t('employees.email')}</span>
+                <input
+                  name="email"
+                  type="email"
+                  defaultValue={editing.email || ''}
+                  placeholder={t('employees.emailPlaceholder')}
+                />
+              </label>
+              <label>
+                <span>{t('employees.newPassword')}</span>
+                <input
+                  name="password"
+                  type="password"
+                  placeholder={t('employees.blankKeeps')}
+                  autoComplete="new-password"
+                />
+              </label>
+            </div>
+            <div className="pin-setup">
+              <div className="pin-icon">
+                <KeyRound size={19} />
+              </div>
+              <div>
+                <strong>{t('employees.quickLoginPin')}</strong>
+                <span>{t('employees.newPinHelp')}</span>
+              </div>
+              <input
+                name="pin_code"
+                inputMode="numeric"
+                minLength={4}
+                maxLength={4}
+                placeholder={t('employees.blankKeeps')}
+              />
+            </div>
+            <label className="toggle-field">
+              <span>
+                <strong>{t('employees.accountActive')}</strong>
+                <small>{t('employees.activeHelp')}</small>
+              </span>
+              <input
+                name="active"
+                type="checkbox"
+                defaultChecked={editing.status !== 'Inactive'}
+              />
+              <i />
+            </label>
+            <div className="modal-actions split-actions">
+              {me?.id !== editing.id && editing.status !== 'Inactive' && (
+                <button
+                  type="button"
+                  className="danger-text-button"
+                  onClick={() => void deactivate(editing)}
+                >
+                  <UserX size={15} /> {t('employees.deactivate')}
+                </button>
+              )}
+              <span>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setEditing(null)}
+                >
+                  {t('common.cancel')}
+                </button>
+                <button className="primary-button" disabled={saving}>
+                  {t('common.save')}
+                </button>
+              </span>
+            </div>
+          </form>
+        )}
       </Modal>
       <Modal
         open={accessOpen}

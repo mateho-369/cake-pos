@@ -32,6 +32,7 @@ type ProductInput = {
   imageUrl?: string
   images?: Array<{ url: string; caption?: string; sortOrder?: number }>
   active?: boolean
+  hideWhenOutOfStock?: boolean
 }
 type CategoryInput = {
   name: string
@@ -66,8 +67,18 @@ type AdminDataContextValue = {
   ) => Promise<void>
   createProduct: (input: ProductInput) => Promise<Product>
   updateProduct: (id: number, input: Partial<ProductInput>) => Promise<Product>
+  deleteProduct: (id: number) => Promise<void>
   createCategory: (input: CategoryInput) => Promise<Category>
+  updateCategory: (
+    id: number,
+    input: Partial<CategoryInput>,
+  ) => Promise<Category>
   createEmployee: (input: EmployeeInput) => Promise<Employee>
+  updateEmployee: (
+    id: number,
+    input: Partial<EmployeeInput>,
+  ) => Promise<Employee>
+  deactivateEmployee: (id: number) => Promise<void>
   updateOrder: (
     id: string,
     input: { status?: Order['status']; total?: number },
@@ -215,6 +226,26 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     [refresh],
   )
 
+  const deleteProduct = useCallback(
+    async (id: number) => {
+      try {
+        await apiRequest(`/api/products/${id}`, {
+          method: 'DELETE',
+        })
+      } catch (reason) {
+        // The backend returns a 422 with a structured JSON body when the
+        // product is referenced by past orders. Re-throw that message so the
+        // UI can show a clear explanation instead of a generic failure.
+        if (reason instanceof Error) {
+          throw reason
+        }
+        throw new Error(reason?.toString?.() ?? 'Delete failed')
+      }
+      await refresh()
+    },
+    [refresh],
+  )
+
   const createCategory = useCallback(
     async (input: CategoryInput) => {
       const result = await apiRequest<Category>('/api/categories', {
@@ -231,6 +262,38 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     async (input: EmployeeInput) => {
       const result = await apiRequest<Employee>('/api/employees', {
         method: 'POST',
+        body: JSON.stringify(input),
+      })
+      await refresh()
+      return result
+    },
+    [refresh],
+  )
+
+  const updateEmployee = useCallback(
+    async (id: number, input: Partial<EmployeeInput>) => {
+      const result = await apiRequest<Employee>(`/api/employees/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      })
+      await refresh()
+      return result
+    },
+    [refresh],
+  )
+
+  const deactivateEmployee = useCallback(
+    async (id: number) => {
+      await apiRequest(`/api/employees/${id}`, { method: 'DELETE' })
+      await refresh()
+    },
+    [refresh],
+  )
+
+  const updateCategory = useCallback(
+    async (id: number, input: Partial<CategoryInput>) => {
+      const result = await apiRequest<Category>(`/api/categories/${id}`, {
+        method: 'PUT',
         body: JSON.stringify(input),
       })
       await refresh()
@@ -299,8 +362,12 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       loadDashboard,
       createProduct,
       updateProduct,
+      deleteProduct,
       createCategory,
+      updateCategory,
       createEmployee,
+      updateEmployee,
+      deactivateEmployee,
       updateOrder,
       correctOrder,
       customerOrders,
@@ -323,8 +390,12 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       loadDashboard,
       createProduct,
       updateProduct,
+      deleteProduct,
       createCategory,
+      updateCategory,
       createEmployee,
+      updateEmployee,
+      deactivateEmployee,
       updateOrder,
       correctOrder,
       customerOrders,

@@ -219,7 +219,7 @@ export default function Dashboard({
         />
         <MetricCard
           label={t('dashboard.freshnessRisk')}
-          value={`${freshnessRisk.length} units`}
+          value={`${atRiskUnits} ${t('common.units')}`}
           note={t('dashboard.riskValue', {
             value: atRiskValue.toFixed(2),
           })}
@@ -586,7 +586,6 @@ function MetricCard({
       <div className={`metric-icon ${tone}`}>{icon}</div>
       <div className="metric-top">
         <span>{label}</span>
-        <button aria-label={label}>•••</button>
       </div>
       <div className="metric-value">{value}</div>
       {compare ? (
