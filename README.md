@@ -10,7 +10,28 @@ Cake POS has three focused React frontends and a self-hosted Laravel API:
 | `backend`    | Laravel 11 + Sanctum + MySQL REST API                  |  8080 | `api.yourdomain.com`        | [README](backend/README.md)    |
 | `packages`   | Shared API client and Liquid Glass design tokens       |     — | bundled into frontends      | source-only workspaces         |
 
-`apps/sale` treats Telegram only as a display shell (`ready()`/`expand()`); staff authentication always remains PIN or email/password. `apps/shop` has deliberately separate code and uses signed Telegram `initData` as customer identity, with no customer login screen.
+`apps/sale` and `apps/shop` can both be opened from the Telegram bot. The shared `@cake-pos/telegram` package makes **every** Mini App surface open edge-to-edge: `ready()` → `expand()` → `requestFullscreen()` on Web App API 8.0+, with one retry after the first tap because iOS clients reject a programmatic request before any user gesture. Telegram remains only a shell: staff authentication is always PIN or email/password, and `apps/shop` keeps deliberately separate code, using signed Telegram `initData` as customer identity with no customer login screen.
+
+## Held (parked) orders
+
+A customer can order now and pay on collection. On the sale terminal:
+
+1. Add the items to the cart and tap **Hold order** — optionally name it
+   ("Dara — 4pm") so it can be told apart from the other holds.
+2. The ticket shows up in the **Held orders** panel, oldest first. Its stock is
+   *reserved*, not sold, so the shelf count is never double-sold while it waits.
+   Many orders can be held at once.
+3. When the customer comes back: **Take payment** pays the hold directly, or
+   **Resume** puts its lines back into the cart — the hold stays parked until
+   the sale is paid, so nothing is lost if the cart is cleared.
+4. The moment the sale is paid, the hold is released in the same transaction:
+   it leaves the panel, its reservation is freed, and the audit trail records
+   `order.hold_released` with the paid order's id. **Discard** cancels a hold
+   and returns its stock.
+
+Holding is shift-gated like every other sale endpoint (`POST /api/orders/hold`,
+`GET /api/orders/held`). A released hold is never counted as revenue — only the
+paid order is (status `Completed` + `payment_status = paid`).
 
 ## Frontends
 
