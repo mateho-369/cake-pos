@@ -66,7 +66,13 @@ req() { # label base method path [json] [token]
 }
 assert() {
   if [ "$2" = "true" ]; then PASS=$((PASS + 1)); echo "  PASS  $1";
-  else FAIL=$((FAIL + 1)); echo "  FAIL  $1"; fi
+  else
+    FAIL=$((FAIL + 1)); echo "  FAIL  $1"
+    # Every failure is an ::error annotation too, so a red job is
+    # diagnosable WITHOUT downloading the logs (sandbox egress cannot reach
+    # the Azure log store). GitHub shows at most 10 errors per step.
+    annotate error "assertion-failed" "$1"
+  fi
 }
 expect_code() {
   local actual
@@ -228,7 +234,11 @@ done
 # with: an exception unwound past HandleCors and the browser reported a
 # "blocked by CORS policy" error that hid the real 500 underneath.
 note "1b. CORS preflight from the real browser origins"
-CORS_ORIGINS="${CORS_ORIGINS:-https://g-cake-admin.system-app.workers.dev https://g-cake-sale.system-app.workers.dev https://g-cake-shop.system-app.workers.dev}"
+# The real origins, per each app's wrangler.jsonc worker name (admin →
+# g-cake-admin, sale → g-cake-sale, shop → g-cake — note the shop is NOT
+# g-cake-shop; probing that fictional origin used to fail this section
+# forever while real shop traffic passed CORS fine).
+CORS_ORIGINS="${CORS_ORIGINS:-https://g-cake-admin.system-app.workers.dev https://g-cake-sale.system-app.workers.dev https://g-cake.system-app.workers.dev}"
 for origin in $CORS_ORIGINS; do
   ACAO="$(curl -sS --max-time 30 -o /dev/null -D - -X OPTIONS \
     -H "Origin: $origin" \
