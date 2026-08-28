@@ -262,13 +262,22 @@ await page
   .click()
 await page.waitForTimeout(700)
 const settingsInputs = await page.locator('.settings-content input').count()
-check('settings page rendered inputs', settingsInputs > 5)
+check(
+  'settings page rendered inputs',
+  settingsInputs > 5,
+  `count=${settingsInputs} text=${(await page
+    .locator('.settings-content')
+    .innerText()
+    .catch(() => ''))
+    .slice(0, 240)}`,
+)
 await page.locator('text=Receipts').last().click()
 await page.waitForTimeout(600)
 const receiptText = await page.locator('.settings-content').innerText()
 check(
   'receipt preview empty state (no fake CS-1052)',
   receiptText.includes('No orders yet'),
+  `text=${receiptText.replace(/\n/g, ' | ').slice(0, 300)}`,
 )
 
 // =====================================================================
