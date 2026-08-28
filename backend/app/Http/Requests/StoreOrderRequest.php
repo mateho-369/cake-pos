@@ -49,6 +49,12 @@ class StoreOrderRequest extends FormRequest
             'changeKhr' => ['integer', 'min:0'],
             'exchangeRateKhrPerUsd' => ['integer', 'min:1000', 'max:10000'],
             'confirmed' => ['boolean'],
+            // Held orders this checkout pays for. The cashier may resume one
+            // or more holds into the cart; when the sale completes, those
+            // holds are released (and their reserved stock freed) so they
+            // stop showing as held.
+            'heldOrderIds' => ['nullable', 'array'],
+            'heldOrderIds.*' => ['string', 'max:40'],
         ];
     }
 }

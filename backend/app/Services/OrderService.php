@@ -173,6 +173,15 @@ class OrderService
                     'confirmed_at' => now(),
                 ]);
                 SendStaffOrderNotification::dispatch($order->id);
+                // The customer came back and paid: any hold that was resumed
+                // into this cart stops being held right here, in the same
+                // transaction, so a paid sale can never leave a hold (and
+                // its reserved stock) hanging.
+                $this->releaseHeldOrders(
+                    $input['heldOrderIds'] ?? [],
+                    $employee,
+                    $order,
+                );
                 return $order;
             });
         } catch (QueryException $exception) {
@@ -190,6 +199,81 @@ class OrderService
         }
 
         return new CreatedOrder($order, true);
+    }
+
+    /**
+     * Releases held orders that a completed walk-in sale now pays for.
+     *
+     * Held orders reserve stock while they wait, so a hold that is resumed
+     * into the cart and then checked out must be closed — otherwise the
+     * customer's order stays in the held list forever and its reserved stock
+     * never comes back. Deliberately sets status Cancelled (never Completed:
+     * only the paid order carries the revenue, so reports cannot double
+     * count), frees the reservation, and records why in the audit trail.
+     *
+     * Idempotent: a hold that is no longer held (already paid directly,
+     * voided, or released by a retry) is skipped, never released twice.
+     */
+    private function releaseHeldOrders(
+        array $ids,
+        Employee $employee,
+        Order $paidOrder,
+    ): void {
+        $ids = array_values(
+            array_unique(
+                array_filter(array_map(fn($id) => trim((string) $id), $ids)),
+            ),
+        );
+        if (!$ids) {
+            return;
+        }
+        $held = Order::whereIn('id', $ids)->lockForUpdate()->get();
+        $missing = array_diff($ids, $held->pluck('id')->all());
+        if ($missing) {
+            throw ValidationException::withMessages([
+                'heldOrderIds' => [
+                    'Unknown held order: ' . implode(', ', $missing),
+                ],
+            ]);
+        }
+        foreach ($held as $order) {
+            if ($order->status !== 'Held') {
+                continue;
+            }
+            foreach ($order->orderItems()->lockForUpdate()->get() as $item) {
+                if (!$item->product_id) {
+                    continue;
+                }
+                $product = Product::whereKey($item->product_id)
+                    ->lockForUpdate()
+                    ->first();
+                if ($product && $product->reserved_stock > 0) {
+                    $product->decrement(
+                        'reserved_stock',
+                        min($product->reserved_stock, (int) $item->quantity),
+                    );
+                }
+            }
+            $order->update([
+                'status' => 'Cancelled',
+                'fulfillment_status' => 'Cancelled',
+            ]);
+            OrderStatusEvent::create([
+                'order_id' => $order->id,
+                'from_status' => 'Held',
+                'to_status' => 'Cancelled',
+                'employee_id' => $employee->id,
+                'metadata' => [
+                    'reason' => 'hold_paid',
+                    'paidOrderId' => $paidOrder->id,
+                ],
+            ]);
+            $this->audit->log($employee, 'order.hold_released', $order->id, [
+                'fromStatus' => 'Held',
+                'paidOrderId' => $paidOrder->id,
+                'heldTotalCents' => $order->total_cents,
+            ]);
+        }
     }
 
     public function hold(array $input, Employee $employee): Order
@@ -226,6 +310,7 @@ class OrderService
                 'status' => 'Held',
                 'payment_status' => 'unpaid',
                 'fulfillment_status' => 'Held',
+                'hold_label' => $input['holdLabel'] ?? null,
                 'detail_json' => collect($lines)
                     ->map(fn($l) => $l[0]->name . ' × ' . $l[1])
                     ->all(),

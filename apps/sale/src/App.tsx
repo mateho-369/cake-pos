@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { Clock3, Plus, ShoppingBag, X } from 'lucide-react'
 import { useStaffAuth } from './auth/StaffAuthContext'
 import LoginScreen from './components/LoginScreen'
@@ -10,7 +16,8 @@ import QuickAddModal from './components/QuickAddModal'
 import SuccessOverlay from './components/SuccessOverlay'
 import OrderHistoryModal from './components/OrderHistoryModal'
 import PendingOrdersPanel from './components/PendingOrdersPanel'
-import { type CartItem, type Product } from './data'
+import HeldOrdersPanel from './components/HeldOrdersPanel'
+import { type CartItem, type HeldOrder, type Product } from './data'
 import { useTranslation } from './lib/i18n'
 import { apiRequest } from './lib/api'
 import { useSaleData } from './lib/data'
@@ -83,6 +90,10 @@ function SaleTerminal() {
   // cashier opens a shift through the prompt, the action continues
   // automatically instead of forcing them to click again.
   const [pendingAction, setPendingAction] = useState<PendingSaleAction>(null)
+  // Held ("parked") orders and the holds the current cart was resumed from.
+  const [held, setHeld] = useState<HeldOrder[]>([])
+  const [heldBusy, setHeldBusy] = useState(false)
+  const [resumedFrom, setResumedFrom] = useState<string[]>([])
   const promptOpenShift = (action: PendingSaleAction) => {
     setPendingAction(action)
     setShiftMode('open')
@@ -331,6 +342,9 @@ function SaleTerminal() {
           : {}),
         idempotencyKey: checkoutKey,
         confirmed: payment === 'khqr' ? khqrConfirmed : undefined,
+        // Holds resumed into this cart stop being held the moment the sale is
+        // paid (server-side, in the same transaction).
+        ...(resumedFrom.length ? { heldOrderIds: resumedFrom } : {}),
         ...(payment === 'cash'
           ? {
               usdReceivedCents: usdCents,
@@ -352,6 +366,8 @@ function SaleTerminal() {
       setKhqrConfirmed(false)
       setPayment('cash')
       setMobileCart(false)
+      setResumedFrom([])
+      if (resumedFrom.length) void loadHeld()
       if (payment === 'cash') setCashSales((current) => current + order.total)
     } catch (reason) {
       const message =
@@ -365,6 +381,158 @@ function SaleTerminal() {
       setToast(message)
     }
   }
+  const loadHeld = useCallback(async () => {
+    try {
+      const next = await apiRequest<HeldOrder[]>('/api/orders/held')
+      setHeld(next.filter((order) => order.status === 'Held'))
+    } catch {
+      /* offline / logged out — the next poll picks it up */
+    }
+  }, [])
+  useEffect(() => {
+    void loadHeld()
+    const timer = window.setInterval(() => void loadHeld(), 15_000)
+    return () => window.clearInterval(timer)
+  }, [loadHeld])
+
+  /** Park the cart: the customer pays when they come back. */
+  const holdCart = async (label: string) => {
+    if (!cart.length) return
+    if (!shift) {
+      promptOpenShift({ type: 'checkout' })
+      return
+    }
+    setHeldBusy(true)
+    try {
+      const order = await apiRequest<HeldOrder>('/api/orders/hold', {
+        method: 'POST',
+        body: JSON.stringify({
+          items: cart.map((item) => ({
+            productId: item.product.id,
+            quantity: item.quantity,
+          })),
+          ...(discountValue
+            ? { discount: { type: discountType, amount: discountValue } }
+            : {}),
+          ...(label ? { holdLabel: label } : {}),
+        }),
+      })
+      setCart([])
+      setDiscountValue('')
+      setTendered('')
+      setTenderedKhr('')
+      setPayment('cash')
+      setKhqrConfirmed(false)
+      setCheckoutKey(newCheckoutKey())
+      setMobileCart(false)
+      setToast(t('hold.held', { id: order.holdLabel || order.id }))
+      await Promise.all([loadHeld(), refresh()])
+    } catch (reason) {
+      setToast(
+        reason instanceof Error ? reason.message : t('sale.paymentFailed'),
+      )
+    } finally {
+      setHeldBusy(false)
+    }
+  }
+
+  /**
+   * Put a held order's lines back into the cart. The hold itself stays put
+   * until the sale is paid, so nothing is lost if the customer changes their
+   * mind or the cart is cleared.
+   */
+  const resumeHold = (order: HeldOrder) => {
+    // Look the products up in the FULL catalogue, not the filtered grid: a
+    // hold has to be resumable even while the cashier is searching.
+    let missing = 0
+    for (const line of order.lineItems ?? []) {
+      const product =
+        (line.productId != null &&
+          products.find((candidate) => candidate.id === line.productId)) ||
+        undefined
+      if (!product) {
+        missing += 1
+        continue
+      }
+      setCart((current) => {
+        const existing = current.find(
+          (item) => item.product.id === product.id,
+        )
+        if (existing) {
+          return current.map((item) =>
+            item.product.id === product.id
+              ? { ...item, quantity: item.quantity + line.quantity }
+              : item,
+          )
+        }
+        return [...current, { product, quantity: line.quantity }]
+      })
+    }
+    setResumedFrom((current) =>
+      current.includes(order.id) ? current : [...current, order.id],
+    )
+    setMobileCart(true)
+    setToast(
+      missing
+        ? t('hold.resumedPartial', { id: order.holdLabel || order.id })
+        : t('hold.resumed', { id: order.holdLabel || order.id }),
+    )
+  }
+
+  /** Take payment for a held order without putting it back in the cart. */
+  const payHold = async (
+    order: HeldOrder,
+    method: 'Cash' | 'KHQR',
+    usdReceivedCents: number,
+  ) => {
+    if (!shift) {
+      promptOpenShift({ type: 'checkout' })
+      return
+    }
+    setHeldBusy(true)
+    try {
+      await apiRequest(`/api/orders/${order.id}/pay`, {
+        method: 'POST',
+        body: JSON.stringify(
+          method === 'Cash'
+            ? {
+                method: 'Cash',
+                usdReceivedCents,
+                changeUsdCents: 0,
+                changeKhr: 0,
+                exchangeRateKhrPerUsd,
+              }
+            : { method: 'KHQR', confirmed: true },
+        ),
+      })
+      setToast(t('hold.paid', { id: order.holdLabel || order.id }))
+      await Promise.all([loadHeld(), refresh()])
+    } catch (reason) {
+      setToast(
+        reason instanceof Error ? reason.message : t('sale.paymentFailed'),
+      )
+    } finally {
+      setHeldBusy(false)
+    }
+  }
+
+  /** Discard a hold and give its reserved stock back. */
+  const voidHold = async (order: HeldOrder) => {
+    setHeldBusy(true)
+    try {
+      await apiRequest(`/api/orders/${order.id}/cancel`, { method: 'POST' })
+      setResumedFrom((current) => current.filter((id) => id !== order.id))
+      setToast(t('hold.voided', { id: order.holdLabel || order.id }))
+      await Promise.all([loadHeld(), refresh()])
+    } catch (reason) {
+      setToast(
+        reason instanceof Error ? reason.message : t('sale.paymentFailed'),
+      )
+    } finally {
+      setHeldBusy(false)
+    }
+  }
+
   const openShiftAction = () => {
     if (shift && cart.length) {
       setToast(t('sale.completeOrderFirst'))
@@ -491,6 +659,13 @@ function SaleTerminal() {
         onNeedShift={requestShiftThen}
         onToast={setToast}
       />
+      <HeldOrdersPanel
+        held={held}
+        busy={heldBusy}
+        onResume={resumeHold}
+        onPay={payHold}
+        onVoid={voidHold}
+      />
       <div className="terminal-layout">
         <ProductGrid
           products={visibleProducts}
@@ -530,6 +705,8 @@ function SaleTerminal() {
           khqrConfirmed={khqrConfirmed}
           onKhqrConfirmed={setKhqrConfirmed}
           onComplete={completePayment}
+          onHold={holdCart}
+          holdBusy={heldBusy}
           shiftOpen={Boolean(shift)}
           mobileOpen={mobileCart}
           onMobileClose={() => setMobileCart(false)}

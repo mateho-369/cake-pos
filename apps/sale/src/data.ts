@@ -58,5 +58,26 @@ export type SaleOrder = {
     | 'Completed'
     | 'Refunded'
     | 'Voided'
+    // Orders parked at the terminal for a customer who pays later.
+    | 'Held'
+    | 'Cancelled'
   detail: string[]
+  /** Optional label the cashier typed when holding ("Dara — 4pm"). */
+  holdLabel?: string | null
+  /**
+   * Line items, present on held orders so a hold can be put straight back
+   * into the cart (GET /api/orders/held eager-loads them).
+   */
+  lineItems?: Array<{
+    productId: number | null
+    description: string | null
+    quantity: number
+    unitPriceCents: number
+  }>
+}
+
+/** A held (parked) order shown in the terminal's held-orders queue. */
+export type HeldOrder = SaleOrder & {
+  status: 'Held'
+  lineItems: NonNullable<SaleOrder['lineItems']>
 }

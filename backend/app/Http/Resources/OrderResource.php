@@ -50,6 +50,23 @@ class OrderResource extends JsonResource
             'payment' => $this->payment,
             'status' => $this->status,
             'detail' => $this->detail_json,
+            // Optional label the cashier typed when parking the order.
+            'holdLabel' => $this->hold_label,
+            // Only present when the caller eager-loaded orderItems (the held
+            // list does, so a hold can be resumed straight into the cart).
+            'lineItems' => $this->whenLoaded(
+                'orderItems',
+                fn() => $this->orderItems
+                    ->map(
+                        fn($item) => [
+                            'productId' => $item->product_id,
+                            'description' => $item->description,
+                            'quantity' => (int) $item->quantity,
+                            'unitPriceCents' => (int) $item->unit_price_cents,
+                        ],
+                    )
+                    ->values(),
+            ),
             'originalOrderId' => $this->parent_order_id,
             'paymentStatus' =>
                 $this->payment_status ??

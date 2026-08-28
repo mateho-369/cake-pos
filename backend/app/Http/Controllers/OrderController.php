@@ -58,11 +58,20 @@ class OrderController extends Controller
             OrderResource::make($order->fresh())->resolve(),
         );
     }
+    /**
+     * Held ("parked") walk-in orders waiting for the customer to come back
+     * and pay. Oldest first: it is a queue, and the cashier serves the
+     * longest-waiting customer first. Line items are eager-loaded because
+     * resuming a hold puts its products back into the cart.
+     */
     public function held(): JsonResponse
     {
         return response()->json(
             OrderResource::collection(
-                Order::where('status', 'Held')->latest()->get(),
+                Order::with(['cashier', 'customer', 'orderItems'])
+                    ->where('status', 'Held')
+                    ->orderBy('created_at')
+                    ->get(),
             )->resolve(),
         );
     }
