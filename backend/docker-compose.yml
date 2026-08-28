@@ -40,7 +40,10 @@ services:
                     memory: 192M
 
     queue:
-        build: .
+        build:
+            context: .
+            args:
+                CACHEBUST: ${CACHEBUST:-1}
         restart: unless-stopped
         env_file: .env
         depends_on:
