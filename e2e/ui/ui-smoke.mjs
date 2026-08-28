@@ -494,6 +494,12 @@ check(
   order.json.paymentStatus === 'paid',
   order.json.paymentStatus,
 )
+const summaryAfter = await api('/api/reports/summary', { token: adminToken })
+check(
+  'summary API reports the $20 sale after order',
+  summaryAfter.status === 200 && summaryAfter.json.todaySalesTotal === 20,
+  `${summaryAfter.status} ${JSON.stringify(summaryAfter.json).slice(0, 400)}`,
+)
 
 // The browser context has an admin token from the first login; clear it so
 // this is a real login round-trip (same-origin sessionStorage/localStorage
@@ -511,10 +517,20 @@ await page.getByRole('button', { name: 'Sign in securely' }).click()
 await page.waitForSelector('text=Net sales', { timeout: 30000 })
 // Wait until the dashboard reflects the real API sale; the "Net sales"
 // heading renders immediately while the data requests are still in flight.
-await page.waitForFunction(
-  () => document.querySelector('.live-card strong')?.textContent?.trim() === '$20.00',
-  { timeout: 30000 },
-)
+try {
+  await page.waitForFunction(
+    () =>
+      document.querySelector('.live-card strong')?.textContent?.trim() ===
+      '$20.00',
+    { timeout: 30000 },
+  )
+} catch {
+  const seededText = await page.locator('.page-content').innerText().catch(() => '')
+  fail(
+    'sidebar live sales $20.00 after real sale',
+    `text=${seededText.replace(/\n/g, ' | ').slice(0, 300)}`,
+  )
+}
 await page.waitForTimeout(400)
 await shot('admin-overview-seeded')
 
