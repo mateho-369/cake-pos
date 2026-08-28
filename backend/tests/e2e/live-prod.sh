@@ -190,6 +190,8 @@ cleanup_on_exit() {
     echo "!! cashier finishes, or close it in the admin UI."
     echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
   fi
+  annotate notice "live-prod-result" \
+    "$PASS passed, $FAIL failed (stale-cache-gate=${CACHE_STALE_CURRENT:-0}, stuck-real-shift=$STUCK_SHIFT, cleanup-failed=$CLEANUP_FAILED)"
   echo "############################################################"
   if [ "$CLEANUP_FAILED" -ne 0 ] || [ "$STUCK_SHIFT" -ne 0 ] || [ "$FAIL" -ne 0 ]; then
     exit 1
@@ -245,6 +247,12 @@ req "admin login" "$WORKER" POST /api/login "{\"email\":\"$ADMIN_EMAIL\",\"passw
 expect_code "admin login returns 200" 200
 TOKEN_ADMIN="$(json_field "$OUT/last.body" token "")"
 assert "admin token issued" "$([ -n "$TOKEN_ADMIN" ] && echo true || echo false)"
+annotate notice "admin-login" \
+  "HTTP $(cat "$OUT/last.code"); token ${#TOKEN_ADMIN} chars; body (first 160): $(head -c 160 "$OUT/last.body" | tr '\n' ' ')"
+if [ -z "$TOKEN_ADMIN" ]; then
+  annotate error "admin-login-failed" \
+    "login returned HTTP $(cat "$OUT/last.code") with no token — every authenticated probe below will fail; body (first 200): $(head -c 200 "$OUT/last.body" | tr '\n' ' ')"
+fi
 
 # Markers for the latest fixes (they only exist if this branch is deployed):
 req "GET /api/reports/freshness (new endpoint)" "$WORKER" GET /api/reports/freshness "" "$TOKEN_ADMIN"
@@ -325,22 +333,31 @@ else
   req "current (D: VM origin direct, no Cloudflare)" "$VM" GET /api/shifts/current "" "$TOKEN_ADMIN"
   cp "$OUT/last.body" "$OUT/curr-d.body"; cp "$OUT/last.code" "$OUT/curr-d.code"
   req "shifts list (same run, ground truth)" "$WORKER" GET /api/shifts "" "$TOKEN_ADMIN"
-  cp "$OUT/last.body" "$OUT/shifts-list.body"
+  cp "$OUT/last.body" "$OUT/shifts-list.body"; cp "$OUT/last.code" "$OUT/shifts-list.code"
 
-  VERDICTS="$(python3 - "$OUT/curr-a.body" "$OUT/curr-b.body" "$OUT/curr-c.body" "$OUT/curr-d.body" "$OUT/curr-d.code" "$OUT/shifts-list.body" <<'PY'
+  annotate notice "current-probe-codes" \
+    "A=$(cat "$OUT/curr-a.code") B=$(cat "$OUT/curr-b.code") C=$(cat "$OUT/curr-c.code") D=$(cat "$OUT/curr-d.code") list=$(cat "$OUT/shifts-list.code"); A body (first 160): $(head -c 160 "$OUT/curr-a.body" | tr '\n' ' ')"
+
+  VERDICTS="$(python3 - "$OUT/curr-a.body" "$OUT/curr-b.body" "$OUT/curr-c.body" "$OUT/curr-d.body" "$OUT/shifts-list.body" \
+                      "$OUT/curr-a.code" "$OUT/curr-c.code" "$OUT/curr-d.code" <<'PY'
 import json, sys
 
-def load(p):
+def load_json(p):
     try:
         with open(p) as fh:
             return json.load(fh)
     except Exception:
         return "__unreadable__"
 
-A, B, C, D = (load(p) for p in sys.argv[1:5])
-with open(sys.argv[5]) as fh:
-    d_code = fh.read().strip()
-L = load(sys.argv[6])
+def load_code(p):
+    try:
+        with open(p) as fh:
+            return fh.read().strip()
+    except Exception:
+        return "???"
+
+A, B, C, D, L = (load_json(p) for p in sys.argv[1:6])
+a_code, c_code, d_code = (load_code(p) for p in sys.argv[6:9])
 
 # state fields only — money counters / timestamps may drift on a live shop
 STATE = ("id", "status", "closedAt", "openedBy", "openingCashUsdCents")
@@ -349,31 +366,42 @@ def st(o):
     if not isinstance(o, dict): return "<%s>" % type(o).__name__
     return {k: o.get(k) for k in STATE}
 
-SA, SB, SC, SD = st(A), st(B), st(C), st(D)
+def is_err(o):
+    return o == "__unreadable__" or (isinstance(o, dict) and o.get("id") is None)
 
-if SA == SB:
-    print("PASS::repeat-read::a second plain read 3s later returned the same shift state: %s" % SA)
+if is_err(A):
+    # An auth failure / 500 page is not shift JSON: caching comparisons are
+    # meaningless, and nothing further in the probe should mistake this
+    # body for an open shift.
+    print("FAIL::current-probe-errored::GET /api/shifts/current did not return shift JSON (HTTP A=%s, cache-busted C=%s, VM-origin D=%s; body is an error/auth response, not 'null' and not a shift) — caching comparison skipped; this is NOT evidence of an open shift" % (a_code, c_code, d_code))
 else:
-    print("INFO::state-drift::shift state changed between reads 3s apart (%s -> %s) — live activity, not necessarily a cache" % (SA, SB))
+    SA, SB, SC, SD = st(A), st(B), st(C), st(D)
 
-if SA == SC:
-    print("PASS::cache-buster::a cache-busted read matches the plain read — no URL-keyed cache served a different copy")
-else:
-    print("FAIL::STALE-CACHE-PROOF::plain read = %s but ?cb= read = %s — a URL-keyed cache in front of the app served the stale copy" % (SA, SC))
+    if SA == SB:
+        print("PASS::repeat-read::a second plain read 3s later returned the same shift state: %s" % SA)
+    else:
+        print("INFO::state-drift::shift state changed between reads 3s apart (%s -> %s) — live activity, not necessarily a cache" % (SA, SB))
 
-if d_code != "200":
-    print("INFO::origin-direct::VM origin probe returned HTTP %s — Worker-vs-origin comparison skipped" % d_code)
-elif SA == SD:
-    print("PASS::worker-vs-origin::the Worker and the VM origin agree on the current shift")
-else:
-    print("FAIL::WORKER-ORIGIN-DIVERGE::Worker = %s but origin direct = %s — something between them served a different answer" % (SA, SD))
+    if SA == SC:
+        print("PASS::cache-buster::a cache-busted read matches the plain read — no URL-keyed cache served a different copy")
+    else:
+        print("FAIL::STALE-CACHE-PROOF::plain read = %s but ?cb= read = %s — a URL-keyed cache in front of the app served the stale copy" % (SA, SC))
+
+    if d_code != "200":
+        print("INFO::origin-direct::VM origin probe returned HTTP %s — Worker-vs-origin comparison skipped" % d_code)
+    elif SA == SD:
+        print("PASS::worker-vs-origin::the Worker and the VM origin agree on the current shift")
+    else:
+        print("FAIL::WORKER-ORIGIN-DIVERGE::Worker = %s but origin direct = %s — something between them served a different answer" % (SA, SD))
 
 if not isinstance(L, list):
     print("INFO::current-vs-list::/api/shifts was not a JSON list — consistency check skipped")
 elif A is None:
     print("PASS::current-vs-list::/current is null and the shift history (%d record(s)) has no open shift inside this run" % len(L))
-elif not isinstance(A, dict) or A.get("id") is None:
-    print("INFO::current-vs-list::/current returned no shift object (error body?) — consistency check skipped")
+elif is_err(A):
+    print("INFO::current-vs-list::skipped because the /current body was an error response (see above)")
+elif not isinstance(A, dict):
+    print("INFO::current-vs-list::/current returned no shift object — consistency check skipped")
 else:
     match = [s for s in L if isinstance(s, dict) and s.get("id") == A.get("id")]
     if not match:
@@ -421,8 +449,19 @@ fi
 # ---------- 3. Shift state: never strand production, never fight a cashier ----------
 note "3. Shift state on production"
 req "GET /api/shifts/current (state check)" "$WORKER" GET /api/shifts/current "" "$TOKEN_ADMIN"
+CURRENT_CODE="$(cat "$OUT/last.code")"
 CURRENT_BODY="$(cat "$OUT/last.body" | tr -d '[:space:]')"
-echo "  current shift on prod: $CURRENT_BODY"
+echo "  current shift on prod (HTTP $CURRENT_CODE): $CURRENT_BODY"
+# Only a 200 JSON body can speak about shift state. A 401/500 (or an HTML
+# error page) used to fall into the "open shift detected" branch below and
+# be treated as A REAL cashier's shift — exactly the false reading the
+# cache-forensics section was built to disambiguate.
+if [ "$CURRENT_CODE" != "200" ]; then
+  assert "GET /api/shifts/current returns 200 (got $CURRENT_CODE) — shift state readable" false
+  annotate error "current-state-check-failed" \
+    "GET /api/shifts/current returned HTTP $CURRENT_CODE, not shift JSON: $(head -c 160 "$OUT/last.body" | tr '\n' ' ') — NOT treated as an open shift; investigate API health/auth"
+  CURRENT_BODY=""
+fi
 if [ "${CACHE_STALE_CURRENT:-0}" = "1" ] && [ -n "$CURRENT_TRUTH_BODY" ]; then
   echo "  !! forensics PROVED the plain /current read is a stale cache artifact"
   echo "  !! acting on the cache-busted truth instead: $CURRENT_TRUTH_BODY"
@@ -535,10 +574,18 @@ fi
 
 # ---------- 4. Read-only endpoint sweep on production ----------
 note "4. Read-only endpoint sweep"
+SWEEP_CODES=""
 for ep in /api/products /api/categories /api/customers /api/orders /api/employees /api/shifts /api/settings/pos-rules /api/settings/receipt-template /api/reports/dashboard /api/reports/revenue-trend /api/reports/products /api/reports/categories /api/reports/payments /api/reports/cashiers /api/reports/peak-hours /api/reports/waste /api/reports/customers; do
   req "GET $ep" "$WORKER" GET "$ep" "" "$TOKEN_ADMIN"
   expect_code "GET $ep returns 200" 200
+  SWEEP_CODES="$SWEEP_CODES $ep=$(cat "$OUT/last.code")"
 done
+SWEEP_NON200="$(printf '%s\n' $SWEEP_CODES | grep -vc '=200$')"
+if [ "$SWEEP_NON200" != "0" ]; then
+  annotate error "read-only-sweep-failures" "non-200 endpoints:${SWEEP_CODES}"
+else
+  annotate notice "read-only-sweep" "all 17 endpoints returned 200"
+fi
 
 note "Admin logout"
 req "logout" "$WORKER" POST /api/logout '{}' "$TOKEN_ADMIN"
