@@ -265,7 +265,7 @@ step "5a. Expected drawer = 100 opening + 20 cash sales; close with 120 => zero 
 req "close shift" POST /api/shifts/close '{"closingCash":120.00}' "$TOKEN_CASHIER"
 expect_code "POST /api/shifts/close returns 200" 200
 annotate notice 'close-response' "$(head -c 400 "$OUT/last.body" | tr '\n' ' ')"
-assert "close returns variance 0" "$(money_eq "$(jqget "$OUT/last.body" varianceUsdCents)" "0")"
+assert "close returns variance 0" "$(money_eq "$(jqget "$OUT/last.body" variance)" "0")"
 assert "close returns cashSales 20" "$(money_eq "$(jqget "$OUT/last.body" cashSales)" "20")"
 assert "shift status = Closed" "$([ "$(jqget "$OUT/last.body" status)" = "Closed" ] && echo true || echo false)"
 

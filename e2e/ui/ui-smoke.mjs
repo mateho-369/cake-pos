@@ -264,16 +264,14 @@ await page.waitForTimeout(700)
 const settingsInputs = await page.locator('.settings-content input').count()
 check(
   'settings page rendered inputs',
-  settingsInputs >= 4,
+  settingsInputs > 5,
   `count=${settingsInputs} text=${(await page
     .locator('.settings-content')
     .innerText()
     .catch(() => ''))
     .slice(0, 240)}`,
 )
-await page
-  .locator('.settings-nav button', { hasText: 'Receipts' })
-  .click()
+await page.locator('text=Receipts').last().click()
 await page.waitForTimeout(600)
 const receiptText = await page.locator('.settings-content').innerText()
 check(
@@ -426,9 +424,10 @@ check(
   withReason.status === 200,
   String(withReason.status),
 )
-const auditYear = new Date().getFullYear()
 const auditRows = await api(
-  `/api/reports/audit?productId=${productByNewId.json.id}&from=${auditYear}-01-01&to=${auditYear}-12-31`,
+  '/api/reports/audit?productId=' +
+    productByNewId.json.id +
+    '&from=2000-01-01&to=2099-12-31',
   { token: adminToken },
 )
 check(
