@@ -1,8 +1,18 @@
 # syntax=docker/dockerfile:1.7
 FROM composer:2.8 AS vendor
 WORKDIR /app
-COPY composer.json ./
-RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --no-scripts --optimize-autoloader
+# Copy composer.* (not just composer.json) so a committed composer.lock is used.
+# With a lock present this is a pure install with no dependency resolution, which
+# is (a) byte-for-byte reproducible and (b) immune to Composer's advisory
+# blocking, which only fires while resolving. Regenerate the lock with
+# bin/refresh-composer-lock.sh -- never hand-edit it.
+COPY composer.* ./
+RUN if [ -f composer.lock ]; then \
+        echo '==> composer.lock present: reproducible install from lock'; \
+    else \
+        echo '==> WARNING: no composer.lock; resolving latest versions (not reproducible)'; \
+    fi \
+    && composer install --no-dev --no-interaction --no-progress --prefer-dist --no-scripts --optimize-autoloader
 ARG CACHEBUST=1
 COPY . .
 RUN composer dump-autoload --no-dev --classmap-authoritative --no-interaction
