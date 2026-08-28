@@ -172,6 +172,11 @@ class OrderService
                     'confirmed_by_employee_id' => $employee->id,
                     'confirmed_at' => now(),
                 ]);
+                $this->audit->log($employee, 'order.completed', $order->id, [
+                    'totalCents' => $total,
+                    'paymentMethod' => $method === 'cash' ? 'Cash' : 'KHQR',
+                    'source' => 'walk-in',
+                ]);
                 SendStaffOrderNotification::dispatch($order->id);
                 // The customer came back and paid: any hold that was resumed
                 // into this cart stops being held right here, in the same

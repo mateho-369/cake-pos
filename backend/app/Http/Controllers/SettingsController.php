@@ -58,16 +58,19 @@ class SettingsController extends Controller
 
     public function posRules(): JsonResponse
     {
-        return response()->json(
-            Setting::find('pos_rules')?->value_json ?? [
-                'maxCashierDiscountPercent' => 10,
-                'exchangeRateKhrPerUsd' => 4100,
-                'khrRoundingIncrement' => 100,
-                'shiftClosingPolicy' => 'opener_or_admin',
-                'defaultShelfLifeDays' => 3,
-                'warningDays' => 1,
-            ],
-        );
+        // Stored settings may predate a new default field (or have only the
+        // keys the admin touched). Merge the defaults underneath so the UI
+        // always renders every known POS rule.
+        $defaults = [
+            'maxCashierDiscountPercent' => 10,
+            'exchangeRateKhrPerUsd' => 4100,
+            'khrRoundingIncrement' => 100,
+            'shiftClosingPolicy' => 'opener_or_admin',
+            'defaultShelfLifeDays' => 3,
+            'warningDays' => 1,
+        ];
+        $stored = Setting::find('pos_rules')?->value_json ?? [];
+        return response()->json(array_merge($defaults, $stored));
     }
 
     public function updatePosRules(PosRulesRequest $request): JsonResponse

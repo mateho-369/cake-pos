@@ -35,7 +35,7 @@ return Application::configure(basePath: dirname(__DIR__))
                         'Validation failed',
                     'errors' => $e->errors(),
                 ],
-                400,
+                422,
             );
         });
         // Local/CI diagnostics only: when a request arrives against the

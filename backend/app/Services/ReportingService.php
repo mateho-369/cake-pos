@@ -117,8 +117,13 @@ final class ReportingService
             ->groupBy('bucket')
             ->pluck('count', 'bucket');
         $out = [];
-        $cursor = $r->from;
-        while ($cursor <= $r->to) {
+        // DateRange returns UTC bounds; the SQL above buckets by the shop
+        // timezone, so iterate in the same timezone or the last bucket before
+        // midnight local is labelled with yesterday's UTC date (and the order
+        // looks like it landed on the wrong day).
+        $cursor = $r->from->copy()->tz('Asia/Phnom_Penh');
+        $to = $r->to->copy()->tz('Asia/Phnom_Penh');
+        while ($cursor <= $to) {
             $key = $cursor->format('Y-m-d');
             $out[] = [
                 'day' => $key,
@@ -141,8 +146,10 @@ final class ReportingService
             ->groupBy('bucket')
             ->pluck('net', 'bucket');
         $out = [];
-        $cursor = $r->from;
-        while ($cursor <= $r->to) {
+        // Same timezone alignment as ordersTrend().
+        $cursor = $r->from->copy()->tz('Asia/Phnom_Penh');
+        $to = $r->to->copy()->tz('Asia/Phnom_Penh');
+        while ($cursor <= $to) {
             $key = $cursor->format($format === '%Y-%m' ? 'Y-m' : 'Y-m-d');
             $out[] = [
                 'period' => $key,

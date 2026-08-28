@@ -117,6 +117,16 @@ expect_code() { # label expected_code
   assert "$1 (expected $2, got $actual)" "$([ "$actual" = "$2" ] && echo true || echo false)"
 }
 
+# Compare money/numeric JSON values without depending on whether PHP encoded
+# a whole dollar amount as 20 or 20.0 (both are the same amount).
+norm_money() {
+  python3 -c "import sys; print(f'{float(sys.argv[1]):.2f}')" "$1" 2>/dev/null \
+    || echo "$1"
+}
+money_eq() { # actual expected -> true|false
+  [ "$(norm_money "$1")" = "$(norm_money "$2")" ] && echo true || echo false
+}
+
 echo "############################################################"
 echo "# LIVE BACKEND SMOKE TEST — $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "# API: $API"
@@ -198,7 +208,7 @@ req "create order" POST /api/orders "{\"payment\":\"Cash\",\"items\":[{\"product
 expect_code "create order returns 201" 201
 ORDER_ID="$(jqget "$OUT/last.body" id)"
 assert "order id returned" "$([ -n "$ORDER_ID" ] && [ "$ORDER_ID" != "__MISSING__" ] && echo true || echo false)"
-assert "order total = 20.0" "$([ "$(jqget "$OUT/last.body" total)" = "20.0" ] && echo true || echo false)"
+assert "order total = 20.0" "$(money_eq "$(jqget "$OUT/last.body" total)" "20.0")"
 assert "order status = Completed" "$([ "$(jqget "$OUT/last.body" status)" = "Completed" ] && echo true || echo false)"
 assert "order paymentStatus = paid" "$([ "$(jqget "$OUT/last.body" paymentStatus)" = "paid" ] && echo true || echo false)"
 
@@ -212,18 +222,18 @@ assert "product stock = 3 after one sale of 2" "$([ "$(jqget "$OUT/last.body" 0.
 step "4d. Reports summary reflects the REAL sale"
 req "reports summary" GET /api/reports/summary "" "$TOKEN_ADMIN"
 expect_code "GET /api/reports/summary returns 200" 200
-assert "todaySalesTotal = 20.0" "$([ "$(jqget "$OUT/last.body" todaySalesTotal)" = "20.0" ] && echo true || echo false)"
+assert "todaySalesTotal = 20.0" "$(money_eq "$(jqget "$OUT/last.body" todaySalesTotal)" "20.0")"
 assert "todayOrdersCount = 1" "$([ "$(jqget "$OUT/last.body" todayOrdersCount)" = "1" ] && echo true || echo false)"
 assert "itemsSold = 2" "$([ "$(jqget "$OUT/last.body" itemsSold)" = "2" ] && echo true || echo false)"
 assert "qrPaymentCount = 0" "$([ "$(jqget "$OUT/last.body" qrPaymentCount)" = "0" ] && echo true || echo false)"
-assert "yesterdaySalesTotal = 0.0" "$([ "$(jqget "$OUT/last.body" yesterdaySalesTotal)" = "0.0" ] && echo true || echo false)"
+assert "yesterdaySalesTotal = 0.0" "$(money_eq "$(jqget "$OUT/last.body" yesterdaySalesTotal)" "0.0")"
 LAST_DAY="$(jqget "$OUT/last.body" ordersData.-1.day)"
 LAST_VAL="$(jqget "$OUT/last.body" ordersData.-1.value)"
 TODAY="$(TZ=Asia/Phnom_Penh date +%F)"
 assert "ordersData last day = today ($TODAY)" "$([ "$LAST_DAY" = "$TODAY" ] && echo true || echo false)"
 assert "ordersData last day value = 1" "$([ "$LAST_VAL" = "1" ] && echo true || echo false)"
 REV_LAST="$(jqget "$OUT/last.body" revenueData.-1.value)"
-assert "revenueData last day = 20.0" "$([ "$REV_LAST" = "20.0" ] && echo true || echo false)"
+assert "revenueData last day = 20.0" "$(money_eq "$REV_LAST" "20.0")"
 
 step "4e. Reports trend / dashboard / products / payments endpoints"
 req "revenue trend" GET /api/reports/revenue-trend "" "$TOKEN_ADMIN"
@@ -254,8 +264,8 @@ note "5. Close the shift"
 step "5a. Expected drawer = 100 opening + 20 cash sales; close with 120 => zero variance"
 req "close shift" POST /api/shifts/close '{"closingCash":120.00}' "$TOKEN_CASHIER"
 expect_code "POST /api/shifts/close returns 200" 200
-assert "close returns variance 0" "$([ "$(jqget "$OUT/last.body" variance)" = "0" ] && echo true || echo false)"
-assert "close returns cashSales 20" "$([ "$(jqget "$OUT/last.body" cashSales)" = "20" ] && echo true || echo false)"
+assert "close returns variance 0" "$(money_eq "$(jqget "$OUT/last.body" variance)" "0")"
+assert "close returns cashSales 20" "$(money_eq "$(jqget "$OUT/last.body" cashSales)" "20")"
 assert "shift status = Closed" "$([ "$(jqget "$OUT/last.body" status)" = "Closed" ] && echo true || echo false)"
 
 step "5b. Current shift now reports none"
@@ -310,7 +320,7 @@ req "freshness after waste" GET /api/reports/freshness "" "$TOKEN_ADMIN"
 assert "totalUnits = 2 after waste" "$([ "$(jqget "$OUT/last.body" totalUnits)" = "2" ] && echo true || echo false)"
 assert "wasteThisWeekCents = 1000" "$([ "$(jqget "$OUT/last.body" wasteThisWeekCents)" = "1000" ] && echo true || echo false)"
 assert "events has 1 row" "$([ "$(jqget "$OUT/last.body" events.0.productName)" = "Smoke Test Cake" ] && echo true || echo false)"
-assert "event retailValue = 10.0" "$([ "$(jqget "$OUT/last.body" events.0.retailValue)" = "10.0" ] && echo true || echo false)"
+assert "event retailValue = 10.0" "$(money_eq "$(jqget "$OUT/last.body" events.0.retailValue)" "10.0")"
 req "waste more than on hand" POST /api/inventory/waste "{\"productId\":$PRODUCT_ID,\"quantity\":99,\"reason\":\"expired\"}" "$TOKEN_ADMIN"
 expect_code "over-write rejected with 422" 422
 req "product stock after waste" GET /api/products "" "$TOKEN_ADMIN"

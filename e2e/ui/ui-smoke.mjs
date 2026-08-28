@@ -485,6 +485,11 @@ check(
   order.json.paymentStatus,
 )
 
+// The browser context has an admin token from the first login; clear it so
+// this is a real login round-trip (same-origin localStorage would otherwise
+// auto-navigate straight to the dashboard and the email input never appears).
+await page.goto(ADMIN_URL, { waitUntil: 'domcontentloaded' })
+await page.evaluate(() => localStorage.clear())
 await page.goto(ADMIN_URL, { waitUntil: 'networkidle' })
 await page.getByLabel('Email address').fill(ADMIN_EMAIL)
 await page.getByLabel('Password', { exact: true }).fill(ADMIN_PASS)
