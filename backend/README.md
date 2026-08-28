@@ -20,6 +20,55 @@ The one-shot `migrate` and `minio-init` services use explicit shell entrypoints 
 
 Laravel signs direct browser PUTs through `/api/uploads/presign`, then `/api/uploads/complete` reads the stored bytes through the internal MinIO endpoint and verifies size plus MIME magic before the URL may be persisted. The backend app, MinIO server, and init job all read the same `backend/.env`; there is no second credential file to drift out of sync.
 
+## Dependency management and Composer advisory policy
+
+Dependencies are pinned by `composer.lock`, and the Docker build stage copies
+`composer.*` so the image is built with `composer install` **from the lock** —
+no dependency resolution at deploy time. That matters for two reasons:
+
+1. **Reproducibility.** The same commit always produces the same vendor tree.
+2. **Deploy stability.** Composer's advisory blocking (on by default since
+   Composer 2.9) only rejects packages *while resolving* — during
+   `update`/`require`/`remove`, and during `install` when there is no lock file.
+   Installing from a committed lock never resolves, so a newly published
+   advisory against an already-pinned package can no longer break a deploy.
+
+Never hand-edit the lock. Regenerate it with:
+
+```bash
+backend/bin/refresh-composer-lock.sh                    # refresh everything
+backend/bin/refresh-composer-lock.sh laravel/framework  # bump one package
+```
+
+Run the same script once to create `backend/composer.lock` if it is not present
+yet — until it is committed, the build stage falls back to resolving latest
+versions and prints a `WARNING: no composer.lock` line in the build log.
+
+The script resolves inside the same `composer:2.8` image the `vendor` build
+stage uses, and `config.platform.php` in `composer.json` pins resolution to the
+declared floor (PHP 8.2). Together those keep the lock identical no matter which
+PHP a developer, CI (8.3) or the runtime image (8.4) happens to have — without
+the pin, a lock resolved on 8.4 can select packages the 8.3 build image then
+refuses to install.
+
+`composer.json` currently sets `config.policy.advisories.block: false`. That was
+an emergency unblock to get deploys moving while there was no lock file, and it
+is the wrong long-term setting: it disables the warning everywhere, including at
+the one moment you actually want it. Once the lock is committed, restore the
+default (`true`) so that:
+
+- `composer update` still refuses to pull in a vulnerable version — you find out
+  when you can act on it;
+- deploys keep working regardless, because they install from the lock;
+- anything you consciously accept is recorded as a scoped, documented exception
+  via `config.policy.advisories.ignore-id` (each entry takes a `reason`) rather
+  than by switching the whole feature off.
+
+`refresh-composer-lock.sh` runs `composer audit --locked` after resolving, which
+reports advisories affecting the pinned versions without failing the refresh.
+Wiring the same `composer audit --locked` into CI as a non-blocking step gives
+continuous visibility into advisories that land after the lock was written.
+
 ## Environment
 
 All variables are documented in `.env.example`. Telegram staff notifications and customer broadcasts use the configured bot tokens and database queue. Run `php artisan queue:work` in production. Before staff notifications can arrive, the owner must send `/start` to the staff bot in the target DM, or add the bot to the target group. CORS is allowlist-only and accepts `ADMIN_ORIGIN`, `SALE_ORIGIN`, and `SHOP_ORIGIN`, including `Authorization` and `Content-Type` headers. Each separately hosted app must be configured with its own exact HTTPS origin.
