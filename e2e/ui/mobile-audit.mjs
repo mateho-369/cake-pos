@@ -222,7 +222,7 @@ async function closeModals(page) {
 
 async function loginAdmin(page, email, password) {
   await page.getByLabel('Email address').fill(email)
-  await page.getByLabel('Password').fill(password)
+  await page.getByLabel('Password', { exact: true }).fill(password)
   await page.getByRole('button', { name: 'Sign in securely' }).click()
   await page.waitForSelector('.sidebar-nav, nav.sidebar', { timeout: 30000 })
 }
@@ -231,7 +231,7 @@ async function loginSale(page, email, password) {
   await page.getByRole('button', { name: 'Email' }).click()
   await page.waitForTimeout(300)
   await page.getByLabel('Email address').fill(email)
-  await page.getByLabel('Password').fill(password)
+  await page.getByLabel('Password', { exact: true }).fill(password)
   await page.getByRole('button', { name: 'Continue' }).click()
   await page.waitForSelector('.product-workspace', { timeout: 30000 })
 }

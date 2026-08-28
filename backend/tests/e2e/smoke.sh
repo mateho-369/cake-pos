@@ -11,6 +11,7 @@ API="${API_URL:-http://127.0.0.1:8080}"
 OUT="$(mktemp -d)"
 PASS=0
 FAIL=0
+FIRST_BAD_REQUEST_NOTE=""
 
 note() { echo; echo "===== $* ====="; }
 step() { echo; echo "----- $* -----"; }
@@ -55,11 +56,11 @@ req() {
   if [ -s "$OUT/last.body" ]; then
     echo "  body: $(head -c 600 "$OUT/last.body")"
   fi
-  # A 5xx here is the app failing to answer at all — surface the body as a
-  # check-run annotation so the root cause is visible without job logs.
-  if [ "$code" -ge 500 ] 2>/dev/null; then
-    annotate error "http-$code-$method-$path" \
-      "$(head -c 300 "$OUT/last.body" | tr '\n' ' ')"
+  # Surface the FIRST non-2xx response body as a check-run annotation so the
+  # concrete validation/server error is visible without job logs.
+  if [ "$code" -ge 400 ] 2>/dev/null && [ -z "${FIRST_BAD_REQUEST_NOTE:-}" ]; then
+    FIRST_BAD_REQUEST_NOTE="[$label] $method $path -> HTTP $code: $(head -c 240 "$OUT/last.body" | tr '\n' ' ')"
+    annotate error 'first-bad-request' "$FIRST_BAD_REQUEST_NOTE"
   fi
   echo "$code" >"$OUT/last.code"
 }
@@ -143,7 +144,7 @@ expect_code "GET /api/shifts/current returns 200" 200
 assert "reports no open shift (null)" "$([ "$(cat "$OUT/last.body")" = "null" ] && echo true || echo false)"
 
 step "3a-2. Sale endpoints are blocked while no shift is open"
-req "order without shift" POST /api/orders '{"payment":"Cash","items":[{"productId":1,"quantity":1}],"idempotencyKey":"smoke-no-shift"}' "$TOKEN_CASHIER"
+req "order without shift" POST /api/orders '{"payment":"Cash","items":[{"productId":1,"quantity":1}],"idempotencyKey":"00000000-0000-4000-8000-000000000001"}' "$TOKEN_CASHIER"
 expect_code "POST /api/orders without shift returns 409" 409
 assert "refusal carries requires_open_shift flag" "$([ "$(jqget "$OUT/last.body" requires_open_shift)" = "true" ] && echo true || echo false)"
 req "hold without shift" POST /api/orders/hold '{"items":[{"productId":1,"quantity":1}]}' "$TOKEN_CASHIER"
@@ -187,7 +188,7 @@ assert "product id returned" "$([ -n "$PRODUCT_ID" ] && [ "$PRODUCT_ID" != "__MI
 assert "product stock = 5" "$([ "$(jqget "$OUT/last.body" stock)" = "5" ] && echo true || echo false)"
 
 step '4b. Cashier sells 2 x $10.00 by cash (total $20.00)'
-req "create order" POST /api/orders "{\"payment\":\"Cash\",\"items\":[{\"productId\":$PRODUCT_ID,\"quantity\":2}],\"idempotencyKey\":\"smoke-order-001\"}" "$TOKEN_CASHIER"
+req "create order" POST /api/orders "{\"payment\":\"Cash\",\"items\":[{\"productId\":$PRODUCT_ID,\"quantity\":2}],\"idempotencyKey\":\"00000000-0000-4000-8000-000000000002\"}" "$TOKEN_CASHIER"
 expect_code "create order returns 201" 201
 ORDER_ID="$(jqget "$OUT/last.body" id)"
 assert "order id returned" "$([ -n "$ORDER_ID" ] && [ "$ORDER_ID" != "__MISSING__" ] && echo true || echo false)"
@@ -196,7 +197,7 @@ assert "order status = Completed" "$([ "$(jqget "$OUT/last.body" status)" = "Com
 assert "order paymentStatus = paid" "$([ "$(jqget "$OUT/last.body" paymentStatus)" = "paid" ] && echo true || echo false)"
 
 step "4c. Same idempotency key does not create a second order"
-req "duplicate order (same key)" POST /api/orders "{\"payment\":\"Cash\",\"items\":[{\"productId\":$PRODUCT_ID,\"quantity\":2}],\"idempotencyKey\":\"smoke-order-001\"}" "$TOKEN_CASHIER"
+req "duplicate order (same key)" POST /api/orders "{\"payment\":\"Cash\",\"items\":[{\"productId\":$PRODUCT_ID,\"quantity\":2}],\"idempotencyKey\":\"00000000-0000-4000-8000-000000000002\"}" "$TOKEN_CASHIER"
 expect_code "duplicate returns 200 (idempotent)" 200
 assert "duplicate returns the SAME order id" "$([ "$(jqget "$OUT/last.body" id)" = "$ORDER_ID" ] && echo true || echo false)"
 req "product after 2x order" GET /api/products "" "$TOKEN_ADMIN"
@@ -279,7 +280,7 @@ req "cleanup: close shift #2" POST /api/shifts/close '{"closingCash":50.00}' "$T
 expect_code "cleanup close returns 200" 200
 
 step "5e. With every shift closed, sale endpoints are blocked again"
-req "order after close" POST /api/orders '{"payment":"Cash","items":[{"productId":1,"quantity":1}],"idempotencyKey":"smoke-no-shift-2"}' "$TOKEN_CASHIER"
+req "order after close" POST /api/orders '{"payment":"Cash","items":[{"productId":1,"quantity":1}],"idempotencyKey":"00000000-0000-4000-8000-000000000003"}' "$TOKEN_CASHIER"
 expect_code "POST /api/orders after close returns 409" 409
 assert "refusal carries requires_open_shift flag" "$([ "$(jqget "$OUT/last.body" requires_open_shift)" = "true" ] && echo true || echo false)"
 

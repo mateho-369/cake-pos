@@ -14,7 +14,7 @@
 import { chromium } from 'playwright'
 import { execSync } from 'node:child_process'
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs'
-import { createHash, createHmac } from 'node:crypto'
+import { createHash, createHmac, randomUUID } from 'node:crypto'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -143,7 +143,7 @@ check('admin login via API returns token', adminToken.length > 10)
 
 await page.goto(ADMIN_URL, { waitUntil: 'networkidle' })
 await page.getByLabel('Email address').fill(ADMIN_EMAIL)
-await page.getByLabel('Password').fill(ADMIN_PASS)
+await page.getByLabel('Password', { exact: true }).fill(ADMIN_PASS)
 await page.getByRole('button', { name: 'Sign in securely' }).click()
 await page.waitForSelector('text=Net sales', { timeout: 30000 })
 await shot('admin-overview-empty')
@@ -447,7 +447,7 @@ const mixedOrder = await api('/api/orders', {
   body: {
     payment: 'Cash',
     items: [{ productId: prod.json.id, quantity: 1 }],
-    idempotencyKey: 'ui-smoke-mixed-' + Date.now(),
+    idempotencyKey: randomUUID(),
     usdReceivedCents: 800,
     khrReceived: 8200,
     changeUsdCents: 0,
@@ -471,7 +471,7 @@ const order = await api('/api/orders', {
   body: {
     payment: 'Cash',
     items: [{ productId: prod.json.id, quantity: 2 }],
-    idempotencyKey: 'ui-smoke-order-1',
+    idempotencyKey: randomUUID(),
   },
 })
 check(
@@ -487,7 +487,7 @@ check(
 
 await page.goto(ADMIN_URL, { waitUntil: 'networkidle' })
 await page.getByLabel('Email address').fill(ADMIN_EMAIL)
-await page.getByLabel('Password').fill(ADMIN_PASS)
+await page.getByLabel('Password', { exact: true }).fill(ADMIN_PASS)
 await page.getByRole('button', { name: 'Sign in securely' }).click()
 await page.waitForSelector('text=Net sales', { timeout: 30000 })
 await page.waitForTimeout(1200) // data refresh
@@ -568,7 +568,7 @@ await page.goto(SALE_URL, { waitUntil: 'networkidle' })
 await page.getByRole('button', { name: 'Email' }).click()
 await page.waitForTimeout(300)
 await page.getByLabel('Email address').fill(CASHIER_EMAIL)
-await page.getByLabel('Password').fill(CASHIER_PASS)
+await page.getByLabel('Password', { exact: true }).fill(CASHIER_PASS)
 await page.getByRole('button', { name: 'Continue' }).click()
 await page.waitForSelector('text=What are we serving?', { timeout: 30000 })
 await shot('sale-menu')
@@ -647,7 +647,7 @@ await page.waitForSelector('.success-layer', {
   await page.getByRole('button', { name: 'Email' }).click()
   await page.waitForTimeout(300)
   await page.getByLabel('Email address').fill(CASHIER_EMAIL)
-  await page.getByLabel('Password').fill(CASHIER_PASS)
+  await page.getByLabel('Password', { exact: true }).fill(CASHIER_PASS)
   await page.getByRole('button', { name: 'Continue' }).click()
   await page.waitForSelector('text=What are we serving?', { timeout: 30000 })
   check(
@@ -788,7 +788,7 @@ console.log('\n########## PHASE F — HOLD / PARK AN ORDER, THEN PAY IT ########
     await page.getByRole('button', { name: 'Email' }).click()
     await page.waitForTimeout(300)
     await page.getByLabel('Email address').fill(CASHIER_EMAIL)
-    await page.getByLabel('Password').fill(CASHIER_PASS)
+    await page.getByLabel('Password', { exact: true }).fill(CASHIER_PASS)
     await page.getByRole('button', { name: 'Continue' }).click()
     await page.waitForSelector('.product-workspace', { timeout: 30000 })
   }
