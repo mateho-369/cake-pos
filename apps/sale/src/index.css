@@ -2462,6 +2462,55 @@ button:disabled {
   border-color: rgba(190, 24, 93, 0.24);
   background: #f9e5ed;
 }
+/* No categories exist yet (or none is active): say so instead of leaving a
+   silent blank gap where the chips should be. */
+.category-empty {
+  padding: 10px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: 1px dashed rgba(190, 24, 93, 0.28);
+  border-radius: 11px;
+  background: rgba(249, 229, 237, 0.35);
+}
+.category-empty strong {
+  color: var(--pink-deep);
+  font-size: calc(9px * var(--font-scale));
+  font-weight: 800;
+}
+.category-empty span {
+  color: var(--muted);
+  font-size: calc(8px * var(--font-scale));
+  font-weight: 600;
+  line-height: 1.45;
+}
+.category-new-row {
+  margin-top: 7px;
+  display: flex;
+  gap: 6px;
+}
+.category-new-row input {
+  flex: 1;
+  min-width: 0;
+}
+.category-new-button {
+  min-height: 41px;
+  padding: 0 11px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.category-hint {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: calc(8px * var(--font-scale));
+  font-weight: 600;
+  line-height: 1.45;
+}
+.category-hint.pending-review-note {
+  color: #92400e;
+}
 .made-today-row {
   position: relative;
   min-height: 58px;

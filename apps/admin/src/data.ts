@@ -106,6 +106,11 @@ export type Category = {
   revenue: number
   color: string
   sortOrder?: number
+  /** True for a cashier-proposed category the owner has not reviewed yet. */
+  pendingReview?: boolean
+  /** Name of the employee who proposed it, when known. */
+  createdBy?: string | null
+  createdAt?: string | null
 }
 
 export type Employee = {

@@ -1,6 +1,6 @@
 <?php
 namespace App\Services;
-use App\Models\{Order, Shift, Setting};
+use App\Models\{Category, Order, Shift, Setting};
 use Illuminate\Support\Facades\Http;
 final class StaffNotificationService
 {
@@ -36,6 +36,22 @@ final class StaffNotificationService
                 number_format($order->total_cents / 100, 2) .
                 "\nPayment / ការទូទាត់: {$order->payment}\nCashier / អ្នកគិតលុយ: " .
                 ($order->cashier?->name ?? '—'),
+        );
+    }
+    /**
+     * A cashier proposed a new category at the terminal. It is already
+     * usable (so the sale is never blocked), but the owner gets a nudge to
+     * approve or reject it under Admin > Categories.
+     */
+    public function categoryProposed(
+        Category $category,
+        string $employeeName,
+    ): void {
+        $this->send(
+            "🏷 New category proposed / ប្រភេទថ្មីស្នើសុំ\n" .
+                "{$category->name}\n" .
+                "Proposed by / ស្នើដោយ: {$employeeName}\n" .
+                'Review in Admin > Categories — approve or reject it.',
         );
     }
     public function shiftClosed(Shift $shift, array $sales): void

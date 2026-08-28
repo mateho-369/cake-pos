@@ -11,10 +11,11 @@ use App\Models\{
     Setting,
     Shift,
 };
+use App\Jobs\SendStaffCategoryProposedNotification;
 use App\Services\ObjectUploadService;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\{Cache, DB, Http, Storage};
+use Illuminate\Support\Facades\{Cache, DB, Http, Queue, Storage};
 use Illuminate\Support\Str;
 use App\Support\BotSeparation;
 use Tests\TestCase;
@@ -1447,6 +1448,174 @@ class ApiContractTest extends TestCase
         $this->assertNull(
             DB::table('categories')->where('id', $child['id'])->value('parent_category_id'),
         );
+    }
+
+    /**
+     * "Boss says add a Seasonal category": the cashier creates it at the
+     * counter and it is usable in the same breath — never a blocker. It is
+     * flagged pending_review, the owner is nudged on Telegram, and the
+     * proposal lands in the audit trail.
+     */
+    public function test_cashier_proposed_category_is_live_immediately_and_flagged_for_review(): void
+    {
+        Queue::fake();
+        $cashier = Employee::where('role', 'cashier')->first();
+        $headers = $this->auth($cashier);
+
+        $created = $this->postJson(
+            '/api/categories',
+            ['name' => 'Pchum Ben Specials'],
+            $headers,
+        )
+            ->assertCreated()
+            ->assertJsonPath('name', 'Pchum Ben Specials')
+            ->assertJsonPath('pendingReview', true)
+            ->assertJsonPath('createdBy', $cashier->name)
+            ->json();
+
+        // Active + flagged: on sale now, reviewed later.
+        $this->assertSame(1, (int) DB::table('categories')->where('id', $created['id'])->value('active'));
+        $this->assertSame(1, (int) DB::table('categories')->where('id', $created['id'])->value('pending_review'));
+        $this->assertSame(
+            $cashier->id,
+            (int) DB::table('categories')->where('id', $created['id'])->value('created_by_employee_id'),
+        );
+
+        // The category list the terminal renders chips from includes it, so
+        // the very next cake can be filed under it.
+        $list = $this->getJson('/api/categories', $headers)->assertOk()->json();
+        $row = collect($list)->first(fn($c) => $c['id'] === $created['id']);
+        $this->assertNotNull($row, 'a proposed category must appear in the list');
+        $this->assertTrue($row['pendingReview']);
+        $this->assertSame($cashier->name, $row['createdBy']);
+
+        // The sale is not blocked: a product can use it immediately.
+        $product = $this->postJson(
+            '/api/products',
+            [
+                'name' => 'Knom Pchum Ben',
+                'categoryId' => $created['id'],
+                'price' => 3.5,
+                'stock' => 4,
+            ],
+            $headers,
+        )->assertCreated()->json();
+        $this->assertSame('Pchum Ben Specials', $product['category']);
+        $this->assertSame(
+            $created['id'],
+            (int) DB::table('products')->where('id', $product['id'])->value('category_id'),
+        );
+
+        // Owner nudge + accountability.
+        Queue::assertPushedTimes(SendStaffCategoryProposedNotification::class, 1);
+        $this->assertDatabaseHas('audit_events', [
+            'action' => 'category.created_by_cashier',
+            'employee_id' => $cashier->id,
+        ]);
+
+        // An admin creating a category is not a proposal: no flag, no nudge.
+        $adminHeaders = $this->auth(Employee::where('role', 'admin')->first());
+        $adminMade = $this->postJson(
+            '/api/categories',
+            ['name' => 'Wedding Cakes'],
+            $adminHeaders,
+        )
+            ->assertCreated()
+            ->assertJsonPath('pendingReview', false)
+            ->json();
+        $this->assertNull($adminMade['createdBy']);
+        Queue::assertPushedTimes(SendStaffCategoryProposedNotification::class, 1);
+
+        // Rejecting a category still in use is refused — no product is left
+        // pointing at a dead category.
+        $this->postJson(
+            "/api/categories/{$created['id']}/review",
+            ['action' => 'reject'],
+            $adminHeaders,
+        )
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('category');
+        $this->assertSame(1, (int) DB::table('categories')->where('id', $created['id'])->value('active'));
+
+        // Approving keeps it and clears the flag.
+        $this->postJson(
+            "/api/categories/{$created['id']}/review",
+            ['action' => 'approve'],
+            $adminHeaders,
+        )
+            ->assertOk()
+            ->assertJsonPath('pendingReview', false);
+        $this->assertSame(0, (int) DB::table('categories')->where('id', $created['id'])->value('pending_review'));
+        $this->assertSame(1, (int) DB::table('categories')->where('id', $created['id'])->value('active'));
+        $this->assertDatabaseHas('audit_events', [
+            'action' => 'category.approved',
+            'employee_id' => Employee::where('role', 'admin')->first()->id,
+        ]);
+    }
+
+    public function test_rejecting_an_unused_proposed_category_takes_it_off_the_menu(): void
+    {
+        Queue::fake();
+        $cashier = Employee::where('role', 'cashier')->first();
+        $proposed = $this->postJson(
+            '/api/categories',
+            ['name' => 'Cofee'],
+            $this->auth($cashier),
+        )->assertCreated()->json();
+        $adminHeaders = $this->auth(Employee::where('role', 'admin')->first());
+
+        // Nothing uses it, so rejecting works and deactivates it.
+        $this->postJson(
+            "/api/categories/{$proposed['id']}/review",
+            ['action' => 'reject'],
+            $adminHeaders,
+        )
+            ->assertOk()
+            ->assertJsonPath('pendingReview', false);
+        $this->assertSame(0, (int) DB::table('categories')->where('id', $proposed['id'])->value('active'));
+        $this->assertSame(0, (int) DB::table('categories')->where('id', $proposed['id'])->value('pending_review'));
+        $this->assertDatabaseHas('audit_events', ['action' => 'category.rejected']);
+
+        // It disappears from the picker list (which only serves active ones).
+        $list = $this->getJson('/api/categories', $adminHeaders)->assertOk()->json();
+        $this->assertNull(collect($list)->first(fn($c) => $c['id'] === $proposed['id']));
+    }
+
+    /**
+     * Subcategory placement is a taxonomy decision, so it stays admin-only:
+     * a cashier is never silently granted (or silently stripped of) it.
+     */
+    public function test_cashier_cannot_place_a_category_under_a_parent(): void
+    {
+        Queue::fake();
+        $cashier = Employee::where('role', 'cashier')->first();
+        $adminHeaders = $this->auth(Employee::where('role', 'admin')->first());
+        $parent = $this->postJson(
+            '/api/categories',
+            ['name' => 'Drinks Counter'],
+            $adminHeaders,
+        )->assertCreated()->json();
+
+        $this->postJson(
+            '/api/categories',
+            ['name' => 'Iced Coffee', 'parentCategoryId' => $parent['id']],
+            $this->auth($cashier),
+        )
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('parentCategoryId');
+        $this->assertDatabaseMissing('categories', ['name' => 'Iced Coffee']);
+
+        // Review is owner-only too.
+        $this->postJson(
+            "/api/categories/{$parent['id']}/review",
+            ['action' => 'approve'],
+            $this->auth($cashier),
+        )->assertForbidden();
+        $this->postJson(
+            "/api/categories/{$parent['id']}/review",
+            ['action' => 'keep'],
+            $adminHeaders,
+        )->assertUnprocessable()->assertJsonValidationErrors('action');
     }
 
     public function test_deactivating_or_zeroing_stock_requires_a_reason_and_writes_audit_events(): void

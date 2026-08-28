@@ -130,6 +130,8 @@ jobs:
         run: node e2e/unit/unit-tests.mjs
       - name: Locale parity (every en/km key resolves)
         run: node e2e/locale-audit.mjs
+      - name: Category flow in jsdom (quick add picker, empty state, owner review)
+        run: npm run test:ui
       - name: live-prod safety self-test (probe can never strand an open shift)
         run: bash backend/tests/e2e/live-prod-selftest.sh
       - name: Production build (same env as deploy)

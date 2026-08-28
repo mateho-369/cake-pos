@@ -11,6 +11,8 @@ export type Product = {
   id: number
   name: string
   category: string
+  /** Id of the chosen category (stable across renames). Optional. */
+  categoryId?: number
   price: number
   stock: number
   imagePosition: string

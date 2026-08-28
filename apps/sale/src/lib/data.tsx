@@ -30,6 +30,12 @@ type ApiProduct = {
 type ProductInput = {
   name: string
   category: string
+  /**
+   * Real category row id. Preferred over the `category` name: it survives
+   * renames and disambiguates same-named categories. Both are sent so older
+   * API deployments that only understand the name still work.
+   */
+  categoryId?: number
   price: number
   stock: number
   madeAt?: string

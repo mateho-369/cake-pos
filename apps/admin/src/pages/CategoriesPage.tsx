@@ -1,5 +1,14 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronUp, GripVertical, Plus, Tags } from 'lucide-react'
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  GripVertical,
+  Plus,
+  ShieldCheck,
+  Tags,
+  X,
+} from 'lucide-react'
 import type { Category } from '../data'
 import { useAdminData } from '../lib/data'
 import Modal from '../components/Modal'
@@ -13,7 +22,8 @@ export default function CategoriesPage({
   onToast: (message: string) => void
 }) {
   const { t } = useTranslation()
-  const { categories, createCategory, updateCategory } = useAdminData()
+  const { categories, createCategory, updateCategory, reviewCategory } =
+    useAdminData()
   const totalRevenue = categories.reduce(
     (sum, category) => sum + category.revenue,
     0,
@@ -39,6 +49,29 @@ export default function CategoriesPage({
   const [editing, setEditing] = useState<Category | null>(null)
   const [saving, setSaving] = useState(false)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [reviewingId, setReviewingId] = useState<number | null>(null)
+
+  // Cashier-proposed categories: already live on the terminal, waiting for
+  // the owner to approve (keep) or reject (deactivate) them.
+  const pending = categories.filter((item) => item.pendingReview)
+
+  const review = async (category: Category, action: 'approve' | 'reject') => {
+    setReviewingId(category.id)
+    try {
+      await reviewCategory(category.id, action)
+      onToast(
+        action === 'approve'
+          ? t('categories.approved', { name: translateCategory(t, category.name) })
+          : t('categories.rejected', { name: translateCategory(t, category.name) }),
+      )
+    } catch (reason) {
+      // Rejecting a category still in use is refused by the API; surface the
+      // reason verbatim so the owner knows what to move first.
+      onToast(reason instanceof Error ? reason.message : t('categories.failed'))
+    } finally {
+      setReviewingId(null)
+    }
+  }
 
   // Top-level categories only — subcategories cannot have children (the API
   // enforces the same one-level rule server-side).
@@ -134,6 +167,56 @@ export default function CategoriesPage({
           <Plus size={17} /> {t('categories.new')}
         </button>
       </section>
+      {pending.length > 0 && (
+        <section className="glass-panel category-review-card">
+          <div className="panel-heading">
+            <div>
+              <span className="section-kicker">{t('categories.proposed')}</span>
+              <h2>{t('categories.needsReview')}</h2>
+            </div>
+            <span className="count-label">
+              {t('categories.count', { count: pending.length })}
+            </span>
+          </div>
+          <p className="review-hint">{t('categories.needsReviewHint')}</p>
+          {pending.map((category) => (
+            <div className="review-row" key={category.id}>
+              <div className="review-row-text">
+                <i style={{ background: category.color }} />
+                <div>
+                  <strong>{translateCategory(t, category.name)}</strong>
+                  <small>
+                    {category.createdBy
+                      ? t('categories.proposedBy', {
+                          name: category.createdBy,
+                        })
+                      : t('categories.proposedAtUnknown')}
+                    {category.createdAt
+                      ? ` · ${new Date(category.createdAt).toLocaleString()}`
+                      : ''}
+                  </small>
+                </div>
+              </div>
+              <div className="review-row-actions">
+                <button
+                  className="primary-button compact-button"
+                  disabled={reviewingId === category.id}
+                  onClick={() => void review(category, 'approve')}
+                >
+                  <Check size={15} /> {t('categories.approve')}
+                </button>
+                <button
+                  className="secondary-button compact-button"
+                  disabled={reviewingId === category.id}
+                  onClick={() => void review(category, 'reject')}
+                >
+                  <X size={15} /> {t('categories.reject')}
+                </button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
       <section className="categories-layout">
         <div className="glass-panel category-list-card">
           <div className="panel-heading">
@@ -170,6 +253,11 @@ export default function CategoriesPage({
                 <i style={{ background: category.color }} />
                 <div>
                   <strong>{translateCategory(t, category.name)}</strong>
+                  {category.pendingReview && (
+                    <span className="pending-review-badge">
+                      <ShieldCheck size={11} /> {t('categories.pendingBadge')}
+                    </span>
+                  )}
                   <small>
                     {category.parentName
                       ? `${t('categories.underParent', {

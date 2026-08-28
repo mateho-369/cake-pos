@@ -1862,6 +1862,51 @@ label > small {
   background: #fbe9f0;
   box-shadow: inset 0 0 0 1px rgba(190, 24, 93, 0.04);
 }
+/* No categories exist yet: explain the blank space instead of leaving it
+   empty, and let the admin create one without leaving the form. */
+.category-empty {
+  padding: 10px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: 1px dashed rgba(190, 24, 93, 0.28);
+  border-radius: 11px;
+  background: rgba(251, 233, 240, 0.5);
+}
+.category-empty strong {
+  color: var(--pink-deep);
+  font-size: calc(11px * var(--font-scale));
+  font-weight: 800;
+}
+.category-empty span {
+  color: var(--muted);
+  font-size: calc(10px * var(--font-scale));
+  line-height: 1.45;
+}
+.category-new-row {
+  margin-top: 7px;
+  display: flex;
+  gap: 6px;
+}
+.category-new-row input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 11px;
+  color: var(--ink);
+  border: 1px solid rgba(67, 33, 48, 0.12);
+  border-radius: 10px;
+  background: white;
+  outline: none;
+}
+.category-new-button {
+  height: 38px;
+  padding: 0 11px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
 .quick-secondary-fields {
   margin-top: 15px;
   display: grid;
@@ -3533,6 +3578,81 @@ button.order-full-row.selected {
   align-items: center;
   justify-content: flex-end;
   gap: 3px;
+}
+/* Cashier-proposed categories awaiting the owner's review. */
+.category-review-card {
+  margin: 0 0 14px;
+  padding: 17px;
+  border: 1px solid rgba(217, 119, 6, 0.28);
+  background: linear-gradient(
+    180deg,
+    rgba(254, 243, 199, 0.55),
+    rgba(255, 255, 255, 0.72)
+  );
+}
+.category-review-card .review-hint {
+  margin: 6px 0 2px;
+  color: var(--muted);
+  font-size: calc(10px * var(--font-scale));
+  line-height: 1.5;
+}
+.review-row {
+  padding: 10px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid rgba(217, 119, 6, 0.2);
+}
+.review-row-text {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.review-row-text > i {
+  width: 9px;
+  height: 32px;
+  flex: none;
+  border-radius: 5px;
+}
+.review-row-text strong {
+  display: block;
+  font-size: calc(12px * var(--font-scale));
+}
+.review-row-text small {
+  color: var(--muted);
+  font-size: calc(9px * var(--font-scale));
+}
+.review-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.review-row-actions .compact-button {
+  min-height: 33px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: calc(10px * var(--font-scale));
+}
+.pending-review-badge {
+  margin-left: 7px;
+  padding: 2px 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #92400e;
+  border: 1px solid rgba(217, 119, 6, 0.32);
+  border-radius: 999px;
+  background: rgba(254, 243, 199, 0.7);
+  font-size: calc(8px * var(--font-scale));
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
 }
 .category-row.dragging {
   opacity: 0.55;

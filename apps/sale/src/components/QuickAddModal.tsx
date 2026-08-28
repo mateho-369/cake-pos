@@ -26,13 +26,25 @@ export default function QuickAddModal({
   shelfLifeDays: number
 }) {
   const { t } = useTranslation()
-  const { categories } = useSaleData()
+  // categoryList is the real active category list (GET /api/categories).
+  // `categories` is deliberately NOT used here: it is filtered down to
+  // categories that already have a product, which made a perfectly good
+  // category unselectable until someone created a product in it.
+  const { categoryList, refresh } = useSaleData()
   const [photo, setPhoto] = useState<string | null>(null)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [price, setPrice] = useState('')
-  const [category, setCategory] = useState('Signature')
+  // No default: the cashier picks. Defaulting to a hardcoded name submitted
+  // "unknown category: <name>" for every store that did not use it.
+  const [categoryId, setCategoryId] = useState<number | null>(null)
+  const [categoryName, setCategoryName] = useState('')
+  const [newCategory, setNewCategory] = useState('')
+  const [creatingCategory, setCreatingCategory] = useState(false)
+  const [categoryError, setCategoryError] = useState<string | null>(null)
+  const [pendingReview, setPendingReview] = useState(false)
+  const [nearDuplicate, setNearDuplicate] = useState<string | null>(null)
   const [madeToday, setMadeToday] = useState(true)
   const categoryKeys: Record<string, string> = {
     Signature: 'sale.signatureCategory',
@@ -49,6 +61,66 @@ export default function QuickAddModal({
     'Toys & Games': 'catalog.toys',
   }
   const categoryLabel = (item: string) => t(categoryKeys[item] || item)
+  // Every category in the list is selectable, including one with no product
+  // in it yet — that is the whole point of adding a category before the
+  // first cake goes into it. (GET /api/categories already returns only
+  // active categories; a category row's own `active` field is the ACTIVE
+  // PRODUCT count, not a flag, so it must never be used to filter here.)
+  const activeCategories = categoryList
+
+  /** Case-insensitive guard against "Cofee" when "Coffee" already exists. */
+  const checkForNearDuplicate = (value: string) => {
+    const wanted = value.trim().toLowerCase()
+    if (!wanted) {
+      setNearDuplicate(null)
+      return
+    }
+    const exact = activeCategories.find(
+      (item) => item.name.toLowerCase() === wanted,
+    )
+    if (exact) {
+      setCategoryId(exact.id)
+      setCategoryName(exact.name)
+      setNearDuplicate(null)
+      setNewCategory('')
+      return
+    }
+    const close = activeCategories.find(
+      (item) =>
+        item.name.toLowerCase().includes(wanted) ||
+        wanted.includes(item.name.toLowerCase()),
+    )
+    setNearDuplicate(close ? close.name : null)
+  }
+
+  const createCategory = async () => {
+    const wanted = newCategory.trim()
+    if (!wanted || creatingCategory) return
+    setCreatingCategory(true)
+    setCategoryError(null)
+    try {
+      const created = await apiRequest<{
+        id: number
+        name: string
+        pendingReview?: boolean
+      }>('/api/categories', {
+        method: 'POST',
+        body: JSON.stringify({ name: wanted }),
+      })
+      setCategoryId(created.id)
+      setCategoryName(created.name)
+      setPendingReview(Boolean(created.pendingReview))
+      setNewCategory('')
+      setNearDuplicate(null)
+      void refresh()
+    } catch (reason) {
+      setCategoryError(
+        reason instanceof Error ? reason.message : 'Could not add category',
+      )
+    } finally {
+      setCreatingCategory(false)
+    }
+  }
   useEffect(() => {
     if (!open) return
     setPhoto(null)
@@ -56,7 +128,12 @@ export default function QuickAddModal({
     setUploadError(null)
     setName('')
     setPrice('')
-    setCategory('Signature')
+    setCategoryId(null)
+    setCategoryName('')
+    setNewCategory('')
+    setCategoryError(null)
+    setPendingReview(false)
+    setNearDuplicate(null)
     setMadeToday(true)
   }, [open])
   const selectPhoto = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -92,7 +169,8 @@ export default function QuickAddModal({
     onAdd({
       id: Date.now(),
       name,
-      category,
+      category: categoryName,
+      categoryId: categoryId ?? undefined,
       price: Number(price),
       stock: 1,
       imagePosition: '0% 0%',
@@ -182,21 +260,70 @@ export default function QuickAddModal({
           </div>
           <label className="category-field">
             <span>{t('sale.category')}</span>
-            <div className="quick-category-chips">
-              {categories
-                .filter((item) => !['All', 'Drinks'].includes(item))
-                .map((item) => (
+            {activeCategories.length === 0 ? (
+              <div className="category-empty">
+                <strong>{t('sale.noCategoriesYet')}</strong>
+                <span>{t('sale.noCategoriesHint')}</span>
+              </div>
+            ) : (
+              <div className="quick-category-chips">
+                {activeCategories.map((item) => (
                   <button
                     type="button"
-                    className={category === item ? 'active' : ''}
-                    onClick={() => setCategory(item)}
-                    key={item}
+                    className={categoryId === item.id ? 'active' : ''}
+                    onClick={() => {
+                      setCategoryId(item.id)
+                      setCategoryName(item.name)
+                      setPendingReview(false)
+                    }}
+                    key={item.id}
                   >
-                    {category === item && <Check size={12} />}
-                    {categoryLabel(item)}
+                    {categoryId === item.id && <Check size={12} />}
+                    {categoryLabel(item.name)}
                   </button>
                 ))}
+              </div>
+            )}
+            <div className="category-new-row">
+              <input
+                value={newCategory}
+                maxLength={60}
+                placeholder={t('sale.newCategoryPlaceholder')}
+                onChange={(event) => {
+                  setNewCategory(event.target.value)
+                  checkForNearDuplicate(event.target.value)
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    void createCategory()
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="secondary-button category-new-button"
+                disabled={creatingCategory || newCategory.trim().length === 0}
+                onClick={() => void createCategory()}
+              >
+                <Plus size={14} />
+                {creatingCategory ? t('common.loading') : t('sale.addCategory')}
+              </button>
             </div>
+            {nearDuplicate && (
+              <p className="category-hint">
+                {t('sale.didYouMean', { name: nearDuplicate })}
+              </p>
+            )}
+            {categoryError && <p className="login-error">{categoryError}</p>}
+            {categoryId && !categoryError && (
+              <p className="category-hint">{t('sale.categoryChosen')}</p>
+            )}
+            {pendingReview && (
+              <p className="category-hint pending-review-note">
+                {t('sale.categoryPendingReview')}
+              </p>
+            )}
           </label>
           <label className="made-today-row">
             <span>
@@ -228,7 +355,11 @@ export default function QuickAddModal({
             >
               {t('common.cancel')}
             </button>
-            <button className="primary-button" disabled={uploadingPhoto}>
+            <button
+              className="primary-button"
+              disabled={uploadingPhoto || !categoryId}
+              title={!categoryId ? t('sale.pickCategoryFirst') : undefined}
+            >
               <Plus size={17} />{' '}
               {uploadingPhoto ? 'Uploading…' : t('sale.addPublish')}
             </button>
