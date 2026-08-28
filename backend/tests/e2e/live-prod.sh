@@ -53,7 +53,7 @@ note() { echo; echo "===== $* ====="; }
 banner() { echo; echo "############################################################"; echo "# $*"; echo "############################################################"; }
 req() { # label base method path [json] [token]
   local label="$1" base="$2" method="$3" path="$4" body="${5:-}" token="${6:-}"
-  local args=(-sS --max-time 30 -X "$method" -H 'Accept: application/json' -w '\n%{http_code}')
+  local args=(-sS --max-time 30 -D "$OUT/last.headers" -X "$method" -H 'Accept: application/json' -w '\n%{http_code}')
   if [ -n "$body" ]; then args+=(-H 'Content-Type: application/json' -d "$body"); fi
   if [ -n "$token" ]; then args+=(-H "Authorization: Bearer $token"); fi
   curl "${args[@]}" "$base$path" >"$OUT/last.out" 2>"$OUT/last.err"
@@ -257,6 +257,13 @@ req "GET /api/shifts/current (state check)" "$WORKER" GET /api/shifts/current ""
 CURRENT_BODY="$(cat "$OUT/last.body" | tr -d '[:space:]')"
 echo "  current shift on prod: $CURRENT_BODY"
 if [ "$CURRENT_BODY" != "null" ] && [ -n "$CURRENT_BODY" ]; then
+  echo "  --- Raw response dump (open shift detected) ---"
+  echo "  Headers:"
+  sed 's/^/    /' "$OUT/last.headers" 2>/dev/null || true
+  echo "  Raw body:"
+  cat "$OUT/last.body" 2>/dev/null || true
+  echo
+  echo "  -----------------------------------------------"
   OPENED_BY="$(json_field "$OUT/last.body" openedBy '?')"
   OPENING_FLOAT="$(json_field "$OUT/last.body" openingCash '?')"
   OPENING_KHR="$(json_field "$OUT/last.body" openingCashKhr '?')"
