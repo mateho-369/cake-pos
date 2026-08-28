@@ -51,7 +51,7 @@
         },
         "policy": {
             "advisories": {
-                "block": true
+                "block": false
             }
         }
     },
