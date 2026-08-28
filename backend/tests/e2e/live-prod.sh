@@ -277,6 +277,11 @@ print("  has itemsSold (new):", 'itemsSold' in d)
 print("  has ordersData (new):", 'ordersData' in d)
 print("  todaySalesTotal:", d.get('todaySalesTotal'))
 PY
+SUMMARY_HAS_NEW_KEYS="$(python3 -c "import json
+d = json.load(open('$OUT/last.body'))
+print('yes' if 'itemsSold' in d and 'yesterdaySalesTotal' in d else 'no')" 2>/dev/null || echo unknown)"
+annotate notice "deploy-markers" \
+  "freshness=$FRESHNESS_CODE business-profile=$BP_CODE summary-has-new-keys=$SUMMARY_HAS_NEW_KEYS (404/404/no = production is running an OLD backend deploy)"
 
 # ---------- 2c. Cache forensics on /api/shifts/current (READ-ONLY) ----------
 # The badge and (twice) this probe's logs saw /api/shifts/current report an
@@ -336,7 +341,7 @@ else
   cp "$OUT/last.body" "$OUT/shifts-list.body"; cp "$OUT/last.code" "$OUT/shifts-list.code"
 
   annotate notice "current-probe-codes" \
-    "A=$(cat "$OUT/curr-a.code") B=$(cat "$OUT/curr-b.code") C=$(cat "$OUT/curr-c.code") D=$(cat "$OUT/curr-d.code") list=$(cat "$OUT/shifts-list.code"); A body (first 160): $(head -c 160 "$OUT/curr-a.body" | tr '\n' ' ')"
+    "A=$(cat "$OUT/curr-a.code") B=$(cat "$OUT/curr-b.code") C=$(cat "$OUT/curr-c.code") D=$(cat "$OUT/curr-d.code") list=$(cat "$OUT/shifts-list.code"); A: $(head -c 100 "$OUT/curr-a.body" | tr '\n' ' '); C: $(head -c 100 "$OUT/curr-c.body" | tr '\n' ' '); D(origin): $(head -c 100 "$OUT/curr-d.body" | tr '\n' ' '); list: $(head -c 180 "$OUT/shifts-list.body" | tr '\n' ' ')"
 
   VERDICTS="$(python3 - "$OUT/curr-a.body" "$OUT/curr-b.body" "$OUT/curr-c.body" "$OUT/curr-d.body" "$OUT/shifts-list.body" \
                       "$OUT/curr-a.code" "$OUT/curr-c.code" "$OUT/curr-d.code" <<'PY'
@@ -468,6 +473,27 @@ if [ "${CACHE_STALE_CURRENT:-0}" = "1" ] && [ -n "$CURRENT_TRUTH_BODY" ]; then
   annotate error "stale-current-confirmed" \
     "the plain /api/shifts/current read is stale; cache-busted truth is: ${CURRENT_TRUTH_BODY:0:200} — see the cache forensics section"
   CURRENT_BODY="$CURRENT_TRUTH_BODY"
+fi
+# A 200 that is not 'null' must be a REAL shift object (one carrying its id).
+# The stale production deploy answers "no open shift" as {} — which the old
+# probe read as A REAL cashier's shift (any non-null body was "open"), the
+# exact misreading that made the badge investigation look like a cache. Only
+# a body with an id may enter the open-shift branch.
+if [ "$CURRENT_BODY" != "null" ] && [ -n "$CURRENT_BODY" ]; then
+  CURRENT_IS_SHIFT="$(printf '%s' "$CURRENT_BODY" | python3 -c "
+import json, sys
+try:
+    d = json.loads(sys.stdin.read())
+except Exception:
+    print('no'); raise SystemExit
+print('yes' if isinstance(d, dict) and d.get('id') is not None else 'no')
+")"
+  if [ "$CURRENT_IS_SHIFT" != "yes" ]; then
+    assert "GET /api/shifts/current returns 'null' or a shift object (got: ${CURRENT_BODY:0:80})" false
+    annotate error "current-body-not-a-shift" \
+      "HTTP 200 from /api/shifts/current is neither 'null' nor a shift object: ${CURRENT_BODY:0:160} — stale backend deploy or a transforming component in front; the apps (and this probe) used to read that as an OPEN shift"
+    CURRENT_BODY=""
+  fi
 fi
 if [ "$CURRENT_BODY" != "null" ] && [ -n "$CURRENT_BODY" ]; then
   echo "  --- Raw response dump (open shift detected) ---"

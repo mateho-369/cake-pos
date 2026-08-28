@@ -165,6 +165,19 @@ check "I: probe acts on the cache-busted truth (no self-heal on a phantom)" \
 check "I: exits non-zero — a stale cache is a bug worth failing CI for" \
   "$([ "$LAST_EXIT" != 0 ] && echo true || echo false)"
 
+# ---- J: backend answers "no shift" as {} — the production ghost shift ------
+# What production actually serves today (stale deploy): HTTP 200 {} instead
+# of null. The probe must flag it loudly and must NOT call it a real shift.
+run_case J 0 EMPTY_OBJECT_CURRENT=1
+check "J: forensics labels the body an error/empty response, not shift JSON" \
+  "$(grep -q 'current-probe-errored' "$LAST_LOG" && echo true || echo false)"
+check "J: probe flags {} as not-a-shift" \
+  "$(grep -q 'current-body-not-a-shift' "$LAST_LOG" && echo true || echo false)"
+check "J: does NOT mistake {} for a real cashier's shift" \
+  "$(! grep -q 'A REAL SHIFT IS OPEN' "$LAST_LOG" && echo true || echo false)"
+check "J: exits non-zero — a malformed backend answer fails loudly" \
+  "$([ "$LAST_EXIT" != 0 ] && echo true || echo false)"
+
 echo
 echo "############################################################"
 echo "LIVE-PROD SELF-TEST: $PASS passed, $FAIL failed"

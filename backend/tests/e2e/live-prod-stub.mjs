@@ -21,6 +21,10 @@
  *                       returns the last open snapshot even after close
  *                       (a URL-keyed edge cache holding a stale entry);
  *                       any ?cb=... request bypasses it and sees the truth
+ *   EMPTY_OBJECT_CURRENT=1
+ *                       with no shift open, /api/shifts/current answers {}
+ *                       instead of null — the stale production deploy that
+ *                       trained every client to render a ghost Open shift
  */
 import { createServer } from 'node:http'
 
@@ -29,6 +33,7 @@ const FAIL_CLOSE_TIMES = Number(process.env.FAIL_CLOSE_TIMES || 0)
 const SLOW_LOGOUT_MS = Number(process.env.SLOW_LOGOUT_MS || 0)
 const SEED_SHIFT = process.env.SEED_SHIFT || ''
 const STALE_CACHE = process.env.SIMULATE_STALE_EDGE_CACHE === '1'
+const EMPTY_OBJECT_CURRENT = process.env.EMPTY_OBJECT_CURRENT === '1'
 
 let nextId = 1
 let closeFailures = 0
@@ -170,6 +175,8 @@ const server = createServer(async (req, res) => {
     if (STALE_CACHE && staleOpenSnapshot && !url.searchParams.has('cb')) {
       return send(200, staleOpenSnapshot)
     }
+    // The stale production deploy: "no open shift" as an empty object.
+    if (!shift && EMPTY_OBJECT_CURRENT) return send(200, {})
     return send(200, shift ? shiftBody(shift) : null)
   }
   if (path === '/api/shifts' && req.method === 'GET') {
