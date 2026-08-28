@@ -96,7 +96,16 @@ return [
 
     'cipher' => 'AES-256-CBC',
 
-    'key' => env('APP_KEY'),
+    // Prefer the configured APP_KEY (production, local dev). GitHub Actions
+    // sets CI=true and, in this repo's CI, the `.env` is assembled by the
+    // workflow without APP_KEY — give that throwaway environment a per-process
+    // key so encryption-dependent middleware (cookies/sessions) can boot.
+    // Real deployments always set APP_KEY and never take this branch.
+    'key' => env('APP_KEY') ?: (
+        filter_var(env('CI'), FILTER_VALIDATE_BOOL)
+            ? 'base64:' . base64_encode(random_bytes(32))
+            : null
+    ),
 
     'previous_keys' => [
         ...array_filter(explode(',', env('APP_PREVIOUS_KEYS', ''))),
