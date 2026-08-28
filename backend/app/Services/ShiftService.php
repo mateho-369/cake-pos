@@ -98,12 +98,17 @@ class ShiftService
             $sales = $this->cashSalesSince($shift);
             $expectedUsd = $shift->opening_cash_usd_cents + $sales[0];
             $expectedKhr = $shift->opening_cash_khr + $sales[1];
+            $closingCents = $usd;
+            $varianceCents = $usd - $expectedUsd;
             $shift->update([
+                'closing_cash_cents' => $closingCents,
+                'expected_cash_cents' => $expectedUsd,
+                'variance_cents' => $varianceCents,
                 'closing_cash_usd_cents' => $usd,
                 'closing_cash_khr' => $khr,
                 'expected_cash_usd_cents' => $expectedUsd,
                 'expected_cash_khr' => $expectedKhr,
-                'variance_usd_cents' => $usd - $expectedUsd,
+                'variance_usd_cents' => $varianceCents,
                 'variance_khr' => $khr - $expectedKhr,
                 'closed_by_employee_id' => $employee->id,
                 'closed_at' => now(),
