@@ -2,7 +2,7 @@ name: Test
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'arena/**']
   workflow_dispatch: {}
 
 jobs:
@@ -63,7 +63,10 @@ jobs:
           ADMIN_ORIGIN=http://localhost:4173
           SALE_ORIGIN=http://localhost:4174
           SHOP_ORIGIN=http://localhost:4175
-          QUEUE_CONNECTION=sync
+          # REAL queue verification: the notification must survive the full
+          # MySQL jobs table -> `queue:work` process -> HTTP POST path, so
+          # nothing is allowed to run inline (sync) here.
+          QUEUE_CONNECTION=database
           FILESYSTEM_DISK=s3
           AWS_ACCESS_KEY_ID=minioadmin
           AWS_SECRET_ACCESS_KEY=minioadmin
@@ -73,8 +76,13 @@ jobs:
           AWS_PUBLIC_ENDPOINT=http://127.0.0.1:9000
           AWS_URL=http://127.0.0.1:9000/cake-pos
           SHOP_TELEGRAM_BOT_TOKEN=123:test-token
+          # Staff notifications are pointed at the local Telegram API stub
+          # started by backend/tests/e2e/queue-verify.sh.
+          STAFF_TELEGRAM_BOT_TOKEN=123:staff-ci-token
+          STAFF_NOTIFICATION_CHAT_ID=424242
+          TELEGRAM_API_BASE=http://127.0.0.1:8090
           EOF
-          grep -E 'APP_ENV|DB_|ADMIN_ORIGIN' .env | head -20
+          grep -E 'APP_ENV|DB_|ADMIN_ORIGIN|QUEUE_' .env | head -20
 
       - name: Migrate + seed (db:seed --force, exactly like production)
         working-directory: backend
@@ -94,6 +102,13 @@ jobs:
           chmod +x backend/tests/e2e/smoke.sh
           API_URL=http://127.0.0.1:8080 bash backend/tests/e2e/smoke.sh
 
+      - name: Queued staff notification reaches Telegram (real DB queue + worker)
+        env:
+          API_URL: http://127.0.0.1:8080
+        run: |
+          chmod +x backend/tests/e2e/queue-verify.sh
+          bash backend/tests/e2e/queue-verify.sh
+
       - name: PHPUnit contract test suite
         working-directory: backend
         run: php artisan test
@@ -111,6 +126,14 @@ jobs:
       - run: npm ci
       - name: Typecheck all apps
         run: npm run typecheck
+      - name: Unit tests (dual-currency math, exports, Telegram Mini App chrome)
+        run: node e2e/unit/unit-tests.mjs
+      - name: Locale parity (every en/km key resolves)
+        run: node e2e/locale-audit.mjs
+      - name: Category flow in jsdom (quick add picker, empty state, owner review)
+        run: npm run test:ui
+      - name: live-prod safety self-test (probe can never strand an open shift)
+        run: bash backend/tests/e2e/live-prod-selftest.sh
       - name: Production build (same env as deploy)
         run: npm run build
         env:
@@ -212,6 +235,12 @@ jobs:
           SHOP_URL: http://localhost:4175
           BOT_TOKEN: '123:test-token'
         run: node e2e/ui/ui-smoke.mjs
+      - name: Mobile responsive audit (390px + 360px phone viewports)
+        env:
+          API_URL: http://127.0.0.1:8080
+          ADMIN_URL: http://localhost:4173
+          SALE_URL: http://localhost:4174
+        run: node e2e/ui/mobile-audit.mjs
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -224,10 +253,19 @@ jobs:
   # ============================================================
   live-prod:
     runs-on: ubuntu-latest
+    # Only ONE shift can be open store-wide: two probes racing on the same
+    # production shift is exactly how a shift got stranded Open before.
+    concurrency:
+      group: live-prod
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - name: Probe live production API
         env:
           WORKER_URL: https://g-cake-api.system-app.workers.dev
           VM_URL: http://34.9.115.19:8080
+          # The mutating open/close lifecycle runs only when a human triggers
+          # the workflow. Pushes stay read-only — backend-e2e/ui already cover
+          # open/close/conflict/relogin against a throwaway MySQL.
+          LIVE_PROD_SHIFT_LIFECYCLE: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: bash backend/tests/e2e/live-prod.sh
