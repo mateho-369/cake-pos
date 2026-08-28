@@ -84,6 +84,11 @@ type AdminDataContextValue = {
     id: number,
     input: Partial<CategoryInput>,
   ) => Promise<Category>
+  /** Owner review of a cashier-proposed category: approve or reject. */
+  reviewCategory: (
+    id: number,
+    action: 'approve' | 'reject',
+  ) => Promise<Category>
   createEmployee: (input: EmployeeInput) => Promise<Employee>
   updateEmployee: (
     id: number,
@@ -352,6 +357,18 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     [refresh],
   )
 
+  const reviewCategory = useCallback(
+    async (id: number, action: 'approve' | 'reject') => {
+      const result = await apiRequest<Category>(
+        `/api/categories/${id}/review`,
+        { method: 'POST', body: JSON.stringify({ action }) },
+      )
+      await refresh()
+      return result
+    },
+    [refresh],
+  )
+
   const updateOrder = useCallback(
     async (id: string, input: { status?: Order['status']; total?: number }) => {
       const result = await apiRequest<Order>(`/api/orders/${id}`, {
@@ -416,6 +433,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       deleteProduct,
       createCategory,
       updateCategory,
+      reviewCategory,
       createEmployee,
       updateEmployee,
       deactivateEmployee,
@@ -445,6 +463,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       deleteProduct,
       createCategory,
       updateCategory,
+      reviewCategory,
       createEmployee,
       updateEmployee,
       deactivateEmployee,

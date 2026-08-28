@@ -25,10 +25,18 @@
     "deploy:sale": "npm run deploy --workspace=@cake-pos/sale",
     "deploy:shop": "npm run deploy --workspace=@cake-pos/shop",
     "format": "prettier --write \"apps/**/*.{ts,tsx,css,json}\" \"packages/**/*.{ts,css,json}\" \"backend/**/*.php\" \"*.{json,md}\"",
-    "format:check": "prettier --check \"apps/**/*.{ts,tsx,css,json}\" \"packages/**/*.{ts,css,json}\" \"backend/**/*.php\" \"*.{json,md}\""
+    "format:check": "prettier --check \"apps/**/*.{ts,tsx,css,json}\" \"packages/**/*.{ts,css,json}\" \"backend/**/*.php\" \"*.{json,md}\"",
+    "test:unit": "node e2e/unit/unit-tests.mjs",
+    "test:locale": "node e2e/locale-audit.mjs",
+    "test:jsdom": "node e2e/ui-audit/run-audit.mjs",
+    "test:ui:quick-add": "node e2e/ui-audit/verify-quick-add-category.mjs && node e2e/ui-audit/verify-quick-add-empty-state.mjs",
+    "test:ui:categories": "node e2e/ui-audit/verify-category-review.mjs",
+    "test:ui": "npm run test:ui:quick-add && npm run test:ui:categories && node e2e/ui-audit/verify-accountability.mjs"
   },
   "devDependencies": {
     "@prettier/plugin-php": "^0.25.0",
+    "esbuild": "^0.28.1",
+    "jsdom": "^30.0.1",
     "playwright": "^1.62.1",
     "prettier": "^3.9.6"
   }

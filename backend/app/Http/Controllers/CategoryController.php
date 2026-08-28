@@ -2,15 +2,22 @@
 namespace App\Http\Controllers;
 use App\Http\Requests\SaveCategoryRequest;
 use App\Http\Resources\CategoryResource;
+use App\Jobs\SendStaffCategoryProposedNotification;
 use App\Models\Category;
+use App\Models\Product;
+use App\Services\AuditService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class CategoryController extends Controller
 {
+    public function __construct(private readonly AuditService $audit) {}
+
     public function index(): JsonResponse
     {
         $categories = Category::where('active', true)
-            ->with('parent')
+            ->with(['parent', 'createdBy'])
             ->orderBy('sort_order')
             ->orderBy('id')
             ->get();
@@ -19,9 +26,30 @@ class CategoryController extends Controller
         );
     }
 
+    /**
+     * Any authenticated employee may create a category, because the counter
+     * is not the place to wait for an admin: the owner says "add a Seasonal
+     * category for this" and the cashier needs it now.
+     *
+     * It is created ACTIVE so the product being entered can use it straight
+     * away, but a cashier-made category is flagged pending_review, the owner
+     * gets a Telegram nudge, and Admin > Categories can approve or reject it.
+     * Placing a category under a parent stays admin-only — that is a taxonomy
+     * decision, not a same-second sales need.
+     */
     public function store(SaveCategoryRequest $request): JsonResponse
     {
-        $parent = $this->resolveParent($request->input('parentCategoryId'));
+        $employee = $request->user();
+        $isAdmin = $employee?->role === 'admin';
+        $requestedParent = $request->input('parentCategoryId');
+        if (!$isAdmin && $requestedParent) {
+            throw ValidationException::withMessages([
+                'parentCategoryId' => [
+                    'Only an admin can place a category under a parent',
+                ],
+            ]);
+        }
+        $parent = $isAdmin ? $this->resolveParent($requestedParent) : null;
         $category = Category::create([
             'name' => trim($request->name),
             'color' => $request->input('color', '#be185d'),
@@ -31,10 +59,77 @@ class CategoryController extends Controller
                 Category::max('sort_order') + 1,
             ),
             'parent_category_id' => $parent?->id,
+            'pending_review' => !$isAdmin,
+            'created_by_employee_id' => $isAdmin ? null : $employee?->id,
+            'created_at' => $isAdmin ? null : now(),
         ]);
+        if (!$isAdmin) {
+            $this->audit->log($employee, 'category.created_by_cashier', null, [
+                'categoryId' => $category->id,
+                'name' => $category->name,
+                'pendingReview' => true,
+            ]);
+            SendStaffCategoryProposedNotification::dispatch(
+                $category->id,
+                $employee?->name ?? '—',
+            );
+        }
         return response()->json(
-            CategoryResource::make($category->load('parent'))->resolve(),
+            CategoryResource::make(
+                $category->load(['parent', 'createdBy']),
+            )->resolve(),
             201,
+        );
+    }
+
+    /**
+     * Admin review of a cashier-proposed category.
+     *   approve -> clears the flag, the category is a normal one now.
+     *   reject  -> deactivates it, but only once no product still uses it, so
+     *              no product is ever left pointing at a dead category.
+     */
+    public function review(Request $request, Category $category): JsonResponse {
+        $action = strtolower((string) $request->input('action'));
+        if (!in_array($action, ['approve', 'reject'], true)) {
+            throw ValidationException::withMessages([
+                'action' => ['action must be "approve" or "reject"'],
+            ]);
+        }
+        if ($action === 'approve') {
+            $category->update(['pending_review' => false]);
+            $this->audit->log(
+                $request->user(),
+                'category.approved',
+                null,
+                ['categoryId' => $category->id, 'name' => $category->name],
+            );
+            return response()->json(
+                CategoryResource::make(
+                    $category->fresh()->load(['parent', 'createdBy']),
+                )->resolve(),
+            );
+        }
+        $usedBy = Product::where('category_id', $category->id)
+            ->where('active', true)
+            ->count();
+        if ($usedBy > 0) {
+            throw ValidationException::withMessages([
+                'category' => [
+                    "{$usedBy} active product(s) still use this category — move them to another category first",
+                ],
+            ]);
+        }
+        $category->update(['pending_review' => false, 'active' => false]);
+        $this->audit->log(
+            $request->user(),
+            'category.rejected',
+            null,
+            ['categoryId' => $category->id, 'name' => $category->name],
+        );
+        return response()->json(
+            CategoryResource::make(
+                $category->fresh()->load(['parent', 'createdBy']),
+            )->resolve(),
         );
     }
 

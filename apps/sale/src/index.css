@@ -2462,6 +2462,55 @@ button:disabled {
   border-color: rgba(190, 24, 93, 0.24);
   background: #f9e5ed;
 }
+/* No categories exist yet (or none is active): say so instead of leaving a
+   silent blank gap where the chips should be. */
+.category-empty {
+  padding: 10px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: 1px dashed rgba(190, 24, 93, 0.28);
+  border-radius: 11px;
+  background: rgba(249, 229, 237, 0.35);
+}
+.category-empty strong {
+  color: var(--pink-deep);
+  font-size: calc(9px * var(--font-scale));
+  font-weight: 800;
+}
+.category-empty span {
+  color: var(--muted);
+  font-size: calc(8px * var(--font-scale));
+  font-weight: 600;
+  line-height: 1.45;
+}
+.category-new-row {
+  margin-top: 7px;
+  display: flex;
+  gap: 6px;
+}
+.category-new-row input {
+  flex: 1;
+  min-width: 0;
+}
+.category-new-button {
+  min-height: 41px;
+  padding: 0 11px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.category-hint {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: calc(8px * var(--font-scale));
+  font-weight: 600;
+  line-height: 1.45;
+}
+.category-hint.pending-review-note {
+  color: #92400e;
+}
 .made-today-row {
   position: relative;
   min-height: 58px;
@@ -3477,4 +3526,308 @@ button:disabled {
   font-style: normal;
   opacity: 0.55;
   margin-right: 2px;
+}
+
+/* ============================================================
+   HELD ("parked") ORDERS — a customer ordered, left, and pays later.
+   Several can be held at once; the panel is a queue, oldest first.
+   ============================================================ */
+.held-panel {
+  margin: 0 16px 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(180, 83, 9, 0.25);
+  border-radius: 16px;
+  background: rgba(255, 251, 235, 0.78);
+  backdrop-filter: blur(18px);
+}
+.held-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.held-panel-head span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #92400e;
+  font-size: calc(9px * var(--font-scale));
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.held-panel-head em {
+  min-width: 19px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: #fde68a;
+  color: #78350f;
+  font-size: calc(9px * var(--font-scale));
+  font-style: normal;
+  font-weight: 800;
+  text-align: center;
+}
+.held-panel-hint {
+  margin: 6px 0 0;
+  color: #92400e;
+  font-size: calc(10px * var(--font-scale));
+}
+.held-panel-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+}
+.held-card {
+  padding: 8px 10px;
+  border: 1px solid rgba(146, 64, 14, 0.18);
+  border-radius: 12px;
+  background: #fffdf7;
+}
+.held-card-top {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.held-code {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink);
+  font-size: calc(12px * var(--font-scale));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.held-id {
+  color: var(--subtle);
+  font-size: calc(8.5px * var(--font-scale));
+}
+.held-card-top b {
+  color: #92400e;
+  font-size: calc(12px * var(--font-scale));
+}
+.held-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0 7px;
+}
+.held-card-body small {
+  color: var(--subtle);
+  font-size: calc(9.5px * var(--font-scale));
+  line-height: 1.35;
+}
+.held-meta {
+  color: var(--subtle);
+  font-size: calc(8.5px * var(--font-scale));
+}
+.held-card-actions {
+  display: flex;
+  gap: 6px;
+}
+.held-card-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 7px 9px;
+  border: 1px solid rgba(146, 64, 14, 0.25);
+  border-radius: 10px;
+  background: #fff;
+  color: #7c2d12;
+  font-size: calc(10px * var(--font-scale));
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+.held-card-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.held-resume {
+  flex: 1;
+}
+.held-pay {
+  flex: 1;
+  border-color: transparent !important;
+  background: linear-gradient(145deg, #d9437d, #af164f) !important;
+  color: #fff !important;
+}
+.held-void {
+  width: 32px;
+  padding: 7px 0 !important;
+  color: #b91c1c !important;
+}
+.held-pay-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(43, 12, 26, 0.45);
+}
+.held-pay-card {
+  display: flex;
+  width: min(380px, 100%);
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(59, 10, 31, 0.25);
+}
+.held-pay-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.held-pay-card header button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.held-pay-methods {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+.held-pay-methods button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px;
+  border: 1px solid rgba(70, 34, 50, 0.14);
+  border-radius: 11px;
+  background: #fff;
+  font-size: calc(11px * var(--font-scale));
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+.held-pay-methods button.active {
+  border-color: rgba(190, 24, 93, 0.5);
+  background: rgba(244, 114, 182, 0.12);
+  color: var(--pink-deep);
+}
+.held-pay-amount {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.held-pay-amount span {
+  color: var(--subtle);
+  font-size: calc(9px * var(--font-scale));
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.held-pay-amount input,
+.cart-hold-form input {
+  height: 42px;
+  padding: 0 11px;
+  border: 1px solid rgba(70, 34, 50, 0.14);
+  border-radius: 11px;
+  background: #fff;
+  color: var(--ink);
+  font-family: inherit;
+  /* 16px minimum: anything smaller makes iOS Safari zoom on focus. */
+  font-size: 16px;
+}
+.held-pay-note {
+  margin: 0;
+  color: var(--subtle);
+  font-size: calc(10.5px * var(--font-scale));
+}
+.held-pay-confirm {
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #d9437d, #af164f);
+  color: #fff;
+  font-size: calc(12px * var(--font-scale));
+  font-weight: 800;
+  font-family: inherit;
+  cursor: pointer;
+}
+.held-pay-confirm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Hold button inside the cart panel */
+.cart-hold {
+  margin-top: 8px;
+}
+.cart-hold-button {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 12px;
+  border: 1px dashed rgba(146, 64, 14, 0.45);
+  border-radius: 12px;
+  background: rgba(253, 230, 138, 0.28);
+  color: #7c2d12;
+  font-size: calc(11.5px * var(--font-scale));
+  font-weight: 800;
+  font-family: inherit;
+  cursor: pointer;
+}
+.cart-hold-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.cart-hold-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(146, 64, 14, 0.25);
+  border-radius: 13px;
+  background: rgba(253, 230, 138, 0.18);
+}
+.cart-hold-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.cart-hold-form label span {
+  color: #92400e;
+  font-size: calc(9px * var(--font-scale));
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.cart-hold-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+.cart-hold-buttons button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px;
+  border: 0;
+  border-radius: 11px;
+  font-size: calc(11px * var(--font-scale));
+  font-weight: 800;
+  font-family: inherit;
+  cursor: pointer;
+}
+.cart-hold-cancel {
+  border: 1px solid rgba(70, 34, 50, 0.16) !important;
+  background: #fff;
+  color: var(--ink);
+}
+.cart-hold-confirm {
+  background: linear-gradient(145deg, #d97706, #b45309);
+  color: #fff;
+}
+.cart-hold-confirm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }

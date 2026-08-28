@@ -51,9 +51,12 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         'destroy',
     ])->middleware('admin');
     Route::get('/categories', [CategoryController::class, 'index']);
-    Route::post('/categories', [
+    // Any authenticated employee: the counter cannot wait for an admin. A
+    // cashier-created category is flagged pending_review (see controller).
+    Route::post('/categories', [CategoryController::class, 'store']);
+    Route::post('/categories/{category}/review', [
         CategoryController::class,
-        'store',
+        'review',
     ])->middleware('admin');
     Route::put('/categories/{category}', [
         CategoryController::class,

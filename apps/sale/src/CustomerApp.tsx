@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { GCakeLogo } from '@cake-pos/brand'
 import { apiRequest } from './lib/api'
+import { useTelegramChrome } from '@cake-pos/telegram/react'
 import type { Product } from './data'
 
 type Customer = {
@@ -47,11 +48,11 @@ export default function CustomerApp() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Same edge-to-edge behaviour as the shop Mini App (ready → expand →
+  // fullscreen with one retry after the first user gesture).
+  useTelegramChrome()
+
   useEffect(() => {
-    webApp?.ready()
-    webApp?.expand()
-    webApp?.setHeaderColor?.('#FDF2F6')
-    webApp?.setBackgroundColor?.('#FDF2F6')
     if (!initData) {
       setLoading(false)
       setError(

@@ -182,6 +182,159 @@ check(
   ).toFixed(2) === '26.25',
 )
 
+// ---------------- @cake-pos/telegram (shared Mini App chrome) ----------------
+// Every surface opened from the bot (shop storefront, sale terminal, sale
+// /customer storefront) must ask for TRUE fullscreen, not just expand(), and
+// must retry once after the first user gesture when the client refuses the
+// programmatic request (iOS). These run the real package source.
+const telegramEntry = `export * from '${join(
+  root,
+  'packages/telegram/src/index.ts',
+)}'\n`
+const { requestTelegramFullscreen, prepareTelegramChrome } = await bundle(
+  telegramEntry,
+  'telegram-chrome',
+)
+
+// Minimal document stub: the package registers a pointerdown retry listener.
+const listeners = []
+const documentStub = {
+  addEventListener: (type, handler) => listeners.push({ type, handler }),
+  removeEventListener: (type, handler) => {
+    const index = listeners.findIndex(
+      (entry) => entry.type === type && entry.handler === handler,
+    )
+    if (index >= 0) listeners.splice(index, 1)
+  },
+}
+const originalDocument = globalThis.document
+globalThis.document = documentStub
+const tap = () =>
+  listeners
+    .filter((entry) => entry.type === 'pointerdown')
+    .forEach((entry) => entry.handler())
+
+const fakeWebApp = (overrides = {}) => {
+  const events = {}
+  return {
+    calls: { fullscreen: 0, ready: 0, expand: 0, offEvent: 0 },
+    ready() {
+      this.calls.ready++
+    },
+    expand() {
+      this.calls.expand++
+    },
+    requestFullscreen() {
+      this.calls.fullscreen++
+    },
+    isVersionAtLeast: () => true,
+    onEvent(type, handler) {
+      ;(events[type] ||= []).push(handler)
+    },
+    offEvent(type) {
+      this.calls.offEvent++
+      delete events[type]
+    },
+    fire(type) {
+      ;(events[type] || []).forEach((handler) => handler())
+    },
+    ...overrides,
+  }
+}
+
+// 1. Old clients (< 8.0) never get a fullscreen request — expand() only.
+listeners.length = 0
+let app = fakeWebApp({ isVersionAtLeast: () => false })
+let cleanup = requestTelegramFullscreen(app)
+check(
+  'telegram: pre-8.0 client is left on expand() (no fullscreen request)',
+  app.calls.fullscreen === 0 && cleanup instanceof Function,
+)
+cleanup()
+
+// 2. A modern client gets exactly one fullscreen request up front.
+listeners.length = 0
+app = fakeWebApp()
+cleanup = requestTelegramFullscreen(app)
+check(
+  'telegram: 8.0+ client receives requestFullscreen() on open',
+  app.calls.fullscreen === 1,
+)
+
+// 3. iOS gesture path: fullscreenFailed schedules ONE retry on first tap.
+app.fire('fullscreenFailed')
+check(
+  'telegram: fullscreenFailed arms a retry on the first user gesture',
+  listeners.filter((entry) => entry.type === 'pointerdown').length === 1,
+)
+tap()
+tap()
+check(
+  'telegram: the gesture retries fullscreen exactly once',
+  app.calls.fullscreen === 2,
+  `calls=${app.calls.fullscreen}`,
+)
+check(
+  'telegram: the retry listener is removed after firing',
+  listeners.filter((entry) => entry.type === 'pointerdown').length === 0,
+)
+cleanup()
+
+// 4. Unmount before any tap: no leaked listener, offEvent called once
+//    (StrictMode double-mount safety).
+listeners.length = 0
+app = fakeWebApp()
+cleanup = requestTelegramFullscreen(app)
+app.fire('fullscreenFailed')
+cleanup()
+check(
+  'telegram: cleanup removes the gesture listener on unmount',
+  listeners.length === 0 && app.calls.offEvent === 1,
+)
+tap()
+check(
+  'telegram: no retry fires after unmount',
+  app.calls.fullscreen === 1,
+  `calls=${app.calls.fullscreen}`,
+)
+
+// 5. Wrappers whose requestFullscreen throws synchronously still arm the
+//    gesture retry instead of crashing the Mini App.
+listeners.length = 0
+let threw = false
+app = fakeWebApp({
+  requestFullscreen() {
+    // Count first, then throw: the helper must survive a wrapper that
+    // advertises the method and rejects it at call time.
+    this.calls.fullscreen++
+    threw = true
+    throw new Error('unsupported by this wrapper')
+  },
+})
+cleanup = requestTelegramFullscreen(app)
+tap()
+check(
+  'telegram: a throwing requestFullscreen falls back to the gesture retry',
+  threw &&
+    // 1 initial throw + 1 retry on the tap, neither surfaced to the user
+    app.calls.fullscreen === 2 &&
+    listeners.filter((entry) => entry.type === 'pointerdown').length === 0,
+  `calls=${app.calls.fullscreen}`,
+)
+cleanup()
+
+// 6. Shared chrome: ready + expand + brand colours for every surface.
+app = fakeWebApp()
+prepareTelegramChrome(app)
+check(
+  'telegram: prepareTelegramChrome calls ready() + expand()',
+  app.calls.ready === 1 && app.calls.expand === 1,
+)
+prepareTelegramChrome(undefined)
+check('telegram: outside Telegram every helper is a safe no-op', true)
+
+globalThis.document = originalDocument
+
 console.log(
   failures === 0
     ? '\nALL UNIT TESTS PASSED'

@@ -11,10 +11,11 @@ use App\Models\{
     Setting,
     Shift,
 };
+use App\Jobs\SendStaffCategoryProposedNotification;
 use App\Services\ObjectUploadService;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\{Cache, DB, Http, Storage};
+use Illuminate\Support\Facades\{Cache, DB, Http, Queue, Storage};
 use Illuminate\Support\Str;
 use App\Support\BotSeparation;
 use Tests\TestCase;
@@ -1449,6 +1450,174 @@ class ApiContractTest extends TestCase
         );
     }
 
+    /**
+     * "Boss says add a Seasonal category": the cashier creates it at the
+     * counter and it is usable in the same breath — never a blocker. It is
+     * flagged pending_review, the owner is nudged on Telegram, and the
+     * proposal lands in the audit trail.
+     */
+    public function test_cashier_proposed_category_is_live_immediately_and_flagged_for_review(): void
+    {
+        Queue::fake();
+        $cashier = Employee::where('role', 'cashier')->first();
+        $headers = $this->auth($cashier);
+
+        $created = $this->postJson(
+            '/api/categories',
+            ['name' => 'Pchum Ben Specials'],
+            $headers,
+        )
+            ->assertCreated()
+            ->assertJsonPath('name', 'Pchum Ben Specials')
+            ->assertJsonPath('pendingReview', true)
+            ->assertJsonPath('createdBy', $cashier->name)
+            ->json();
+
+        // Active + flagged: on sale now, reviewed later.
+        $this->assertSame(1, (int) DB::table('categories')->where('id', $created['id'])->value('active'));
+        $this->assertSame(1, (int) DB::table('categories')->where('id', $created['id'])->value('pending_review'));
+        $this->assertSame(
+            $cashier->id,
+            (int) DB::table('categories')->where('id', $created['id'])->value('created_by_employee_id'),
+        );
+
+        // The category list the terminal renders chips from includes it, so
+        // the very next cake can be filed under it.
+        $list = $this->getJson('/api/categories', $headers)->assertOk()->json();
+        $row = collect($list)->first(fn($c) => $c['id'] === $created['id']);
+        $this->assertNotNull($row, 'a proposed category must appear in the list');
+        $this->assertTrue($row['pendingReview']);
+        $this->assertSame($cashier->name, $row['createdBy']);
+
+        // The sale is not blocked: a product can use it immediately.
+        $product = $this->postJson(
+            '/api/products',
+            [
+                'name' => 'Knom Pchum Ben',
+                'categoryId' => $created['id'],
+                'price' => 3.5,
+                'stock' => 4,
+            ],
+            $headers,
+        )->assertCreated()->json();
+        $this->assertSame('Pchum Ben Specials', $product['category']);
+        $this->assertSame(
+            $created['id'],
+            (int) DB::table('products')->where('id', $product['id'])->value('category_id'),
+        );
+
+        // Owner nudge + accountability.
+        Queue::assertPushedTimes(SendStaffCategoryProposedNotification::class, 1);
+        $this->assertDatabaseHas('audit_events', [
+            'action' => 'category.created_by_cashier',
+            'employee_id' => $cashier->id,
+        ]);
+
+        // An admin creating a category is not a proposal: no flag, no nudge.
+        $adminHeaders = $this->auth(Employee::where('role', 'admin')->first());
+        $adminMade = $this->postJson(
+            '/api/categories',
+            ['name' => 'Wedding Cakes'],
+            $adminHeaders,
+        )
+            ->assertCreated()
+            ->assertJsonPath('pendingReview', false)
+            ->json();
+        $this->assertNull($adminMade['createdBy']);
+        Queue::assertPushedTimes(SendStaffCategoryProposedNotification::class, 1);
+
+        // Rejecting a category still in use is refused — no product is left
+        // pointing at a dead category.
+        $this->postJson(
+            "/api/categories/{$created['id']}/review",
+            ['action' => 'reject'],
+            $adminHeaders,
+        )
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('category');
+        $this->assertSame(1, (int) DB::table('categories')->where('id', $created['id'])->value('active'));
+
+        // Approving keeps it and clears the flag.
+        $this->postJson(
+            "/api/categories/{$created['id']}/review",
+            ['action' => 'approve'],
+            $adminHeaders,
+        )
+            ->assertOk()
+            ->assertJsonPath('pendingReview', false);
+        $this->assertSame(0, (int) DB::table('categories')->where('id', $created['id'])->value('pending_review'));
+        $this->assertSame(1, (int) DB::table('categories')->where('id', $created['id'])->value('active'));
+        $this->assertDatabaseHas('audit_events', [
+            'action' => 'category.approved',
+            'employee_id' => Employee::where('role', 'admin')->first()->id,
+        ]);
+    }
+
+    public function test_rejecting_an_unused_proposed_category_takes_it_off_the_menu(): void
+    {
+        Queue::fake();
+        $cashier = Employee::where('role', 'cashier')->first();
+        $proposed = $this->postJson(
+            '/api/categories',
+            ['name' => 'Cofee'],
+            $this->auth($cashier),
+        )->assertCreated()->json();
+        $adminHeaders = $this->auth(Employee::where('role', 'admin')->first());
+
+        // Nothing uses it, so rejecting works and deactivates it.
+        $this->postJson(
+            "/api/categories/{$proposed['id']}/review",
+            ['action' => 'reject'],
+            $adminHeaders,
+        )
+            ->assertOk()
+            ->assertJsonPath('pendingReview', false);
+        $this->assertSame(0, (int) DB::table('categories')->where('id', $proposed['id'])->value('active'));
+        $this->assertSame(0, (int) DB::table('categories')->where('id', $proposed['id'])->value('pending_review'));
+        $this->assertDatabaseHas('audit_events', ['action' => 'category.rejected']);
+
+        // It disappears from the picker list (which only serves active ones).
+        $list = $this->getJson('/api/categories', $adminHeaders)->assertOk()->json();
+        $this->assertNull(collect($list)->first(fn($c) => $c['id'] === $proposed['id']));
+    }
+
+    /**
+     * Subcategory placement is a taxonomy decision, so it stays admin-only:
+     * a cashier is never silently granted (or silently stripped of) it.
+     */
+    public function test_cashier_cannot_place_a_category_under_a_parent(): void
+    {
+        Queue::fake();
+        $cashier = Employee::where('role', 'cashier')->first();
+        $adminHeaders = $this->auth(Employee::where('role', 'admin')->first());
+        $parent = $this->postJson(
+            '/api/categories',
+            ['name' => 'Drinks Counter'],
+            $adminHeaders,
+        )->assertCreated()->json();
+
+        $this->postJson(
+            '/api/categories',
+            ['name' => 'Iced Coffee', 'parentCategoryId' => $parent['id']],
+            $this->auth($cashier),
+        )
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('parentCategoryId');
+        $this->assertDatabaseMissing('categories', ['name' => 'Iced Coffee']);
+
+        // Review is owner-only too.
+        $this->postJson(
+            "/api/categories/{$parent['id']}/review",
+            ['action' => 'approve'],
+            $this->auth($cashier),
+        )->assertForbidden();
+        $this->postJson(
+            "/api/categories/{$parent['id']}/review",
+            ['action' => 'keep'],
+            $adminHeaders,
+        )->assertUnprocessable()->assertJsonValidationErrors('action');
+    }
+
     public function test_deactivating_or_zeroing_stock_requires_a_reason_and_writes_audit_events(): void
     {
         $admin = Employee::where('role', 'admin')->first();
@@ -1622,6 +1791,275 @@ class ApiContractTest extends TestCase
                 str_contains((string) $request['text'], 'Order completed') &&
                 str_contains((string) $request['text'], '25.00') &&
                 str_contains((string) $request['text'], $cashier->name),
+        );
+    }
+
+    /**
+     * Hold ("park") a walk-in order: the customer orders, leaves, and pays
+     * when they come back. The order must be visible in the held queue and
+     * its stock must be RESERVED, not sold.
+     */
+    private function holdOrder(
+        Employee $employee,
+        Product $product,
+        int $quantity = 1,
+        array $extra = [],
+    ): array {
+        $this->openShiftIfNone($employee);
+        return $this->postJson(
+            '/api/orders/hold',
+            array_merge(
+                [
+                    'items' => [
+                        ['productId' => $product->id, 'quantity' => $quantity],
+                    ],
+                ],
+                $extra,
+            ),
+            $this->auth($employee),
+        )
+            ->assertCreated()
+            ->json();
+    }
+
+    public function test_holding_an_order_parks_it_and_reserves_stock(): void
+    {
+        $cashier = Employee::where('role', 'cashier')->first();
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+
+        $held = $this->holdOrder($cashier, $product, 2, [
+            'holdLabel' => 'Dara — 4pm',
+        ]);
+
+        $this->assertSame('Held', $held['status']);
+        $this->assertSame('unpaid', $held['paymentStatus']);
+        $this->assertSame('Dara — 4pm', $held['holdLabel']);
+        $this->assertSame(20.0, (float) $held['total']);
+        // Reserved, not sold: the shelf count is untouched.
+        $this->assertSame(2, (int) $product->fresh()->reserved_stock);
+        $this->assertSame(10, (int) $product->fresh()->stock);
+        // No payment row and no shift money until the customer pays.
+        $this->assertDatabaseCount('order_payments', 0);
+
+        $queue = $this->getJson('/api/orders/held', $this->auth($cashier))
+            ->assertOk()
+            ->json();
+        $this->assertCount(1, $queue);
+        $this->assertSame($held['id'], $queue[0]['id']);
+        $this->assertSame('Dara — 4pm', $queue[0]['holdLabel']);
+        // Line items come back so the terminal can resume the hold.
+        $this->assertSame($product->id, $queue[0]['lineItems'][0]['productId']);
+        $this->assertSame(2, $queue[0]['lineItems'][0]['quantity']);
+    }
+
+    public function test_many_orders_can_be_held_at_once_oldest_first(): void
+    {
+        $cashier = Employee::where('role', 'cashier')->first();
+        $product = Product::first();
+        // One product, three separate holds: how many tickets can be parked
+        // at once must not depend on how big the catalogue is.
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+
+        $first = $this->holdOrder($cashier, $product, 1, [
+            'holdLabel' => 'First',
+        ]);
+        $this->travel(1)->minutes();
+        $second = $this->holdOrder($cashier, $product, 1, [
+            'holdLabel' => 'Second',
+        ]);
+        $this->travel(1)->minutes();
+        $third = $this->holdOrder($cashier, $product, 1);
+        $this->assertSame(3, (int) $product->fresh()->reserved_stock);
+
+        $queue = $this->getJson('/api/orders/held', $this->auth($cashier))
+            ->assertOk()
+            ->json();
+        $this->assertCount(3, $queue);
+        // It is a queue: the longest-waiting customer is served first.
+        $this->assertSame(
+            [$first['id'], $second['id'], $third['id']],
+            [$queue[0]['id'], $queue[1]['id'], $queue[2]['id']],
+        );
+        // Each hold keeps its own label; an unlabelled one still shows up.
+        $this->assertSame('First', $queue[0]['holdLabel']);
+        $this->assertNull($queue[2]['holdLabel']);
+        $this->travelBack();
+    }
+
+    public function test_paying_a_held_order_directly_stops_it_being_held(): void
+    {
+        $cashier = Employee::where('role', 'cashier')->first();
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+
+        $held = $this->holdOrder($cashier, $product, 2, [
+            'holdLabel' => 'Srey — tomorrow',
+        ]);
+
+        $this->postJson(
+            "/api/orders/{$held['id']}/pay",
+            [
+                'method' => 'Cash',
+                'usdReceivedCents' => 2000,
+                'changeUsdCents' => 0,
+                'changeKhr' => 0,
+                'exchangeRateKhrPerUsd' => 4100,
+            ],
+            $this->auth($cashier),
+        )->assertOk();
+
+        $this->assertSame(
+            'Completed',
+            DB::table('orders')->where('id', $held['id'])->value('status'),
+        );
+        $this->assertSame(
+            'paid',
+            DB::table('orders')->where('id', $held['id'])->value('payment_status'),
+        );
+        // Reservation released, stock actually sold.
+        $this->assertSame(0, (int) $product->fresh()->reserved_stock);
+        $this->assertSame(8, (int) $product->fresh()->stock);
+        // …and the hold is gone from the queue.
+        $queue = $this->getJson('/api/orders/held', $this->auth($cashier))
+            ->assertOk()
+            ->json();
+        $this->assertSame([], $queue);
+    }
+
+    /**
+     * The flow the owner asked for: a hold is resumed into the cart, the
+     * customer comes back and pays, and the hold stops being held — with its
+     * reserved stock released and no double-counted revenue.
+     */
+    public function test_checking_out_a_resumed_hold_releases_it(): void
+    {
+        $cashier = Employee::where('role', 'cashier')->first();
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+
+        $held = $this->holdOrder($cashier, $product, 2, [
+            'holdLabel' => 'Dara — pays on collection',
+        ]);
+        $this->assertSame(2, (int) $product->fresh()->reserved_stock);
+
+        // The cashier resumes it: the new sale carries the hold's ids.
+        $paid = $this->postJson(
+            '/api/orders',
+            [
+                'payment' => 'Cash',
+                'items' => [
+                    ['productId' => $product->id, 'quantity' => 2],
+                ],
+                'idempotencyKey' => (string) Str::uuid(),
+                'usdReceivedCents' => 2000,
+                'changeUsdCents' => 0,
+                'changeKhr' => 0,
+                'exchangeRateKhrPerUsd' => 4100,
+                'heldOrderIds' => [$held['id']],
+            ],
+            $this->auth($cashier),
+        )
+            ->assertCreated()
+            ->json();
+
+        $this->assertSame('Completed', $paid['status']);
+        // The hold is released, not silently left parked.
+        $this->assertSame(
+            'Cancelled',
+            DB::table('orders')->where('id', $held['id'])->value('status'),
+        );
+        $this->assertSame(
+            [],
+            $this->getJson('/api/orders/held', $this->auth($cashier))->json(),
+        );
+        // Reserved stock came back and the sale took it off the shelf once.
+        $this->assertSame(0, (int) $product->fresh()->reserved_stock);
+        $this->assertSame(8, (int) $product->fresh()->stock);
+        // The release is in the accountability trail, tied to the paid order.
+        $this->assertDatabaseHas('audit_events', [
+            'action' => 'order.hold_released',
+            'order_id' => $held['id'],
+        ]);
+        $details = json_decode(
+            DB::table('audit_events')
+                ->where('action', 'order.hold_released')
+                ->value('details_json'),
+            true,
+        );
+        $this->assertSame($paid['id'], $details['paidOrderId']);
+        // Revenue counts the paid order only — never the released hold.
+        $summary = $this->getJson(
+            '/api/reports/summary',
+            $this->auth(Employee::where('role', 'admin')->first()),
+        )->assertOk()->json();
+        $this->assertSame(2000, (int) round($summary['todaySalesTotal'] * 100));
+        // Only the paid sale counts; the released hold is not an order.
+        $this->assertSame(1, (int) $summary['todayOrdersCount']);
+    }
+
+    public function test_hold_release_is_idempotent_and_unknown_ids_are_rejected(): void
+    {
+        $cashier = Employee::where('role', 'cashier')->first();
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $held = $this->holdOrder($cashier, $product, 1);
+
+        // An id that was never held is a client error, not a silent no-op.
+        $this->postJson(
+            '/api/orders',
+            [
+                'payment' => 'Cash',
+                'items' => [
+                    ['productId' => $product->id, 'quantity' => 1],
+                ],
+                'idempotencyKey' => (string) Str::uuid(),
+                'usdReceivedCents' => 1000,
+                'exchangeRateKhrPerUsd' => 4100,
+                'heldOrderIds' => ['CS-999999'],
+            ],
+            $this->auth($cashier),
+        )->assertUnprocessable()->assertJsonValidationErrors('heldOrderIds');
+
+        // Releasing the same hold twice must not double-release the stock.
+        $payload = [
+            'payment' => 'Cash',
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'idempotencyKey' => (string) Str::uuid(),
+            'usdReceivedCents' => 1000,
+            'exchangeRateKhrPerUsd' => 4100,
+            'heldOrderIds' => [$held['id']],
+        ];
+        $this->postJson('/api/orders', $payload, $this->auth($cashier))
+            ->assertCreated();
+        $this->assertSame(0, (int) $product->fresh()->reserved_stock);
+        $this->assertSame(9, (int) $product->fresh()->stock);
+        $payload['idempotencyKey'] = (string) Str::uuid();
+        $this->postJson('/api/orders', $payload, $this->auth($cashier))
+            ->assertCreated();
+        $this->assertSame(0, (int) $product->fresh()->reserved_stock);
+        $this->assertSame(8, (int) $product->fresh()->stock);
+    }
+
+    public function test_discarding_a_hold_gives_the_stock_back(): void
+    {
+        $cashier = Employee::where('role', 'cashier')->first();
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $held = $this->holdOrder($cashier, $product, 3);
+        $this->assertSame(3, (int) $product->fresh()->reserved_stock);
+
+        $this->postJson(
+            "/api/orders/{$held['id']}/cancel",
+            [],
+            $this->auth($cashier),
+        )->assertOk();
+
+        $this->assertSame(0, (int) $product->fresh()->reserved_stock);
+        $this->assertSame(10, (int) $product->fresh()->stock);
+        $this->assertSame(
+            [],
+            $this->getJson('/api/orders/held', $this->auth($cashier))->json(),
         );
     }
 

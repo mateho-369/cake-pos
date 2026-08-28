@@ -109,8 +109,13 @@ const commandItems: {
 export default function App() {
   const { token } = useStaffAuth()
   const { t } = useTranslation()
-  const { createProduct, categories, products, defaultShelfLifeDays } =
-    useAdminData()
+  const {
+    createProduct,
+    createCategory,
+    categories,
+    products,
+    defaultShelfLifeDays,
+  } = useAdminData()
   const [page, setPage] = useState<PageId>('overview')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -246,6 +251,7 @@ export default function App() {
         }}
         onSubmit={addProduct}
         categories={categories}
+        onCreateCategory={createCategory}
         shelfLifeDays={defaultShelfLifeDays}
         photoPreview={photoPreview}
         setPhotoPreview={setPhotoPreview}
@@ -282,6 +288,7 @@ function AddCakeModal({
   onClose,
   onSubmit,
   categories,
+  onCreateCategory,
   shelfLifeDays,
   photoPreview,
   setPhotoPreview,
@@ -296,6 +303,7 @@ function AddCakeModal({
     madeToday: boolean,
   ) => void
   categories: Category[]
+  onCreateCategory: (input: { name: string }) => Promise<Category>
   shelfLifeDays: number
   photoPreview: string | null
   setPhotoPreview: (value: string | null) => void
@@ -308,6 +316,30 @@ function AddCakeModal({
   )
   const [madeToday, setMadeToday] = useState(true)
   const [pickerOpen, setPickerOpen] = useState(false)
+  // Inline category creation, used when there is nothing to pick from. The
+  // cake name / price / photo live outside this state, so creating a
+  // category here never discards what was already typed.
+  const [newCategory, setNewCategory] = useState('')
+  const [creatingCategory, setCreatingCategory] = useState(false)
+  const [categoryError, setCategoryError] = useState('')
+  const createCategory = async () => {
+    const name = newCategory.trim()
+    if (!name) return
+    setCreatingCategory(true)
+    setCategoryError('')
+    try {
+      const created = await onCreateCategory({ name })
+      setCategoryId(created.id)
+      setNewCategory('')
+      onToast(t('catalog.categoryCreated', { name: created.name }))
+    } catch (reason) {
+      setCategoryError(
+        reason instanceof Error ? reason.message : String(reason),
+      )
+    } finally {
+      setCreatingCategory(false)
+    }
+  }
   // Keep the selected category valid as the admin manages categories while
   // the modal is open (the list can change underneath us).
   useEffect(() => {
@@ -422,19 +454,55 @@ function AddCakeModal({
           </div>
           <label>
             <span>{t('catalog.category')}</span>
-            <div className="category-chips">
-              {grouped.map(({ category, child }) => (
+            {grouped.length === 0 && (
+              <div className="category-empty">
+                <strong>{t('catalog.noCategoriesYet')}</strong>
+                <span>{t('catalog.noCategoriesHint')}</span>
+              </div>
+            )}
+            {grouped.length > 0 && (
+              <div className="category-chips">
+                {grouped.map(({ category, child }) => (
+                  <button
+                    type="button"
+                    key={category.id}
+                    className={`${categoryId === category.id ? 'active' : ''} ${child ? 'subcategory-chip' : ''}`}
+                    onClick={() => setCategoryId(category.id)}
+                  >
+                    {child ? '↳ ' : ''}
+                    {translateCategory(t, category.name)}
+                  </button>
+                ))}
+              </div>
+            )}
+            {grouped.length === 0 && (
+              <div className="category-new-row">
+                <input
+                  value={newCategory}
+                  maxLength={60}
+                  placeholder={t('catalog.newCategoryPlaceholder')}
+                  onChange={(event) => setNewCategory(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      void createCategory()
+                    }
+                  }}
+                />
                 <button
                   type="button"
-                  key={category.id}
-                  className={`${categoryId === category.id ? 'active' : ''} ${child ? 'subcategory-chip' : ''}`}
-                  onClick={() => setCategoryId(category.id)}
+                  className="secondary-button category-new-button"
+                  disabled={creatingCategory || !newCategory.trim()}
+                  onClick={() => void createCategory()}
                 >
-                  {child ? '↳ ' : ''}
-                  {translateCategory(t, category.name)}
+                  <Plus size={14} />
+                  {creatingCategory
+                    ? t('common.loading')
+                    : t('catalog.addCategory')}
                 </button>
-              ))}
-            </div>
+              </div>
+            )}
+            {categoryError && <p className="login-error">{categoryError}</p>}
           </label>
           <div className="quick-secondary-fields">
             <label>

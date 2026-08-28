@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import {
   Banknote,
   Check,
   Minus,
+  PauseCircle,
   Plus,
   ReceiptText,
   ScanLine,
@@ -37,6 +39,9 @@ type Props = {
   khqrConfirmed: boolean
   onKhqrConfirmed: (v: boolean) => void
   onComplete: () => void
+  /** Park the current cart for a customer who pays later. */
+  onHold: (label: string) => void
+  holdBusy: boolean
   shiftOpen: boolean
   mobileOpen: boolean
   onMobileClose: () => void
@@ -61,12 +66,16 @@ export default function CartPanel({
   khqrConfirmed,
   onKhqrConfirmed,
   onComplete,
+  onHold,
+  holdBusy,
   shiftOpen,
   mobileOpen,
   onMobileClose,
   orderNumber,
 }: Props) {
   const { t } = useTranslation()
+  const [holdOpen, setHoldOpen] = useState(false)
+  const [holdLabel, setHoldLabel] = useState('')
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0)
   const requested = Math.max(0, Number(discountValue || 0))
   const discount = Math.min(
@@ -389,6 +398,54 @@ export default function CartPanel({
         )}
         {!shiftOpen && (
           <div className="shift-required">{t('sale.openShiftPayment')}</div>
+        )}
+        {cart.length > 0 && (
+          <div className="cart-hold">
+            {holdOpen ? (
+              <div className="cart-hold-form">
+                <label>
+                  <span>{t('hold.labelPlaceholder')}</span>
+                  <input
+                    type="text"
+                    value={holdLabel}
+                    maxLength={80}
+                    placeholder={t('hold.labelExample')}
+                    onChange={(event) => setHoldLabel(event.target.value)}
+                  />
+                </label>
+                <div className="cart-hold-buttons">
+                  <button
+                    className="cart-hold-cancel"
+                    onClick={() => {
+                      setHoldOpen(false)
+                      setHoldLabel('')
+                    }}
+                  >
+                    {t('common.cancel')}
+                  </button>
+                  <button
+                    className="cart-hold-confirm"
+                    disabled={holdBusy}
+                    onClick={() => {
+                      onHold(holdLabel.trim())
+                      setHoldOpen(false)
+                      setHoldLabel('')
+                    }}
+                  >
+                    <PauseCircle size={15} /> {t('hold.confirm')}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                className="cart-hold-button"
+                disabled={holdBusy}
+                onClick={() => setHoldOpen(true)}
+              >
+                <PauseCircle size={16} /> {t('hold.holdOrder')}
+              </button>
+            )}
+          </div>
         )}
         <button
           className="complete-payment"

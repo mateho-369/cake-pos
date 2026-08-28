@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ImageOff, RefreshCw, Trash2 } from 'lucide-react'
+import { AlertTriangle, ImageOff, RefreshCw, Trash2 } from 'lucide-react'
 import { apiRequest } from '../lib/api'
 import { useTranslation } from '../lib/i18n'
 
@@ -27,14 +27,22 @@ export default function MediaPage({
   const [total, setTotal] = useState(0)
   const [selected, setSelected] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
+  // Object storage is a separate service: when it is unreachable the API
+  // still answers 200 with available:false instead of throwing, so the page
+  // can say so instead of showing an empty grid.
+  const [storageDown, setStorageDown] = useState<string | null>(null)
   const load = useCallback(() => {
     setLoading(true)
-    return apiRequest<{ objects: Obj[]; totalBytes: number }>(
-      '/api/storage/media',
-    )
+    return apiRequest<{
+      objects: Obj[]
+      totalBytes: number
+      available?: boolean
+      reason?: string
+    }>('/api/storage/media')
       .then((v) => {
-        setObjects(v.objects)
-        setTotal(v.totalBytes)
+        setStorageDown(v.available === false ? v.reason || 'unavailable' : null)
+        setObjects(v.objects ?? [])
+        setTotal(v.totalBytes ?? 0)
         // Drop selections that no longer exist (e.g. after a cleanup).
         setSelected((current) => {
           const keys = new Set(v.objects.map((o) => o.key))
@@ -132,7 +140,13 @@ export default function MediaPage({
           )}
         </label>
       )}
-      {objects.length === 0 && !loading ? (
+      {storageDown ? (
+        <div className="glass-panel empty-state media-empty">
+          <AlertTriangle size={24} />
+          <strong>{t('media.storageDown')}</strong>
+          <span>{t('media.storageDownHint')}</span>
+        </div>
+      ) : objects.length === 0 && !loading ? (
         <div className="glass-panel empty-state media-empty">
           <ImageOff size={24} />
           <strong>{t('media.empty')}</strong>

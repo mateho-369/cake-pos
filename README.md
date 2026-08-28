@@ -10,7 +10,64 @@ Cake POS has three focused React frontends and a self-hosted Laravel API:
 | `backend`    | Laravel 11 + Sanctum + MySQL REST API                  |  8080 | `api.yourdomain.com`        | [README](backend/README.md)    |
 | `packages`   | Shared API client and Liquid Glass design tokens       |     — | bundled into frontends      | source-only workspaces         |
 
-`apps/sale` treats Telegram only as a display shell (`ready()`/`expand()`); staff authentication always remains PIN or email/password. `apps/shop` has deliberately separate code and uses signed Telegram `initData` as customer identity, with no customer login screen.
+`apps/sale` and `apps/shop` can both be opened from the Telegram bot. The shared `@cake-pos/telegram` package makes **every** Mini App surface open edge-to-edge: `ready()` → `expand()` → `requestFullscreen()` on Web App API 8.0+, with one retry after the first tap because iOS clients reject a programmatic request before any user gesture. Telegram remains only a shell: staff authentication is always PIN or email/password, and `apps/shop` keeps deliberately separate code, using signed Telegram `initData` as customer identity with no customer login screen.
+
+## Held (parked) orders
+
+A customer can order now and pay on collection. On the sale terminal:
+
+1. Add the items to the cart and tap **Hold order** — optionally name it
+   ("Dara — 4pm") so it can be told apart from the other holds.
+2. The ticket shows up in the **Held orders** panel, oldest first. Its stock is
+   *reserved*, not sold, so the shelf count is never double-sold while it waits.
+   Many orders can be held at once.
+3. When the customer comes back: **Take payment** pays the hold directly, or
+   **Resume** puts its lines back into the cart — the hold stays parked until
+   the sale is paid, so nothing is lost if the cart is cleared.
+4. The moment the sale is paid, the hold is released in the same transaction:
+   it leaves the panel, its reservation is freed, and the audit trail records
+   `order.hold_released` with the paid order's id. **Discard** cancels a hold
+   and returns its stock.
+
+Holding is shift-gated like every other sale endpoint (`POST /api/orders/hold`,
+`GET /api/orders/held`). A released hold is never counted as revenue — only the
+paid order is (status `Completed` + `payment_status = paid`).
+
+## Categories
+
+Category names are never hardcoded in any UI. Every picker (sale Quick Add,
+admin Quick Add, catalog filters, the shop) is built from the live
+`GET /api/categories` list, so a store with its own taxonomy works unchanged.
+
+**Quick Add** asks the cashier to pick a category — there is no default, and
+**Add & publish** stays disabled until one is chosen (this fixed the old
+`unknown category: Signature` rejection, which happened whenever a store had no
+product in a category named "Signature"). If the category does not exist yet,
+type it in the "new category" field and tap **+** : it is created, selected, and
+the cake you already typed (name, price, photo) is kept. Typing a name that
+already exists selects the existing category instead of making a duplicate, and
+a near-match shows a "did you mean" hint. When a store has no categories at all
+the picker says so and offers the create field right there — never a blank gap.
+
+**Cashier-proposed categories.** The owner is not always at the counter, so any
+logged-in employee can create a category ("boss says add a Seasonal category for
+this"). It is created **active and usable immediately** — the sale is never
+blocked waiting for approval — but a cashier-made category is flagged
+`pendingReview`, records who proposed it, and nudges the owner on Telegram.
+
+**Owner review** happens in Admin > Categories, in a "Needs your review" panel
+at the top:
+
+- **Approve** — clears the flag; the category becomes an ordinary one.
+- **Reject** — deactivates it, but is refused with a 422 while any active
+  product still uses it (`N active product(s) still use this category`), so no
+  product is ever left pointing at a dead category.
+
+Placing a category under a parent is a taxonomy decision and stays admin-only: a
+cashier sending `parentCategoryId` gets a 422 (`Only an admin can place a
+category under a parent`) rather than being silently granted or silently
+stripped of hierarchy control. Everything is audited as
+`category.created_by_cashier`, `category.approved`, `category.rejected`.
 
 ## Frontends
 

@@ -739,6 +739,108 @@ if (BOT_TOKEN) {
   )
 }
 
+// =====================================================================
+console.log('\n########## PHASE F — HOLD / PARK AN ORDER, THEN PAY IT ##########')
+{
+  // The hold endpoints are shift-gated, so make sure a shift is open first.
+  const shiftNow = await api('/api/shifts/current', { token: adminToken })
+  if (!shiftNow.json) {
+    const opened = await api('/api/shifts/open', {
+      method: 'POST',
+      token: adminToken,
+      body: { openingCash: 20, openingCashKhr: 0 },
+    })
+    check('phase F: shift open', opened.status === 201, `${opened.status}`)
+  }
+
+  await page.goto(SALE_URL, { waitUntil: 'networkidle' })
+  // The terminal may still hold the cashier session from phase D2.
+  if ((await page.locator('.product-workspace').count()) === 0) {
+    await page.getByRole('button', { name: 'Email' }).click()
+    await page.waitForTimeout(300)
+    await page.getByLabel('Email address').fill(CASHIER_EMAIL)
+    await page.getByLabel('Password').fill(CASHIER_PASS)
+    await page.getByRole('button', { name: 'Continue' }).click()
+    await page.waitForSelector('.product-workspace', { timeout: 30000 })
+  }
+
+  const product = prod.json // the "Smoke Cake" created in phase B
+  const before = await api('/api/products', { token: adminToken })
+  const stockBefore = before.json.find((p) => p.id === product.id)?.stock
+
+  // 1. Park an order for a customer who will pay when they come back.
+  await page.locator('.product-card', { hasText: 'Smoke Cake' }).first().click()
+  await page.waitForTimeout(400)
+  await page.locator('.cart-hold-button').click()
+  await page.locator('.cart-hold-form input').fill('Dara — pays on collection')
+  await page.locator('.cart-hold-confirm').click()
+  await page.waitForTimeout(1200)
+  await shot('sale-hold-created')
+
+  const heldAfter = await api('/api/orders/held', { token: adminToken })
+  const parked = (heldAfter.json || []).find(
+    (o) => o.holdLabel === 'Dara — pays on collection',
+  )
+  check('holding an order parks it in the held queue', Boolean(parked))
+  const afterHold = await api('/api/products', { token: adminToken })
+  check(
+    'held order reserves stock instead of selling it',
+    afterHold.json.find((p) => p.id === product.id)?.stock === stockBefore,
+    `stock ${stockBefore} -> ${
+      afterHold.json.find((p) => p.id === product.id)?.stock
+    }`,
+  )
+  const heldText = await page.locator('.held-panel').innerText()
+  check(
+    'held panel shows the order at the terminal',
+    heldText.includes('Dara — pays on collection'),
+  )
+
+  // 2. Resume it into the cart: it must STAY held until the sale is paid.
+  await page.locator('.held-resume').first().click()
+  await page.waitForTimeout(800)
+  const stillHeld = await api('/api/orders/held', { token: adminToken })
+  check(
+    'resuming keeps the hold parked until payment',
+    (stillHeld.json || []).some((o) => o.id === parked?.id),
+  )
+  check(
+    'resumed hold put the item back in the cart',
+    (await page.locator('.cart-item').count()) > 0,
+  )
+
+  // 3. Take the payment — the hold must be released by the paid sale.
+  await page.locator('.cash-input input').first().fill(String(parked?.total ?? 50))
+  await page.waitForTimeout(200)
+  await page.getByRole('button', { name: /Complete cash/ }).click()
+  await page.waitForSelector('text=PAYMENT COMPLETE', { timeout: 20000 })
+  await shot('sale-hold-paid')
+  await page.waitForSelector('.success-layer', {
+    state: 'detached',
+    timeout: 20000,
+  })
+
+  const heldEnd = await api('/api/orders/held', { token: adminToken })
+  check(
+    'paying the resumed cart RELEASES the hold (no longer held)',
+    !(heldEnd.json || []).some((o) => o.id === parked?.id),
+    JSON.stringify(heldEnd.json || []).slice(0, 200),
+  )
+  const released = await api('/api/orders', { token: adminToken })
+  const releasedRow = (released.json || []).find((o) => o.id === parked?.id)
+  check(
+    'released hold is Cancelled, never counted as completed revenue',
+    releasedRow && releasedRow.status === 'Cancelled',
+    releasedRow ? releasedRow.status : 'missing',
+  )
+  check(
+    'paid sale is Completed',
+    (released.json || []).some(
+      (o) => o.status === 'Completed' && o.id !== parked?.id,
+    ),
+  )
+}
+
 await browser.close()
 console.log(
   failures === 0

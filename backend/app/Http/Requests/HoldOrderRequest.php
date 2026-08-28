@@ -17,6 +17,9 @@ class HoldOrderRequest extends FormRequest
             'discount.type' => 'nullable|in:percentage,fixed',
             'discount.amount' => 'required_with:discount.type',
             'idempotencyKey' => 'nullable|uuid',
+            // Optional human label ("Dara — 4pm") so several holds can be
+            // told apart at the terminal.
+            'holdLabel' => 'nullable|string|max:80',
         ];
     }
 }

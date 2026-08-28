@@ -11,15 +11,16 @@
     "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "typescript": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "lucide-react": "^0.468.0",
     "@cake-pos/api-client": "*",
     "@cake-pos/brand": "*",
-    "@cake-pos/design-tokens": "*"
+    "@cake-pos/design-tokens": "*",
+    "@cake-pos/telegram": "*",
+    "@vitejs/plugin-react": "latest",
+    "lucide-react": "^0.468.0",
+    "react": "latest",
+    "react-dom": "latest",
+    "typescript": "latest",
+    "vite": "latest"
   },
   "devDependencies": {
     "@types/react": "latest",

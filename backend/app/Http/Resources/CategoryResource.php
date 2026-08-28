@@ -28,6 +28,14 @@ class CategoryResource extends JsonResource
             ),
             'color' => $this->color,
             'sortOrder' => $this->sort_order,
+            // Cashier-proposed categories: true until the owner approves or
+            // rejects them in Admin > Categories.
+            'pendingReview' => (bool) $this->pending_review,
+            'createdBy' => $this->when(
+                $this->relationLoaded('createdBy'),
+                fn() => $this->createdBy?->name,
+            ),
+            'createdAt' => $this->created_at?->toISOString(),
         ];
     }
 }
