@@ -12,6 +12,7 @@ OUT="$(mktemp -d)"
 PASS=0
 FAIL=0
 FIRST_BAD_REQUEST_NOTE=""
+FAILURES=()
 
 note() { echo; echo "===== $* ====="; }
 step() { echo; echo "----- $* -----"; }
@@ -74,7 +75,7 @@ assert() { # label condition
   if [ "$cond" = "true" ]; then PASS=$((PASS + 1)); echo "  PASS  $label";
   else
     FAIL=$((FAIL + 1)); echo "  FAIL  $label"
-    annotate error 'smoke-assertion-failed' "$label"
+    FAILURES+=("$label")
   fi
 }
 
@@ -97,7 +98,12 @@ for part in sys.argv[2].split('.'):
             print("__MISSING__"); sys.exit(0)
     else:
         print("__MISSING__"); sys.exit(0)
-print(cur)
+if isinstance(cur, bool):
+    # JSON booleans must round-trip to the literal 'true'/'false'; Python's
+    # print(True) gives 'True', which broke every boolean assertion.
+    print("true" if cur else "false")
+else:
+    print(cur)
 PY
 }
 
@@ -386,4 +392,10 @@ echo
 echo "############################################################"
 echo "RESULT: $PASS passed, $FAIL failed"
 echo "############################################################"
+if [ "$FAIL" -ne 0 ]; then
+  # One collated annotation (GitHub caps at 10 per step, so per-assertion
+  # annotations were dropping the earliest failures).
+  annotate error 'smoke-suite-failures' \
+    "failed: $(IFS=' | '; echo "${FAILURES[*]}")"
+fi
 [ "$FAIL" -eq 0 ] || exit 1
