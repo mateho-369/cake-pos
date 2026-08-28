@@ -9,6 +9,11 @@ class CloseShiftRequest extends FormRequest
     }
     public function rules(): array
     {
-        return ['closingCash' => ['required']];
+        return [
+            'closingCash' => ['required', 'numeric', 'min:0'],
+            // Riel counted at close — whole riel, optional for backward
+            // compatibility (defaults to 0 when omitted).
+            'closingCashKhr' => ['sometimes', 'integer', 'min:0'],
+        ];
     }
 }

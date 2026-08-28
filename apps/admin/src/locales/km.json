@@ -274,7 +274,8 @@
     "toys": "ប្រដាប់ក្មេងលេង",
     "broadcastQueued": "ការប្រកាសត្រូវបានដាក់ក្នុងជួរសម្រាប់អតិថិជន {{count}} នាក់",
     "broadcastFailed": "មិនអាចដាក់ការប្រកាសក្នុងជួរបានទេ",
-    "broadcastHint": "ផ្ញើតាមរយៈប៊ូត Telegram ហាងទៅអតិថិជនទាំងអស់ដែលបានបើក Mini App។ ពិនិត្យប្រវត្តិផ្សាយដើម្បីជៀសវាងការផ្សាយដដែលៗ។"
+    "broadcastHint": "ផ្ញើតាមរយៈប៊ូត Telegram ហាងទៅអតិថិជនទាំងអស់ដែលបានបើក Mini App។ ពិនិត្យប្រវត្តិផ្សាយដើម្បីជៀសវាងការផ្សាយដដែលៗ។",
+    "accountability": "ការទទួលខុសត្រូវ"
   },
   "orders": {
     "transactions": "ប្រតិបត្តិការ",
@@ -401,7 +402,11 @@
     "reordered": "លំដាប់បង្ហាញត្រូវបានរក្សាទុក",
     "failed": "មិនអាចរក្សាទុកប្រភេទបានទេ",
     "moveUp": "រំកិលឡើង",
-    "moveDown": "រំកិលចុះ"
+    "moveDown": "រំកិលចុះ",
+    "parentCategory": "ចំណាត់ក្រុមមេ",
+    "topLevel": "គ្មាន — កម្រិតខាងលើ",
+    "underParent": "ក្រោម {{parent}}",
+    "parentHint": "ចំណាត់ក្រុមរងដាក់ក្រោមចំណាត់ក្រុមមេ (មួយកម្រិត)។"
   },
   "employees": {
     "teamCount": "បុគ្គលិក {{count}} នាក់",
@@ -507,7 +512,9 @@
     "noActive": "មិនមានវេនបើក",
     "closeFailed": "មិនអាចបិទវេនបានទេ",
     "closing": "កំពុងបិទ…",
-    "noPayments": "គ្មានការទូទាត់ KHQR ក្នុងអំឡុងពេលនេះ"
+    "noPayments": "គ្មានការទូទាត់ KHQR ក្នុងអំឡុងពេលនេះ",
+    "countedCashKhr": "សាច់ប្រាក់រាប់បាន (រៀល)",
+    "countInstructionKhr": "រាប់ប្រាក់រៀលដាច់ដោយឡែកពីប្រាក់ដុល្លារ។"
   },
   "reports": {
     "sales": "ការលក់",
@@ -601,7 +608,8 @@
     "returningCustomers": "អតិថិជនចាស់",
     "repeatRate": "អត្រាត្រឡប់មកវិញ",
     "customersWithOrders": "អតិថិជនដែលបញ្ជាទិញ",
-    "thisMonth": "ខែនេះ"
+    "thisMonth": "ខែនេះ",
+    "productEvents": "ព្រឹត្តិការណ៍ផលិតផល"
   },
   "settings": {
     "configuration": "ការកំណត់រចនា",
@@ -886,5 +894,82 @@
     "loadingOrders": "កំពុងផ្ទុកការបញ្ជាទិញ…",
     "noOrdersYet": "មិនទាន់មានការបញ្ជាទិញ។",
     "customer": "អតិថិជន"
+  },
+  "picker": {
+    "eyebrow": "ប្រភពរូបភាព",
+    "title": "ជ្រើសរើសរូបភាព",
+    "titleBroadcast": "ជ្រើសរើសរូបភាពសម្រាប់ផ្សាយពាណិជ្ជកម្ម",
+    "uploadNew": "បញ្ចូលថ្មី",
+    "fromProduct": "ពីផលិតផល",
+    "fromLibrary": "ពីបណ្ណាល័យមេឌៀ",
+    "chooseImage": "ប៉ះដើម្បីជ្រើសរើសរូបភាព",
+    "uploading": "កំពុងបញ្ចូល…",
+    "uploadHint": "នៅលើទូរស័ព្ទ វានឹងបើក កាមេរ៉ា / រូបភាព / ឯកសារ។",
+    "uploadFailed": "បញ្ចូលរូបភាពមិនបានសម្រេច",
+    "mediaFailed": "មិនអាចផ្ទុកបណ្ណាល័យមេឌៀបានទេ",
+    "searchProducts": "ស្វែងរកផលិតផល…",
+    "noProducts": "រកមិនឃើញផលិតផល",
+    "noMedia": "មិនទាន់មានរូបភាពក្នុងបណ្ណាល័យមេឌៀទេ",
+    "noPhoto": "{{name}} គ្មានរូបភាព",
+    "fromProductSource": "ផលិតផល៖ {{name}}",
+    "template": "គំរូដែលរក្សាទុក",
+    "poster": "ផ្ទាំងដែលបានបង្កើត"
+  },
+  "reasons": {
+    "title": "ហេតុអ្វីបញ្ឈប់ការលក់?",
+    "deactivateIntro": "កត់ត្រាហេតុផលនៃការបញ្ឈប់ {{name}} ពីការលក់។ វានឹងត្រូវកត់ត្រាជាមួយឈ្មោះរបស់អ្នក។",
+    "zeroIntro": "កត់ត្រាហេតុផលនៃការកំណត់ស្តុក {{name}} ទៅ 0។",
+    "outOfStock": "អស់ស្តុក",
+    "discontinued": "បញ្ឈប់ផលិត",
+    "quality": "បញ្ហាគុណភាព",
+    "seasonalReturn": "តាមរដូវ — នឹងត្រឡប់មកវិញ",
+    "other": "ផ្សេងៗ",
+    "noteLabel": "ពណ៌នាហេតុផល",
+    "noteOptional": "កំណត់សម្គាល់ (ស្រេចចិត្ត)",
+    "notePlaceholder": "ព័ត៌មានលម្អិត (ស្រេចចិត្ត)…",
+    "confirm": "រក្សាទុកជាមួយហេតុផល",
+    "lastRecorded": "កត់ត្រាចុងក្រោយ៖ {{action}} — {{code}} ដោយ {{employee}} នៅ {{date}}",
+    "deactivatedAction": "បានបញ្ឈប់",
+    "zeroedAction": "ស្តុកទៅ 0"
+  },
+  "broadcast": {
+    "title": "ការផ្សាយទៅអតិថិជន",
+    "loadTemplate": "ផ្ទុកពីគំរូ",
+    "startNew": "ចាប់ផ្ដើមការផ្សាយថ្មី",
+    "photo": "រូបភាព",
+    "choosePhoto": "ជ្រើសរើសរូបភាព",
+    "photoHint": "បញ្ចូលថ្មី យកពីផលិតផល ឬប្រើបណ្ណាល័យមេឌៀ។",
+    "caption": "អត្ថបទពណ៌នា",
+    "captionPlaceholder": "អត្ថបទពណ៌នាសម្រាប់ផ្សាយ…",
+    "posterShortcut": "ផ្ទាំងពាណិជ្ជកម្មរហ័ស",
+    "useChosenPhoto": "ប្រើរូបភាពដែលបានជ្រើស",
+    "posterStyle": "រចនាបថផ្ទាំង",
+    "newArrival": "មកថ្មី",
+    "sellingFast": "កំពុងលក់លឿន",
+    "seasonal": "តាមរដូវ / ថ្ងៃបុណ្យ",
+    "previewAlt": "មើលការផ្សាយសាកល្បង",
+    "noCaptionYet": "មិនទាន់មានអត្ថបទពណ៌នា",
+    "openShopButton": "Open Shop / បើកហាង",
+    "templateName": "ឈ្មោះគំរូ",
+    "templateNamePlaceholder": "ឧ. បញ្ចុះតម្លៃចុងសប្តាហ៍",
+    "saveAsTemplate": "រក្សាទុកជាគំរូ",
+    "sendToAll": "ផ្ញើទៅអតិថិជន {{count}} នាក់",
+    "posterGenerated": "បានបង្កើតផ្ទាំងពាណិជ្ជកម្ម",
+    "posterFailed": "បង្កើតផ្ទាំងពាណិជ្ជកម្មមិនបានសម្រេច",
+    "needNamePhotoCaption": "សូមបំពេញឈ្មោះ រូបភាព និងអត្ថបទពណ៌នា",
+    "templateSaved": "បានរក្សាទុកគំរូ",
+    "templateFailed": "រក្សាទុកគំរូមិនបានសម្រេច",
+    "templateNamePrompt": "ឈ្មោះគំរូ",
+    "confirmDeleteTemplate": "លុបគំរូនេះ?",
+    "needPhotoCaption": "សូមបន្ថែមរូបភាព និងអត្ថបទពណ៌នា",
+    "confirmSend": "ផ្ញើសារផ្សាយនេះទៅអតិថិជន {{count}} នាក់?",
+    "queued": "ការផ្សាយត្រូវបានដាក់ជាជួរសម្រាប់អតិថិជន {{count}} នាក់",
+    "failed": "ការផ្សាយបរាជ័យ",
+    "history": "ប្រវត្តិការផ្សាយ",
+    "deliveredStats": "បានផ្ញើ {{success}}/{{total}} · បរាជ័យ {{failed}}",
+    "noHistory": "មិនទាន់មានការផ្សាយទេ",
+    "savedTemplates": "គំរូដែលបានរក្សាទុក",
+    "noTemplates": "មិនទាន់មានគំរូទេ",
+    "queuedStatus": "ក្នុងជួរ"
   }
 }

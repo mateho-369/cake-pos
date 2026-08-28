@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
-import { uploadImage } from '@cake-pos/uploads'
+import { ImagePlus, Save, Send, Sparkles } from 'lucide-react'
 import { apiRequest } from '../lib/api'
-type Product = {
-  id: number
-  name: string
-  price: number
-  imageUrl?: string | null
-}
+import { useTranslation } from '../lib/i18n'
+import ImageSourcePicker from '../components/ImageSourcePicker'
+import type { Product } from '../data'
+
 type Template = { id: number; name: string; imageUrl: string; caption: string }
 type History = {
   id: number
@@ -17,18 +15,27 @@ type History = {
   successCount: number
   failureCount: number
 }
+
+/**
+ * Customer broadcast composer. The image comes from the SAME source picker
+ * the product form uses (upload new / from a product / from the media
+ * library), and picking a product prefills the caption with its name/price.
+ */
 export default function BroadcastSettings({
   onToast,
 }: {
   onToast: (message: string) => void
 }) {
+  const { t } = useTranslation()
   const [caption, setCaption] = useState('')
   const [imageUrl, setImageUrl] = useState('')
+  const [imageSource, setImageSource] = useState('')
   const [count, setCount] = useState(0)
   const [products, setProducts] = useState<Product[]>([])
   const [template, setTemplate] = useState('new_arrival')
   const [history, setHistory] = useState<History[]>([])
   const [busy, setBusy] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [templates, setTemplates] = useState<Template[]>([])
   const [templateName, setTemplateName] = useState('')
   const loadHistory = useCallback(
@@ -43,14 +50,6 @@ export default function BroadcastSettings({
     void loadHistory()
     apiRequest<Template[]>('/api/broadcast-templates').then(setTemplates)
   }, [loadHistory])
-  const photo = async (file?: File) => {
-    if (!file) return
-    try {
-      setImageUrl((await uploadImage(file, apiRequest)).publicUrl)
-    } catch (e) {
-      onToast(e instanceof Error ? e.message : 'Upload failed')
-    }
-  }
   const generate = async (id: string) => {
     if (!id) return
     try {
@@ -67,213 +66,269 @@ export default function BroadcastSettings({
         },
       )
       setImageUrl(r.imageUrl)
-      onToast('Poster generated')
+      setImageSource(t('picker.poster'))
+      onToast(t('broadcast.posterGenerated'))
     } catch (e) {
-      onToast(e instanceof Error ? e.message : 'Poster generation failed')
+      onToast(e instanceof Error ? e.message : t('broadcast.posterFailed'))
     } finally {
       setBusy(false)
     }
   }
   const loadTemplate = (id: string) => {
-    const t = templates.find((x) => x.id === Number(id))
-    if (t) {
-      setImageUrl(t.imageUrl)
-      setCaption(t.caption)
+    const picked = templates.find((x) => x.id === Number(id))
+    if (picked) {
+      setImageUrl(picked.imageUrl)
+      setImageSource(t('picker.template'))
+      setCaption(picked.caption)
     }
   }
   const saveTemplate = async () => {
     if (!templateName.trim() || !imageUrl || !caption.trim())
-      return onToast('Add a name, photo, and caption first')
+      return onToast(t('broadcast.needNamePhotoCaption'))
     try {
-      const t = await apiRequest<Template>('/api/broadcast-templates', {
+      const saved = await apiRequest<Template>('/api/broadcast-templates', {
         method: 'POST',
         body: JSON.stringify({ name: templateName, imageUrl, caption }),
       })
-      setTemplates([t, ...templates])
+      setTemplates([saved, ...templates])
       setTemplateName('')
-      onToast('Template saved')
+      onToast(t('broadcast.templateSaved'))
     } catch (e) {
-      onToast(e instanceof Error ? e.message : 'Could not save template')
+      onToast(e instanceof Error ? e.message : t('broadcast.templateFailed'))
     }
   }
-  const renameTemplate = async (t: Template) => {
-    const name = window.prompt('Template name', t.name)
-    if (!name || name === t.name) return
+  const renameTemplate = async (item: Template) => {
+    const name = window.prompt(t('broadcast.templateNamePrompt'), item.name)
+    if (!name || name === item.name) return
     const updated = await apiRequest<Template>(
-      `/api/broadcast-templates/${t.id}`,
+      `/api/broadcast-templates/${item.id}`,
       {
         method: 'PUT',
         body: JSON.stringify({
           name,
-          imageUrl: t.imageUrl,
-          caption: t.caption,
+          imageUrl: item.imageUrl,
+          caption: item.caption,
         }),
       },
     )
-    setTemplates(templates.map((x) => (x.id === t.id ? updated : x)))
+    setTemplates(templates.map((x) => (x.id === item.id ? updated : x)))
   }
   const deleteTemplate = async (id: number) => {
-    if (!window.confirm('Delete this template?')) return
+    if (!window.confirm(t('broadcast.confirmDeleteTemplate'))) return
     await apiRequest(`/api/broadcast-templates/${id}`, { method: 'DELETE' })
     setTemplates(templates.filter((x) => x.id !== id))
   }
   const send = async () => {
     if (!caption.trim() || !imageUrl)
-      return onToast('Add a photo and caption first')
-    if (!window.confirm(`Send this announcement to ${count} customers?`)) return
+      return onToast(t('broadcast.needPhotoCaption'))
+    if (
+      !window.confirm(
+        t('broadcast.confirmSend', { count: count.toLocaleString() }),
+      )
+    )
+      return
     try {
       const r = await apiRequest<{ recipientCount: number }>(
         '/api/broadcasts',
         { method: 'POST', body: JSON.stringify({ imageUrl, caption }) },
       )
-      onToast(`Broadcast queued for ${r.recipientCount} customers`)
+      onToast(t('broadcast.queued', { count: r.recipientCount }))
       setCaption('')
       setImageUrl('')
-      // Refresh the history list so the new broadcast appears immediately —
-      // no manual reload needed.
+      setImageSource('')
       await loadHistory()
     } catch (e) {
-      onToast(e instanceof Error ? e.message : 'Broadcast failed')
+      onToast(e instanceof Error ? e.message : t('broadcast.failed'))
     }
   }
   return (
     <>
       <div className="setting-section">
-        <h3>Customer broadcast</h3>
-        <label>
-          Load from template{' '}
-          <select
-            defaultValue=""
-            onChange={(e) => loadTemplate(e.target.value)}
-          >
-            <option value="">Start a new broadcast</option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p>Upload your own photo and write any Khmer and/or English caption.</p>
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => void photo(e.target.files?.[0])}
-        />
-        <textarea
-          rows={5}
-          value={caption}
-          onChange={(e) => setCaption(e.target.value)}
-          placeholder="Announcement caption…"
-        />
-        <div>
-          <label>
-            Optional product shortcut{' '}
-            <select
-              onChange={(e) => void generate(e.target.value)}
-              disabled={busy}
-            >
-              <option value="">Use uploaded photo</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <select
-            value={template}
-            onChange={(e) => setTemplate(e.target.value)}
-          >
-            <option value="new_arrival">New Arrival</option>
-            <option value="selling_fast">Selling Fast</option>
-            <option value="seasonal">Seasonal / Holiday</option>
-          </select>
-        </div>
-        {imageUrl && (
-          <div
-            style={{
-              maxWidth: 420,
-              margin: '16px 0',
-              background: '#fff0f6',
-              padding: 12,
-              borderRadius: 20,
-            }}
-          >
-            <img
-              src={imageUrl}
-              alt="Broadcast preview"
-              style={{ width: '100%', borderRadius: 14 }}
-            />
-            <p>{caption}</p>
-            {/* Static mock of the Telegram shop button — preview only. */}
-            <span
-              aria-hidden="true"
-              style={{
-                display: 'block',
-                padding: '8px 12px',
-                borderRadius: 10,
-                background: '#f3dbe7',
-                color: '#8d3a63',
-                fontWeight: 700,
-                fontSize: 12,
-                textAlign: 'center',
-              }}
-            >
-              🛒 Open Shop / បើកហាង
-            </span>
+        <h3>{t('broadcast.title')}</h3>
+        <div className="broadcast-form">
+          <div className="broadcast-form-fields">
+            <label>
+              <span>{t('broadcast.loadTemplate')}</span>
+              <select defaultValue="" onChange={(e) => loadTemplate(e.target.value)}>
+                <option value="">{t('broadcast.startNew')}</option>
+                {templates.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="broadcast-photo-field">
+              <span>{t('broadcast.photo')}</span>
+              <button
+                type="button"
+                className={`broadcast-photo-button secondary-button ${imageUrl ? 'has-image' : ''}`}
+                style={
+                  imageUrl
+                    ? {
+                        backgroundImage: `url(${imageUrl})`,
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center',
+                      }
+                    : undefined
+                }
+                onClick={() => setPickerOpen(true)}
+              >
+                {imageUrl ? (
+                  <span className="broadcast-photo-change">
+                    <ImagePlus size={15} /> {t('common.replace')}
+                    {imageSource ? ` · ${imageSource}` : ''}
+                  </span>
+                ) : (
+                  <>
+                    <ImagePlus size={19} />
+                    <span>{t('broadcast.choosePhoto')}</span>
+                    <small>{t('broadcast.photoHint')}</small>
+                  </>
+                )}
+              </button>
+            </label>
+            <label>
+              <span>{t('broadcast.caption')}</span>
+              <textarea
+                rows={5}
+                value={caption}
+                onChange={(e) => setCaption(e.target.value)}
+                placeholder={t('broadcast.captionPlaceholder')}
+              />
+            </label>
+            <div className="broadcast-poster-row">
+              <label>
+                <span>{t('broadcast.posterShortcut')}</span>
+                <select onChange={(e) => void generate(e.target.value)} disabled={busy}>
+                  <option value="">{t('broadcast.useChosenPhoto')}</option>
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>{t('broadcast.posterStyle')}</span>
+                <select value={template} onChange={(e) => setTemplate(e.target.value)}>
+                  <option value="new_arrival">{t('broadcast.newArrival')}</option>
+                  <option value="selling_fast">{t('broadcast.sellingFast')}</option>
+                  <option value="seasonal">{t('broadcast.seasonal')}</option>
+                </select>
+              </label>
+            </div>
+            {imageUrl && (
+              <div className="broadcast-preview">
+                <img src={imageUrl} alt={t('broadcast.previewAlt')} />
+                <p>{caption || t('broadcast.noCaptionYet')}</p>
+                {/* Static mock of the Telegram shop button — preview only. */}
+                <span className="broadcast-preview-shop-button" aria-hidden="true">
+                  🛒 {t('broadcast.openShopButton')}
+                </span>
+              </div>
+            )}
+            <div className="broadcast-actions">
+              <label className="broadcast-template-name">
+                <span>{t('broadcast.templateName')}</span>
+                <input
+                  value={templateName}
+                  onChange={(e) => setTemplateName(e.target.value)}
+                  placeholder={t('broadcast.templateNamePlaceholder')}
+                />
+              </label>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={saveTemplate}
+              >
+                <Save size={15} /> {t('broadcast.saveAsTemplate')}
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={send}
+                disabled={!imageUrl || !caption.trim()}
+              >
+                <Send size={15} /> {t('broadcast.sendToAll', { count })}
+              </button>
+            </div>
           </div>
-        )}
-        <div>
-          <input
-            value={templateName}
-            onChange={(e) => setTemplateName(e.target.value)}
-            placeholder="Template name"
-          />
-          <button type="button" onClick={saveTemplate}>
-            Save as template
-          </button>
-          <button type="button" className="primary-button" onClick={send}>
-            Send to all customers
-          </button>
+        </div>
+      </div>
+      <ImageSourcePicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onPick={(image) => {
+          setImageUrl(image.url)
+          setImageSource(
+            image.source === 'product'
+              ? t('picker.fromProductSource', {
+                  name: image.product?.name ?? '',
+                })
+              : image.source === 'library'
+                ? t('picker.fromLibrary')
+                : t('picker.uploadNew'),
+          )
+          // Picking a product photo prefills the caption (name + price) as a
+          // shortcut, but never overwrites caption text the admin typed.
+          if (image.source === 'product' && image.caption && !caption.trim()) {
+            setCaption(image.caption)
+          }
+        }}
+        onToast={onToast}
+        title={t('picker.titleBroadcast')}
+        products={products}
+      />
+      <div className="setting-section">
+        <h3>{t('broadcast.history')}</h3>
+        <div className="broadcast-history-list">
+          {history.map((b) => (
+            <div className="broadcast-history-row" key={b.id}>
+              {b.imageUrl && <img src={b.imageUrl} alt="" />}
+              <div>
+                <strong>{b.sentAt || t('broadcast.queuedStatus')}</strong>
+                <p>{b.caption}</p>
+                <small>
+                  {t('broadcast.deliveredStats', {
+                    success: b.successCount,
+                    total: b.recipientCount,
+                    failed: b.failureCount,
+                  })}
+                </small>
+              </div>
+            </div>
+          ))}
+          {history.length === 0 && (
+            <p className="broadcast-empty">{t('broadcast.noHistory')}</p>
+          )}
         </div>
       </div>
       <div className="setting-section">
-        <h3>Broadcast history</h3>
-        {history.map((b) => (
-          <div key={b.id}>
-            <strong>{b.sentAt || 'Queued'}</strong>
-            <p>{b.caption}</p>
-            <small>
-              {b.successCount}/{b.recipientCount} delivered · {b.failureCount}{' '}
-              failed
-            </small>
-          </div>
-        ))}
-      </div>
-      <div className="setting-section">
-        <h3>Saved templates</h3>
-        {templates.map((t) => (
-          <div
-            key={t.id}
-            style={{ display: 'flex', gap: 12, alignItems: 'center' }}
-          >
-            <img
-              src={t.imageUrl}
-              alt=""
-              width={56}
-              height={40}
-              style={{ objectFit: 'cover', borderRadius: 8 }}
-            />
-            <span>{t.name}</span>
-            <button type="button" onClick={() => renameTemplate(t)}>
-              Rename
-            </button>
-            <button type="button" onClick={() => void deleteTemplate(t.id)}>
-              Delete
-            </button>
-          </div>
-        ))}
+        <h3>{t('broadcast.savedTemplates')}</h3>
+        <div className="broadcast-template-list">
+          {templates.map((item) => (
+            <div className="broadcast-template-row" key={item.id}>
+              <img src={item.imageUrl} alt="" />
+              <span>{item.name}</span>
+              <button type="button" className="text-button" onClick={() => renameTemplate(item)}>
+                {t('common.edit')}
+              </button>
+              <button
+                type="button"
+                className="danger-text-button"
+                onClick={() => void deleteTemplate(item.id)}
+              >
+                {t('catalog.delete')}
+              </button>
+            </div>
+          ))}
+          {templates.length === 0 && (
+            <p className="broadcast-empty">
+              <Sparkles size={14} /> {t('broadcast.noTemplates')}
+            </p>
+          )}
+        </div>
       </div>
     </>
   )

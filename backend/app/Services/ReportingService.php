@@ -352,6 +352,12 @@ final class ReportingService
         if (!empty($input['action'])) {
             $q->where('action', 'like', $input['action'] . '%');
         }
+        if (!empty($input['productId'])) {
+            $q->whereRaw(
+                "JSON_UNQUOTE(JSON_EXTRACT(details_json, '$.productId')) = ?",
+                [(string) (int) $input['productId']],
+            );
+        }
         return $q
             ->orderByDesc('created_at')
             ->orderByDesc('id')

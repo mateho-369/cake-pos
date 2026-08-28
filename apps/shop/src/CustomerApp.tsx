@@ -42,6 +42,7 @@ type MenuResponse = {
   customer: Customer
   products: Product[]
   categories?: string[]
+  categoryTree?: Array<{ id: number; name: string; parentId: number | null }>
   khqrImageUrl?: string
 }
 type Cart = Record<number, number>
@@ -138,6 +139,42 @@ export default function CustomerApp() {
       ],
     [menu],
   )
+  // Grouped nav rows: parents first with their subcategories right after
+  // (indented), when the API exposes the hierarchy. Falls back to the flat
+  // list on older payloads.
+  const categoryNav = useMemo(() => {
+    const tree = menu?.categoryTree
+    if (!tree?.length) {
+      return categories.map((name) => ({ name, child: false }))
+    }
+    const present = new Set(categories)
+    const rows: Array<{ name: string; child: boolean }> = []
+    const byId = new Map(tree.map((node) => [node.id, node]))
+    const top = tree.filter((node) => !node.parentId)
+    const covered = new Set<number>()
+    for (const node of top) {
+      if (present.has(node.name)) {
+        rows.push({ name: node.name, child: false })
+      }
+      covered.add(node.id)
+      for (const child of tree.filter((c) => c.parentId === node.id)) {
+        covered.add(child.id)
+        if (present.has(child.name)) {
+          rows.push({ name: child.name, child: true })
+        }
+      }
+    }
+    // Anything not covered by the tree (orphans / legacy) keeps showing.
+    for (const node of byId.values()) {
+      if (!covered.has(node.id) && present.has(node.name)) {
+        rows.push({ name: node.name, child: Boolean(node.parentId) })
+      }
+    }
+    if (rows.length === 0 && categories.length > 0) {
+      return categories.map((name) => ({ name, child: false }))
+    }
+    return rows
+  }, [menu?.categoryTree, categories])
   const items = useMemo(
     () =>
       menu?.products
@@ -331,15 +368,18 @@ export default function CustomerApp() {
           <small>{visibleProducts.length} treats today</small>
         </div>
         <div className="customer-category-nav">
-          {['All', ...categories].map((name) => (
-            <button
-              key={name}
-              className={selectedCategory === name ? 'active' : ''}
-              onClick={() => setSelectedCategory(name)}
-            >
-              {name}
-            </button>
-          ))}
+          {[{ name: 'All', child: false }, ...categoryNav].map(
+            ({ name, child }) => (
+              <button
+                key={name}
+                className={`${selectedCategory === name ? 'active' : ''} ${child ? 'subcategory' : ''}`}
+                onClick={() => setSelectedCategory(name)}
+              >
+                {child ? '· ' : ''}
+                {name}
+              </button>
+            ),
+          )}
         </div>
         <div className="customer-grid">
           {visibleProducts.map((product) => {

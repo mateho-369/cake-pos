@@ -29,6 +29,7 @@ export default function ShiftsPage({
   ).length
   const [closeShiftOpen, setCloseShiftOpen] = useState(false)
   const [closingCash, setClosingCash] = useState('')
+  const [closingCashKhr, setClosingCashKhr] = useState('')
   const [saving, setSaving] = useState(false)
   const closeShift = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -36,7 +37,10 @@ export default function ShiftsPage({
     try {
       await apiRequest('/api/shifts/close', {
         method: 'POST',
-        body: JSON.stringify({ closingCash: Number(closingCash || 0) }),
+        body: JSON.stringify({
+          closingCash: Number(closingCash || 0),
+          closingCashKhr: Number(closingCashKhr.replace(/[^0-9]/g, '') || 0),
+        }),
       })
       setCloseShiftOpen(false)
       await refresh()
@@ -51,6 +55,8 @@ export default function ShiftsPage({
   }
   const currentExpectedUsd = (currentShift?.expectedCashUsdCents ?? 0) / 100
   const currentOpeningUsd = (currentShift?.openingCashUsdCents ?? 0) / 100
+  const currentExpectedKhr = currentShift?.expectedCashKhr ?? 0
+  const currentOpeningKhr = currentShift?.openingCashKhr ?? 0
   const totalOrders = shifts.reduce((sum, shift) => sum + (shift.id ? 1 : 0), 0)
   const exportHistory = () => {
     downloadCsv(
@@ -138,12 +144,16 @@ export default function ShiftsPage({
           <div className="ledger-lines">
             <div>
               <span>{t('shifts.openingFloat')}</span>
-              <strong>${currentOpeningUsd.toFixed(2)}</strong>
+              <strong>
+                ${currentOpeningUsd.toFixed(2)} · ៛
+                {currentOpeningKhr.toLocaleString()}
+              </strong>
             </div>
             <div>
               <span>{t('shifts.cashSales')}</span>
               <strong>
-                +${(currentExpectedUsd - currentOpeningUsd).toFixed(2)}
+                +${(currentExpectedUsd - currentOpeningUsd).toFixed(2)} · ៛
+                {(currentExpectedKhr - currentOpeningKhr).toLocaleString()}
               </strong>
             </div>
           </div>
@@ -228,7 +238,10 @@ export default function ShiftsPage({
           <div className="reconcile-summary">
             <div>
               <span>{t('shifts.expectedCash')}</span>
-              <strong>${currentExpectedUsd.toFixed(2)}</strong>
+              <strong>
+                ${currentExpectedUsd.toFixed(2)} · ៛
+                {currentExpectedKhr.toLocaleString()}
+              </strong>
             </div>
             <div>
               <span>{t('shifts.khqrConfirmed')}</span>
@@ -237,26 +250,44 @@ export default function ShiftsPage({
             <div>
               <span>{t('shifts.netSales')}</span>
               <strong>
-                ${(currentExpectedUsd - currentOpeningUsd).toFixed(2)}
+                ${(currentExpectedUsd - currentOpeningUsd).toFixed(2)} · ៛
+                {(currentExpectedKhr - currentOpeningKhr).toLocaleString()}
               </strong>
             </div>
           </div>
-          <label>
-            <span>{t('shifts.countedCash')}</span>
-            <div className="currency-input">
-              <span>$</span>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={closingCash}
-                onChange={(event) => setClosingCash(event.target.value)}
-                placeholder="0.00"
-                required
-              />
-            </div>
-            <small>{t('shifts.countInstruction')}</small>
-          </label>
+          <div className="form-grid two-columns">
+            <label>
+              <span>{t('shifts.countedCash')}</span>
+              <div className="currency-input">
+                <span>$</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={closingCash}
+                  onChange={(event) => setClosingCash(event.target.value)}
+                  placeholder="0.00"
+                  required
+                />
+              </div>
+              <small>{t('shifts.countInstruction')}</small>
+            </label>
+            <label>
+              <span>{t('shifts.countedCashKhr')}</span>
+              <div className="currency-input">
+                <span>៛</span>
+                <input
+                  inputMode="numeric"
+                  min="0"
+                  step="100"
+                  value={closingCashKhr}
+                  onChange={(event) => setClosingCashKhr(event.target.value)}
+                  placeholder="0"
+                />
+              </div>
+              <small>{t('shifts.countInstructionKhr')}</small>
+            </label>
+          </div>
           <label>
             <span>{t('shifts.closingNote')}</span>
             <textarea rows={3} placeholder={t('shifts.handoverPlaceholder')} />
@@ -292,11 +323,12 @@ function ShiftRow({ shift }: { shift: Shift }) {
   const expected = ((shift.expectedCashUsdCents ?? 0) / 100).toFixed(2)
   const counted = ((shift.closingCashUsdCents ?? 0) / 100).toFixed(2)
   const variance = (shift.varianceUsdCents ?? 0) / 100
-  const varianceLabel = `${variance < 0 ? '−' : variance > 0 ? '+' : ''}$${Math.abs(variance).toFixed(2)}`
+  const varianceKhr = shift.varianceKhr ?? 0
+  const varianceLabel = `${variance < 0 ? '−' : variance > 0 ? '+' : ''}$${Math.abs(variance).toFixed(2)}${shift.status === 'Closed' ? ` · ៛${varianceKhr.toLocaleString()}` : ''}`
   const varianceClass =
-    variance < -0.01
+    variance < -0.01 || varianceKhr < -50
       ? 'coral-text'
-      : variance > 0.01
+      : variance > 0.01 || varianceKhr > 50
         ? 'amber-text'
         : 'green-text'
   return (
@@ -312,8 +344,18 @@ function ShiftRow({ shift }: { shift: Shift }) {
       </span>
       <span>{shift.openedBy || '—'}</span>
       <span>{duration(shift)}</span>
-      <strong>${expected}</strong>
-      <span>{shift.status === 'Closed' ? `$${counted}` : '—'}</span>
+      <strong>
+        ${expected}
+        {shift.expectedCashKhr ? (
+          <small className="khr-sub">· ៛{shift.expectedCashKhr.toLocaleString()}</small>
+        ) : null}
+      </strong>
+      <span>
+        {shift.status === 'Closed' ? `$${counted}` : '—'}
+        {shift.status === 'Closed' && shift.closingCashKhr ? (
+          <small className="khr-sub">· ៛{shift.closingCashKhr.toLocaleString()}</small>
+        ) : null}
+      </span>
       <strong className={varianceClass}>
         {shift.status === 'Closed' ? varianceLabel : '—'}
       </strong>

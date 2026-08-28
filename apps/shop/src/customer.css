@@ -1023,3 +1023,49 @@
   color: var(--subtle, #a0929a);
   font-size: calc(8px * var(--font-scale));
 }
+
+/* ============================================================
+   Fullscreen Mini App (Web App API 8.0+): with viewport-fit=cover
+   the app extends under the notch / home indicator, so pad the
+   scroll container and lift fixed docks by the safe-area insets.
+   ============================================================ */
+.customer-app {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+.customer-cart-dock {
+  margin-bottom: calc(14px + env(safe-area-inset-bottom));
+}
+.customer-error {
+  top: calc(10px + env(safe-area-inset-top));
+}
+.customer-order-status,
+.customer-state {
+  padding-top: calc(18px + env(safe-area-inset-top));
+  padding-left: max(18px, env(safe-area-inset-left));
+  padding-right: max(18px, env(safe-area-inset-right));
+}
+
+/* One-level category grouping in the storefront nav. */
+.customer-category-nav button.subcategory {
+  color: var(--color-muted, #796873);
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px dashed rgba(123, 61, 104, 0.18);
+}
+.customer-category-nav button.subcategory.active {
+  color: #ad154e;
+  background: #fff;
+  border-style: solid;
+}
+
+/* iOS Safari auto-zooms into focused inputs below 16px; keep form
+   controls at 16px+ on phones (pinch-zoom stays allowed). */
+@media (max-width: 700px) {
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+}

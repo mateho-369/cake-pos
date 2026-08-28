@@ -14,9 +14,10 @@ final class StaffNotificationService
         if (!$token || !$chat) {
             return false;
         }
+        $base = rtrim((string) config('services.telegram.api_base'), '/');
         try {
             return Http::timeout(8)
-                ->post("https://api.telegram.org/bot{$token}/sendMessage", [
+                ->post("{$base}/bot{$token}/sendMessage", [
                     'chat_id' => $chat,
                     'text' => $text,
                 ])

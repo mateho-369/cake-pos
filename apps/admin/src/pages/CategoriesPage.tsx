@@ -40,15 +40,21 @@ export default function CategoriesPage({
   const [saving, setSaving] = useState(false)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
 
+  // Top-level categories only — subcategories cannot have children (the API
+  // enforces the same one-level rule server-side).
+  const topLevel = categories.filter((item) => !item.parentId)
+
   const submitCategory = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
     setSaving(true)
     try {
+      const parent = String(form.get('parentCategoryId') || '')
       await createCategory({
         name: String(form.get('name') || ''),
         color: String(form.get('color') || '#be185d'),
         active: form.get('active') === 'on',
+        parentCategoryId: parent ? Number(parent) : null,
       })
       setCreateOpen(false)
       onToast(t('categories.created'))
@@ -65,10 +71,12 @@ export default function CategoriesPage({
     const form = new FormData(event.currentTarget)
     setSaving(true)
     try {
+      const parent = String(form.get('parentCategoryId') || '')
       await updateCategory(editing.id, {
         name: String(form.get('name') || editing.name),
         color: String(form.get('color') || editing.color),
         active: form.get('active') === 'on',
+        parentCategoryId: parent ? Number(parent) : null,
       })
       setEditing(null)
       onToast(t('categories.updated'))
@@ -149,7 +157,7 @@ export default function CategoriesPage({
           </div>
           {categories.map((category, index) => (
             <div
-              className={`category-row ${dragIndex === index ? 'dragging' : ''}`}
+              className={`category-row ${dragIndex === index ? 'dragging' : ''} ${category.parentId ? 'subcategory-row' : ''}`}
               key={category.id}
               draggable
               onDragStart={() => setDragIndex(index)}
@@ -163,6 +171,11 @@ export default function CategoriesPage({
                 <div>
                   <strong>{translateCategory(t, category.name)}</strong>
                   <small>
+                    {category.parentName
+                      ? `${t('categories.underParent', {
+                          parent: translateCategory(t, category.parentName),
+                        })} · `
+                      : ''}
                     {t('categories.position', { position: index + 1 })}
                   </small>
                 </div>
@@ -277,6 +290,18 @@ export default function CategoriesPage({
               />
             </label>
             <label>
+              <span>{t('categories.parentCategory')}</span>
+              <select name="parentCategoryId" defaultValue="">
+                <option value="">{t('categories.topLevel')}</option>
+                {topLevel.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {translateCategory(t, item.name)}
+                  </option>
+                ))}
+              </select>
+              <small>{t('categories.parentHint')}</small>
+            </label>
+            <label>
               <span>{t('categories.accentColor')}</span>
               <div className="color-options">
                 {colorOptions.map((color, index) => (
@@ -327,6 +352,23 @@ export default function CategoriesPage({
               <label>
                 <span>{t('categories.categoryName')}</span>
                 <input name="name" defaultValue={editing.name} required />
+              </label>
+              <label>
+                <span>{t('categories.parentCategory')}</span>
+                <select
+                  name="parentCategoryId"
+                  defaultValue={editing.parentId ? String(editing.parentId) : ''}
+                >
+                  <option value="">{t('categories.topLevel')}</option>
+                  {topLevel
+                    .filter((item) => item.id !== editing.id)
+                    .map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {translateCategory(t, item.name)}
+                      </option>
+                    ))}
+                </select>
+                <small>{t('categories.parentHint')}</small>
               </label>
               <label>
                 <span>{t('categories.accentColor')}</span>

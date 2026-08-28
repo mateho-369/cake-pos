@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Clock3, Plus, ShoppingBag, X } from 'lucide-react'
 import { useStaffAuth } from './auth/StaffAuthContext'
 import LoginScreen from './components/LoginScreen'
@@ -17,7 +17,12 @@ import { useSaleData } from './lib/data'
 import CustomerApp from './CustomerApp'
 import CustomerDisplay from './components/CustomerDisplay'
 
-type Shift = { startedAt: string; openingCash: number }
+type Shift = {
+  startedAt: string
+  openingCash: number
+  openingCashKhr?: number
+  expectedCashKhr?: number
+}
 type Success = { total: number; method: PaymentMethod; orderId: string }
 type PendingSaleAction =
   { type: 'add'; product: Product } | { type: 'checkout' } | null
@@ -51,6 +56,7 @@ function SaleTerminal() {
     orders,
     nextOrderNumber,
     defaultShelfLifeDays,
+    exchangeRateKhrPerUsd,
     createProduct,
     createOrder,
     currentShift,
@@ -68,6 +74,7 @@ function SaleTerminal() {
   const [discountValue, setDiscountValue] = useState('')
   const [checkoutKey, setCheckoutKey] = useState(() => newCheckoutKey())
   const [tendered, setTendered] = useState('')
+  const [tenderedKhr, setTenderedKhr] = useState('')
   const [khqrConfirmed, setKhqrConfirmed] = useState(false)
   const [shift, setShift] = useState<Shift | null>(null)
   const [shiftModal, setShiftModal] = useState(false)
@@ -190,22 +197,36 @@ function SaleTerminal() {
   // a cashier can browse the catalog freely; the open-shift prompt only
   // appears when they actually try to make a sale (see addToCart /
   // completePayment below) or click the shift banner/header button.
+  // The data context polls /api/shifts/current every 15s, so a shift closed
+  // or opened on ANOTHER terminal reflects here too. The modal is only
+  // dismissed on a real open↔closed TRANSITION — never while the cashier is
+  // mid-typing into an unchanged open shift.
+  const hydratedShiftState = useRef<boolean | null>(null)
   useEffect(() => {
     if (currentShift === undefined) return
-    if (currentShift) {
+    const liveShift = currentShift
+    const nowOpen = Boolean(liveShift)
+    const previous = hydratedShiftState.current
+    hydratedShiftState.current = nowOpen
+    if (liveShift) {
       setShift({
-        openingCash: currentShift.openingCash,
+        openingCash: liveShift.openingCash,
+        openingCashKhr: liveShift.openingCashKhr ?? 0,
+        expectedCashKhr: liveShift.expectedCashKhr ?? 0,
         startedAt:
-          currentShift.startedAt ||
+          liveShift.startedAt ||
           new Intl.DateTimeFormat('en', {
             hour: 'numeric',
             minute: '2-digit',
-          }).format(new Date(currentShift.openedAt || Date.now())),
+          }).format(new Date(liveShift.openedAt || Date.now())),
       })
-      setShiftModal(false)
     } else {
       setShift(null)
+    }
+    if (previous !== null && previous !== nowOpen) {
       setShiftModal(false)
+      setPendingAction(null)
+      setShiftResume(null)
     }
   }, [currentShift])
   useEffect(() => {
@@ -279,7 +300,10 @@ function SaleTerminal() {
   const changePayment = (method: PaymentMethod) => {
     setPayment(method)
     if (method === 'cash') setKhqrConfirmed(false)
-    else setTendered('')
+    else {
+      setTendered('')
+      setTenderedKhr('')
+    }
   }
   const completePayment = async () => {
     if (!shift) {
@@ -287,6 +311,21 @@ function SaleTerminal() {
       return
     }
     try {
+      // Mixed-currency split tender: both fields are independent; the
+      // server validates the combined value covers the total and records
+      // cash_usd_cents and cash_khr as two distinct per-currency values
+      // (never blended), so the shift drawer reconciles per currency.
+      const usdCents = Math.round(Math.max(0, Number(tendered || 0)) * 100)
+      const khrReceived = Math.max(
+        0,
+        Math.round(Number(tenderedKhr.replace(/[^0-9.]/g, '') || 0)),
+      )
+      const rate = exchangeRateKhrPerUsd
+      const totalCents = Math.round(cartTotal * 100)
+      const changeCentRiel = Math.max(
+        0,
+        usdCents * rate + khrReceived * 100 - totalCents * rate,
+      )
       const order = await createOrder({
         payment: payment === 'cash' ? 'Cash' : 'KHQR',
         items: cart.map((item) => ({
@@ -298,13 +337,22 @@ function SaleTerminal() {
           : {}),
         idempotencyKey: checkoutKey,
         confirmed: payment === 'khqr' ? khqrConfirmed : undefined,
-        ...(payment === 'cash' && tendered
-          ? { usdReceivedCents: Math.round(Number(tendered) * 100) }
+        ...(payment === 'cash'
+          ? {
+              usdReceivedCents: usdCents,
+              khrReceived,
+              // Change is handed back in USD by default; the ៛ figure shown
+              // in the panel is the equivalent (rounded to ៛100) display.
+              changeUsdCents: Math.round(changeCentRiel / rate / 100),
+              changeKhr: 0,
+              exchangeRateKhrPerUsd: rate,
+            }
           : {}),
       })
       setSuccess({ total: order.total, method: payment, orderId: order.id })
       setCart([])
       setTendered('')
+      setTenderedKhr('')
       setDiscountValue('')
       setCheckoutKey(newCheckoutKey())
       setKhqrConfirmed(false)
@@ -331,12 +379,14 @@ function SaleTerminal() {
     setShiftMode(shift ? 'close' : 'open')
     setShiftModal(true)
   }
-  const confirmShift = async (amount: number) => {
+  const confirmShift = async (amount: number, amountKhr = 0) => {
     try {
       if (shiftMode === 'open') {
-        const result = await openShift(amount)
+        const result = await openShift(amount, amountKhr)
         setShift({
           openingCash: result.openingCash,
+          openingCashKhr: result.openingCashKhr ?? 0,
+          expectedCashKhr: result.expectedCashKhr ?? 0,
           startedAt:
             result.startedAt ||
             new Intl.DateTimeFormat('en', {
@@ -344,7 +394,10 @@ function SaleTerminal() {
               minute: '2-digit',
             }).format(new Date()),
         })
-        setToast(t('sale.shiftOpenedWith', { amount: amount.toFixed(2) }))
+        setToast(
+          t('sale.shiftOpenedWith', { amount: amount.toFixed(2) }) +
+            (amountKhr ? ` · ៛${amountKhr.toLocaleString()}` : ''),
+        )
         // Run the sale action that was waiting on the shift (e.g. taking
         // payment for a held customer order).
         if (shiftResume) {
@@ -353,7 +406,7 @@ function SaleTerminal() {
           resume()
         }
       } else {
-        const result = await closeShift(amount)
+        const result = await closeShift(amount, amountKhr)
         setShift(null)
         setCashSales(0)
         setToast(
@@ -477,6 +530,9 @@ function SaleTerminal() {
           onPayment={changePayment}
           tendered={tendered}
           onTendered={setTendered}
+          tenderedKhr={tenderedKhr}
+          onTenderedKhr={setTenderedKhr}
+          rate={exchangeRateKhrPerUsd}
           khqrConfirmed={khqrConfirmed}
           onKhqrConfirmed={setKhqrConfirmed}
           onComplete={completePayment}
@@ -517,7 +573,13 @@ function SaleTerminal() {
         open={shiftModal}
         mode={shiftMode}
         expectedCash={expectedCash}
+        expectedCashKhr={
+          // Authoritative per-currency expected drawer from the server
+          // (opening ៛ + net ៛ cash sales), kept live by the shift poll.
+          currentShift?.expectedCashKhr ?? shift?.openingCashKhr ?? 0
+        }
         openingCash={shift?.openingCash || 0}
+        openingCashKhr={shift?.openingCashKhr || 0}
         cashSales={cashSales}
         employeeName={employee?.name || ''}
         shiftStartedAt={shift?.startedAt}

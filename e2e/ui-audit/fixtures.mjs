@@ -13,6 +13,7 @@ export const products = [
     id: 1,
     name: 'Vanilla Celebration',
     category: 'Signature',
+    categoryId: 1,
     price: 12,
     stock: 2,
     sold: 4,
@@ -31,6 +32,7 @@ export const products = [
     id: 2,
     name: 'Chocolate Fudge',
     category: 'Signature',
+    categoryId: 1,
     price: 10,
     stock: 6,
     sold: 2,
@@ -66,8 +68,9 @@ export const products = [
 ]
 
 export const categories = [
-  { id: 1, name: 'Signature', items: 2, active: 1, revenue: 68, color: '#be185d', sortOrder: 0 },
-  { id: 2, name: 'Seasonal', items: 1, active: 1, revenue: 0, color: '#3b82f6', sortOrder: 1 },
+  { id: 1, name: 'Signature', parentId: null, parentName: null, items: 2, active: 1, revenue: 68, color: '#be185d', sortOrder: 0 },
+  { id: 2, name: 'Seasonal', parentId: null, parentName: null, items: 1, active: 1, revenue: 0, color: '#3b82f6', sortOrder: 1 },
+  { id: 3, name: 'Latte', parentId: 2, parentName: 'Seasonal', items: 0, active: 0, revenue: 0, color: '#d97706', sortOrder: 2 },
 ]
 
 export const orders = [

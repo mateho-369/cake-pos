@@ -1307,6 +1307,378 @@ class ApiContractTest extends TestCase
             ['X-Telegram-Bot-Api-Secret-Token' => 'wrong'],
         )->assertUnauthorized();
     }
+
+    /**
+     * Regression for the reported "unknown category: Signature" rejection:
+     * product creation must validate against the real categories table the
+     * admin manages — by id primarily, by name only for legacy callers.
+     */
+    public function test_product_category_validates_against_real_categories_not_a_fixed_list(): void
+    {
+        $admin = Employee::where('role', 'admin')->first();
+        $headers = $this->auth($admin);
+
+        // The admin creates a brand-new category through the real endpoint.
+        $created = $this->postJson(
+            '/api/categories',
+            ['name' => 'Latte Art', 'color' => '#059669', 'active' => true],
+            $headers,
+        )->assertCreated()->json();
+        $this->assertDatabaseHas('categories', ['name' => 'Latte Art']);
+
+        // A product in that new category is accepted immediately (by id).
+        $product = $this->postJson(
+            '/api/products',
+            [
+                'name' => 'Iced Latte',
+                'categoryId' => $created['id'],
+                'price' => 2.5,
+                'stock' => 10,
+            ],
+            $headers,
+        )
+            ->assertCreated()
+            ->json();
+        $this->assertSame('Latte Art', $product['category']);
+        $this->assertDatabaseHas('products', [
+            'id' => $product['id'],
+            'category_id' => $created['id'],
+        ]);
+
+        // Legacy name-based callers (sale quick-add, CSV import) still work.
+        $byName = $this->postJson(
+            '/api/products',
+            [
+                'name' => 'Flat White',
+                'category' => 'Latte Art',
+                'price' => 3,
+                'stock' => 5,
+            ],
+            $headers,
+        )->assertCreated()->json();
+        $this->assertSame($created['id'], DB::table('products')->where('id', $byName['id'])->value('category_id'));
+
+        // Renaming the category never orphans the product (id stays stable).
+        $this->putJson(
+            "/api/categories/{$created['id']}",
+            ['name' => 'Latte Art ២'],
+            $headers,
+        )->assertOk();
+        $this->assertSame(
+            $created['id'],
+            DB::table('products')->where('id', $product['id'])->value('category_id'),
+        );
+
+        // Unknown ids and names are both still rejected.
+        $this->postJson(
+            '/api/products',
+            ['name' => 'X', 'categoryId' => 999999, 'price' => 1, 'stock' => 1],
+            $headers,
+        )->assertUnprocessable()->assertJsonValidationErrors('category');
+        $this->postJson(
+            '/api/products',
+            ['name' => 'X', 'category' => 'Nope', 'price' => 1, 'stock' => 1],
+            $headers,
+        )->assertUnprocessable()->assertJsonValidationErrors('category');
+    }
+
+    public function test_category_hierarchy_supports_one_level_of_subcategories(): void
+    {
+        $admin = Employee::where('role', 'admin')->first();
+        $headers = $this->auth($admin);
+
+        $parent = $this->postJson(
+            '/api/categories',
+            ['name' => 'Drinks ជប់លៀង', 'active' => true],
+            $headers,
+        )->assertCreated()->json();
+        $child = $this->postJson(
+            '/api/categories',
+            [
+                'name' => 'Coffee',
+                'active' => true,
+                'parentCategoryId' => $parent['id'],
+            ],
+            $headers,
+        )->assertCreated()->json();
+        $this->assertSame($parent['id'], $child['parentId']);
+
+        // The index exposes the grouping for pickers.
+        $list = $this->getJson('/api/categories', $headers)
+            ->assertOk()
+            ->json();
+        $childRow = collect($list)->first(fn($c) => $c['id'] === $child['id']);
+        $this->assertSame($parent['id'], $childRow['parentId']);
+        $this->assertSame('Drinks ជប់លៀង', $childRow['parentName']);
+        $parentRow = collect($list)->first(fn($c) => $c['id'] === $parent['id']);
+        $this->assertNull($parentRow['parentId']);
+
+        // Existing flat categories are unaffected (parent stays null).
+        $flat = $this->postJson(
+            '/api/categories',
+            ['name' => 'Seasonal / Holiday', 'active' => true],
+            $headers,
+        )->assertCreated()->json();
+        $this->assertNull($flat['parentId']);
+
+        // One level only: a subcategory cannot have children…
+        $this->postJson(
+            '/api/categories',
+            [
+                'name' => 'Espresso',
+                'active' => true,
+                'parentCategoryId' => $child['id'],
+            ],
+            $headers,
+        )->assertUnprocessable();
+        // …and a category cannot become its own parent.
+        $this->putJson(
+            "/api/categories/{$parent['id']}",
+            ['parentCategoryId' => $parent['id']],
+            $headers,
+        )->assertUnprocessable();
+
+        // A parent can be cleared again (back to top-level).
+        $this->putJson(
+            "/api/categories/{$child['id']}",
+            ['parentCategoryId' => null],
+            $headers,
+        )->assertOk();
+        $this->assertNull(
+            DB::table('categories')->where('id', $child['id'])->value('parent_category_id'),
+        );
+    }
+
+    public function test_deactivating_or_zeroing_stock_requires_a_reason_and_writes_audit_events(): void
+    {
+        $admin = Employee::where('role', 'admin')->first();
+        $headers = $this->auth($admin);
+        $product = Product::where('stock', '>', 0)->where('active', true)->first();
+
+        // Deactivating without a reason is refused and changes nothing.
+        $this->putJson(
+            "/api/products/{$product->id}",
+            ['active' => false],
+            $headers,
+        )
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('reasonCode');
+        $this->assertTrue((bool) $product->fresh()->active);
+
+        // With a reason it succeeds and the accountability trail records
+        // who/when/why plus the before/after state.
+        $this->putJson(
+            "/api/products/{$product->id}",
+            ['active' => false, 'reasonCode' => 'seasonal_return', 'reasonNote' => 'Back for New Year'],
+            $headers,
+        )->assertOk();
+        $this->assertFalse((bool) $product->fresh()->active);
+
+        // Manually zeroing stock needs its own reason event.
+        $evergreen = Product::where('stock', '>', 0)->first();
+        $this->putJson(
+            "/api/products/{$evergreen->id}",
+            ['stock' => 0, 'reasonCode' => 'out_of_stock'],
+            $headers,
+        )->assertOk();
+        $this->assertSame(0, (int) $evergreen->fresh()->stock);
+
+        // Zeroing an already-zero stock is not a new event.
+        $this->putJson(
+            "/api/products/{$evergreen->id}",
+            ['stock' => 0, 'reasonCode' => 'out_of_stock'],
+            $headers,
+        )->assertOk();
+
+        // The audit endpoint surfaces them, filterable per product.
+        $rows = $this->getJson(
+            "/api/reports/audit?productId={$product->id}",
+            $headers,
+        )
+            ->assertOk()
+            ->json();
+        $this->assertCount(1, $rows);
+        $this->assertSame('product.deactivated', $rows[0]['action']);
+        $this->assertSame($admin->name, $rows[0]['employee']);
+        $this->assertSame('seasonal_return', $rows[0]['details']['reasonCode']);
+        $this->assertSame('Back for New Year', $rows[0]['details']['reasonNote']);
+        $this->assertSame(true, $rows[0]['details']['activeBefore']);
+        $this->assertSame(false, $rows[0]['details']['activeAfter']);
+
+        $zeroRows = $this->getJson(
+            "/api/reports/audit?productId={$evergreen->id}",
+            $headers,
+        )->assertOk()->json();
+        $this->assertSame('product.stock_zeroed', $zeroRows[0]['action']);
+        $this->assertGreaterThan(0, $zeroRows[0]['details']['stockBefore']);
+        $this->assertSame(0, $zeroRows[0]['details']['stockAfter']);
+    }
+
+    /**
+     * Mixed-currency split tender: $8.00 + ៛8,200 at the configured 4100
+     * rate exactly covers a $10.00 total. Both tendered amounts must be
+     * recorded as distinct per-currency values and flow into the shift's
+     * per-currency expected drawer / variance.
+     */
+    public function test_mixed_currency_cash_payment_records_both_tenders_and_reconciles_by_currency(): void
+    {
+        $cashier = Employee::where('role', 'cashier')->first();
+        $headers = $this->auth($cashier);
+        $this->assertSame(4100, \App\Support\ExchangeRate::current());
+
+        $this->postJson(
+            '/api/shifts/open',
+            ['openingCash' => '100.00', 'openingCashKhr' => 40000],
+            $headers,
+        )->assertCreated();
+
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]); // $10.00
+
+        $orderId = $this->postJson(
+            '/api/orders',
+            [
+                'payment' => 'Cash',
+                'items' => [['productId' => $product->id, 'quantity' => 1]],
+                'idempotencyKey' => (string) Str::uuid(),
+                'usdReceivedCents' => 800,
+                'khrReceived' => 8200,
+                'changeUsdCents' => 0,
+                'changeKhr' => 0,
+                'exchangeRateKhrPerUsd' => 4100,
+            ],
+            $headers,
+        )
+            ->assertCreated()
+            ->json('id');
+
+        $payment = DB::table('order_payments')->where('order_id', $orderId)->first();
+        $this->assertSame(800, (int) $payment->tendered_usd_cents);
+        $this->assertSame(8200, (int) $payment->tendered_khr);
+        $this->assertSame(0, (int) $payment->change_usd_cents);
+        $this->assertSame(0, (int) $payment->change_khr);
+        $this->assertSame(4100, (int) $payment->exchange_rate_khr_per_usd);
+
+        // Short tender (USD alone below the total) must be refused.
+        $this->postJson(
+            '/api/orders',
+            [
+                'payment' => 'Cash',
+                'items' => [['productId' => $product->id, 'quantity' => 1]],
+                'idempotencyKey' => (string) Str::uuid(),
+                'usdReceivedCents' => 500,
+                'khrReceived' => 0,
+            ],
+            $headers,
+        )
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('payment');
+
+        // The open shift's expected drawer is tracked per currency.
+        $current = $this->getJson('/api/shifts/current', $headers)
+            ->assertOk()
+            ->json();
+        $this->assertSame(10000 + 800, $current['expectedCashUsdCents']);
+        $this->assertSame(40000 + 8200, $current['expectedCashKhr']);
+
+        // Closing with both physical piles counted exact → zero variance in
+        // BOTH currencies (never a blended USD-equivalent number).
+        $closed = $this->postJson(
+            '/api/shifts/close',
+            ['closingCash' => '108.00', 'closingCashKhr' => 48200],
+            $headers,
+        )->assertOk()->json();
+        $this->assertSame(0.0, $closed['variance']);
+        $shift = DB::table('shifts')->latest('id')->first();
+        $this->assertSame(0, (int) $shift->variance_usd_cents);
+        $this->assertSame(0, (int) $shift->variance_khr);
+    }
+
+    /**
+     * Item 10: a completed sale must actually DISPATCH and SEND the staff
+     * Telegram message — asserted against the real HTTP call the queued job
+     * makes, not just the job class existing.
+     */
+    public function test_completed_sale_dispatches_and_sends_staff_telegram_notification(): void
+    {
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        config([
+            'services.telegram.staff_bot_token' => '123:staff-token',
+        ]);
+        $cashier = Employee::where('role', 'cashier')->first();
+        $product = Product::first();
+        $product->update(['price_cents' => 1250, 'stock' => 20]);
+
+        $orderId = $this->createPaidOrder($cashier, $product, 'Cash', 2);
+
+        // QUEUE_CONNECTION=sync in the test env: the queued job has already
+        // run inside the request. Assert the real sendMessage was sent.
+        Http::assertSent(
+            fn($request) => str_contains(
+                $request->url(),
+                'bot123:staff-token/sendMessage',
+            ) &&
+                str_contains((string) $request['text'], $orderId) &&
+                str_contains((string) $request['text'], 'Order completed') &&
+                str_contains((string) $request['text'], '25.00') &&
+                str_contains((string) $request['text'], $cashier->name),
+        );
+    }
+
+    public function test_shop_webhook_start_sends_bilingual_welcome_with_mini_app_button(): void
+    {
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        config([
+            'services.telegram.bot_token' => '123:shop-token',
+            'services.telegram.webhook_secret' => 'sekret',
+            'services.telegram.shop_mini_app_url' => 'https://shop.gcake.test',
+        ]);
+        Setting::updateOrCreate(
+            ['key' => 'business_profile'],
+            [
+                'value_json' => [
+                    'businessName' => 'G-Cake',
+                    'address' => 'St 63, Phnom Penh',
+                    'phone' => '+85512345678',
+                ],
+                'updated_at' => now(),
+            ],
+        );
+
+        $this->postJson(
+            '/api/telegram/webhook',
+            [
+                'message' => [
+                    'text' => '/start',
+                    'from' => ['id' => 555, 'first_name' => 'Dara'],
+                ],
+            ],
+            ['X-Telegram-Bot-Api-Secret-Token' => 'sekret'],
+        )->assertOk();
+
+        Http::assertSent(function ($request) {
+            if (
+                !str_contains(
+                    $request->url(),
+                    'bot123:shop-token/sendMessage',
+                )
+            ) {
+                return false;
+            }
+            $text = (string) $request['text'];
+            $markup = json_decode((string) $request['reply_markup'], true);
+            $buttons = $markup['inline_keyboard'] ?? [];
+            $primary = $buttons[0][0] ?? [];
+            $secondary = $buttons[1][0] ?? [];
+            return str_contains($text, 'សូមស្វាគមន៍') &&
+                str_contains($text, 'Welcome to G-Cake') &&
+                $primary['type'] === 'web_app' &&
+                $primary['web_app']['url'] === 'https://shop.gcake.test' &&
+                str_contains($primary['text'], 'Open Shop') &&
+                $secondary['type'] === 'url' &&
+                str_contains($secondary['url'], 'maps.google.com');
+        });
+    }
 }
 
 final class MoneyForTest

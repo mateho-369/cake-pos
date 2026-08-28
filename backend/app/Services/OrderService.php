@@ -127,18 +127,42 @@ class OrderService
                         'confirmed' => ['Cashier confirmation is required'],
                     ]);
                 }
+                $usd = (int) ($input['usdReceivedCents'] ?? $total);
+                $khr = (int) ($input['khrReceived'] ?? 0);
+                $rate = ExchangeRate::current();
+                if (
+                    isset($input['exchangeRateKhrPerUsd']) &&
+                    (int) $input['exchangeRateKhrPerUsd'] !== $rate
+                ) {
+                    throw ValidationException::withMessages([
+                        'exchangeRateKhrPerUsd' => ['Exchange rate is stale'],
+                    ]);
+                }
+                if ($method === 'cash') {
+                    // Mixed-currency tender (USD notes + riel notes) is valid
+                    // as long as the combined value covers the total — the
+                    // same integer math the delayed /pay path uses. Both
+                    // tendered amounts are stored as distinct per-currency
+                    // values, never blended, so shift reconciliation can
+                    // compare against a physical two-pile drawer count.
+                    $due = $total * $rate;
+                    $tender = $usd * $rate + $khr * 100;
+                    if ($tender < $due) {
+                        throw ValidationException::withMessages([
+                            'payment' => ['Tender is below the amount due'],
+                        ]);
+                    }
+                }
                 OrderPayment::create([
                     'order_id' => $order->id,
                     'method' => $method,
                     'status' => 'confirmed',
                     'amount_usd_cents' => $total,
-                    'exchange_rate_khr_per_usd' => ExchangeRate::current(),
+                    'exchange_rate_khr_per_usd' => $rate,
                     'tendered_usd_cents' =>
-                        $method === 'cash'
-                            ? $input['usdReceivedCents'] ?? $total
-                            : null,
+                        $method === 'cash' ? $usd : null,
                     'tendered_khr' =>
-                        $method === 'cash' ? $input['khrReceived'] ?? 0 : null,
+                        $method === 'cash' ? $khr : null,
                     'change_usd_cents' =>
                         $method === 'cash'
                             ? $input['changeUsdCents'] ?? 0

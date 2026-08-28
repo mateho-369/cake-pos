@@ -1,5 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react'
-import { uploadImage } from '@cake-pos/uploads'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
   Archive,
   ChevronDown,
@@ -9,15 +8,25 @@ import {
   Plus,
   Search,
   Send,
+  ShieldQuestion,
   Trash2,
   Upload,
 } from 'lucide-react'
 import { type Product } from '../data'
 import Modal from '../components/Modal'
+import ImageSourcePicker from '../components/ImageSourcePicker'
 import { translateCategory, useTranslation } from '../lib/i18n'
 import { apiRequest } from '../lib/api'
 import { useAdminData } from '../lib/data'
 import ProductImportModal from '../components/ProductImportModal'
+
+export const DEACTIVATION_REASONS = [
+  { id: 'out_of_stock', key: 'reasons.outOfStock' },
+  { id: 'discontinued', key: 'reasons.discontinued' },
+  { id: 'quality', key: 'reasons.quality' },
+  { id: 'seasonal_return', key: 'reasons.seasonalReturn' },
+  { id: 'other', key: 'reasons.other' },
+] as const
 
 type ProductsPageProps = {
   onAdd: () => void
@@ -31,7 +40,6 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
   const [editing, setEditing] = useState<Product | null>(null)
-  const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [photoError, setPhotoError] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [deleteConfirmProduct, setDeleteConfirmProduct] =
@@ -39,6 +47,27 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
   const [deleteInProgress, setDeleteInProgress] = useState(false)
   const [listDeleteError, setListDeleteError] = useState<string | null>(null)
   const [view, setView] = useState<'table' | 'grid'>('table')
+  // Image picker target: {slotIndex} replaces an existing gallery slot, or
+  // -1 appends a new one. Shared with the broadcast composer (item 6/12).
+  const [pickerTarget, setPickerTarget] = useState<number | null>(null)
+  // Reason prompt shown when an edit deactivates the product or zeroes its
+  // stock manually — the API refuses those changes without a reason.
+  const [reasonPrompt, setReasonPrompt] = useState<{
+    pending: Record<string, unknown>
+    action: 'deactivate' | 'stock-zero' | 'both'
+  } | null>(null)
+  const [reasonCode, setReasonCode] = useState<string>(
+    DEACTIVATION_REASONS[0].id,
+  )
+  const [reasonNote, setReasonNote] = useState('')
+  // Latest accountability reason recorded for the product being edited.
+  const [lastReason, setLastReason] = useState<{
+    action: string
+    reasonCode: string
+    reasonNote: string | null
+    employee: string
+    at: string
+  } | null>(null)
   const [broadcastFor, setBroadcastFor] = useState<Product | null>(null)
   const [broadcastCaption, setBroadcastCaption] = useState('')
   const [broadcastSending, setBroadcastSending] = useState(false)
@@ -119,6 +148,7 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
   )
   const beginEdit = (product: Product) => {
     setPhotoError(null)
+    setLastReason(null)
     const existingImages =
       product.images && product.images.length
         ? product.images
@@ -126,44 +156,49 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
           ? [{ url: product.imageUrl, caption: '' }]
           : []
     setEditing({ ...product, images: existingImages })
+    // Pull this product's accountability trail (deactivation / stock-zero
+    // reasons) so the admin can review WHY it ever left the floor.
+    apiRequest<
+      Array<{
+        action: string
+        details: {
+          reasonCode?: string
+          reasonNote?: string | null
+        }
+        employee: string
+        at: string
+      }>
+    >(
+      `/api/reports/audit?productId=${product.id}&from=2000-01-01&to=2099-12-31`,
+    )
+      .then((rows) => {
+        const latest = rows[0]
+        if (latest?.details?.reasonCode) {
+          setLastReason({
+            action: latest.action,
+            reasonCode: latest.details.reasonCode,
+            reasonNote: latest.details.reasonNote ?? null,
+            employee: latest.employee,
+            at: latest.at,
+          })
+        }
+      })
+      .catch(() => undefined)
   }
 
-  const uploadProductPhoto = async (file?: File, slotIndex = -1) => {
-    if (!file || !editing) return
-    setUploadingPhoto(true)
-    setPhotoError(null)
-    try {
-      const uploaded = await uploadImage(file, apiRequest)
-      setEditing((current) => {
-        if (!current) return current
-        const images = current.images ? [...current.images] : []
-        if (slotIndex >= 0 && slotIndex < images.length) {
-          images[slotIndex] = {
-            ...images[slotIndex],
-            url: uploaded.publicUrl,
-          }
-        } else if (images.length < 5) {
-          images.push({ url: uploaded.publicUrl, caption: '' })
-        } else {
-          images[images.length - 1] = {
-            ...images[images.length - 1],
-            url: uploaded.publicUrl,
-          }
-        }
-        const next = {
-          ...current,
-          images,
-          imageUrl: images[0]?.url || current.imageUrl,
-        }
-        return next
-      })
-    } catch (reason) {
-      setPhotoError(
-        reason instanceof Error ? reason.message : 'Photo upload failed',
-      )
-    } finally {
-      setUploadingPhoto(false)
-    }
+  const applyPickedImage = (url: string, slotIndex: number) => {
+    setEditing((current) => {
+      if (!current) return current
+      const images = current.images ? [...current.images] : []
+      if (slotIndex >= 0 && slotIndex < images.length) {
+        images[slotIndex] = { ...images[slotIndex], url }
+      } else if (images.length < 5) {
+        images.push({ url, caption: '' })
+      } else {
+        images[images.length - 1] = { ...images[images.length - 1], url }
+      }
+      return { ...current, images, imageUrl: images[0]?.url || current.imageUrl }
+    })
   }
 
   const updateImage = (
@@ -191,19 +226,25 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
         : current,
     )
 
-  const addImageSlot = () =>
-    setEditing((current) => {
-      if (!current) return current
-      const images = current.images ? [...current.images] : []
-      if (images.length >= 5) return current
-      images.push({ url: '', caption: '' })
-      return { ...current, images }
-    })
-
-  const archiveEditing = async () => {
+  const archiveEditing = () => {
     if (!editing) return
+    // Archiving IS deactivating: it needs an accountability reason, which
+    // the API enforces. The reason prompt then performs the archive.
+    setReasonPrompt({ pending: { active: false }, action: 'deactivate' })
+    setReasonCode(DEACTIVATION_REASONS[0].id)
+    setReasonNote('')
+  }
+
+  const submitWithReason = async () => {
+    if (!reasonPrompt || !editing) return
+    const input = {
+      ...reasonPrompt.pending,
+      reasonCode,
+      ...(reasonNote.trim() ? { reasonNote: reasonNote.trim() } : {}),
+    } as Parameters<typeof updateProduct>[1]
     try {
-      await updateProduct(editing.id, { active: false })
+      await updateProduct(editing.id, input)
+      setReasonPrompt(null)
       setEditing(null)
       onToast(t('common.archived'))
     } catch (reason) {
@@ -274,18 +315,32 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
         sortOrder: (editing.images || []).indexOf(image),
       }))
       .filter((image) => Boolean(image.url))
-    await updateProduct(editing.id, {
+    const input = {
       name: String(form.get('name') || editing.name),
-      category: String(form.get('category') || editing.category),
+      categoryId: Number(form.get('categoryId') || editing.categoryId || 0),
       price: Number(form.get('price') || editing.price),
-      stock: Number(form.get('stock') || editing.stock),
+      stock: Number(form.get('stock') ?? editing.stock),
       madeAt: String(form.get('madeAt') || editing.madeAt),
       bestBefore: String(form.get('bestBefore') || editing.bestBefore),
       imageUrl: images[0]?.url || editing.imageUrl || undefined,
       images,
       active: form.get('active') === 'on',
       hideWhenOutOfStock: form.get('hideWhenOutOfStock') === 'on',
-    })
+    }
+    const deactivating = editing.active && !input.active
+    const zeroing = editing.stock > 0 && input.stock === 0
+    if (deactivating || zeroing) {
+      // Manual deactivation / stock-zeroing needs an accountability reason
+      // (the API rejects the change without one). Prompt first, then save.
+      setReasonPrompt({
+        pending: input,
+        action: deactivating && zeroing ? 'both' : deactivating ? 'deactivate' : 'stock-zero',
+      })
+      setReasonCode(DEACTIVATION_REASONS[0].id)
+      setReasonNote('')
+      return
+    }
+    await updateProduct(editing.id, input)
     setEditing(null)
     onToast(t('catalog.saved'))
   }
@@ -656,7 +711,8 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
               <div className="edit-product-gallery">
                 {(editing.images || []).map((image, index) => (
                   <div className="edit-gallery-slot" key={index}>
-                    <label
+                    <button
+                      type="button"
                       className={`edit-gallery-photo ${image.url ? 'has-photo' : ''}`}
                       style={
                         image.url
@@ -667,23 +723,11 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
                             }
                           : undefined
                       }
+                      onClick={() => setPickerTarget(index)}
+                      aria-label={image.url ? 'Replace image' : 'Add image'}
                     >
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        disabled={uploadingPhoto}
-                        onChange={(event) => {
-                          void uploadProductPhoto(
-                            event.target.files?.[0],
-                            index,
-                          )
-                          event.target.value = ''
-                        }}
-                      />
-                      <span>
-                        {uploadingPhoto ? '…' : image.url ? 'Replace' : '+'}
-                      </span>
-                    </label>
+                      <span>{image.url ? 'Replace' : '+'}</span>
+                    </button>
                     <input
                       className="edit-gallery-caption"
                       value={image.caption || ''}
@@ -706,7 +750,7 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
                   <button
                     type="button"
                     className="add-gallery-slot"
-                    onClick={addImageSlot}
+                    onClick={() => setPickerTarget(-1)}
                   >
                     <Plus size={17} /> Add image
                   </button>
@@ -731,6 +775,23 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
             {deleteError && (
               <div className="form-notice warning">{deleteError}</div>
             )}
+            {lastReason && (
+              <div className="form-notice reason-history">
+                <ShieldQuestion size={16} />
+                <span>
+                  {t('reasons.lastRecorded', {
+                    action:
+                      lastReason.action === 'product.deactivated'
+                        ? t('reasons.deactivatedAction')
+                        : t('reasons.zeroedAction'),
+                    code: reasonLabel(t, lastReason.reasonCode),
+                    employee: lastReason.employee,
+                    date: new Date(lastReason.at).toLocaleDateString(),
+                  })}
+                  {lastReason.reasonNote ? ` — “${lastReason.reasonNote}”` : ''}
+                </span>
+              </div>
+            )}
             <div className="form-grid two-columns">
               <label>
                 <span>{t('catalog.productName')}</span>
@@ -738,12 +799,34 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
               </label>
               <label>
                 <span>{t('catalog.category')}</span>
-                <select name="category" defaultValue={editing.category}>
-                  {categories.map((item) => (
-                    <option key={item.name} value={item.name}>
-                      {translateCategory(t, item.name)}
-                    </option>
-                  ))}
+                <select
+                  name="categoryId"
+                  defaultValue={String(
+                    editing.categoryId ??
+                      categories.find((c) => c.name === editing.category)?.id ??
+                      '',
+                  )}
+                >
+                  {categorySelectGroups(categories).map((group) =>
+                    group.parent ? (
+                      <optgroup
+                        key={`g-${group.parent.id}`}
+                        label={translateCategory(t, group.parent.name)}
+                      >
+                        {group.children.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {translateCategory(t, item.name)}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : (
+                      group.children.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {translateCategory(t, item.name)}
+                        </option>
+                      ))
+                    ),
+                  )}
                 </select>
                 <ChevronDown size={15} />
               </label>
@@ -839,7 +922,7 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
                 >
                   {t('common.cancel')}
                 </button>
-                <button className="primary-button" disabled={uploadingPhoto}>
+                <button className="primary-button">
                   <Edit3 size={16} /> {t('catalog.saveChanges')}
                 </button>
               </span>
@@ -847,9 +930,132 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
           </form>
         )}
       </Modal>
+      <ImageSourcePicker
+        open={pickerTarget !== null}
+        onClose={() => setPickerTarget(null)}
+        onPick={(image) => {
+          if (pickerTarget !== null) applyPickedImage(image.url, pickerTarget)
+        }}
+        onToast={onToast}
+        products={products}
+      />
+      {reasonPrompt && editing && (
+        <Modal
+          open={true}
+          onClose={() => setReasonPrompt(null)}
+          eyebrow={t('catalog.accountability')}
+          title={t('reasons.title')}
+          size="small"
+        >
+          <form
+            className="modal-form reason-form"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void submitWithReason()
+            }}
+          >
+            <p className="reason-intro">
+              {reasonPrompt.action === 'stock-zero'
+                ? t('reasons.zeroIntro', { name: editing.name })
+                : t('reasons.deactivateIntro', { name: editing.name })}
+            </p>
+            <div className="reason-options">
+              {DEACTIVATION_REASONS.map((reason) => (
+                <label key={reason.id} className="reason-option">
+                  <input
+                    type="radio"
+                    name="reasonCode"
+                    value={reason.id}
+                    checked={reasonCode === reason.id}
+                    onChange={() => setReasonCode(reason.id)}
+                  />
+                  <span>{t(reason.key)}</span>
+                </label>
+              ))}
+            </div>
+            {reasonCode === 'other' && (
+              <label className="reason-note">
+                <span>{t('reasons.noteLabel')}</span>
+                <input
+                  value={reasonNote}
+                  onChange={(event) => setReasonNote(event.target.value)}
+                  placeholder={t('reasons.notePlaceholder')}
+                  maxLength={500}
+                />
+              </label>
+            )}
+            {reasonCode !== 'other' && (
+              <label className="reason-note">
+                <span>{t('reasons.noteOptional')}</span>
+                <input
+                  value={reasonNote}
+                  onChange={(event) => setReasonNote(event.target.value)}
+                  placeholder={t('reasons.notePlaceholder')}
+                  maxLength={500}
+                />
+              </label>
+            )}
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setReasonPrompt(null)}
+              >
+                {t('common.cancel')}
+              </button>
+              <button className="primary-button">
+                <ShieldQuestion size={16} /> {t('reasons.confirm')}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   )
 }
+/**
+ * Grouped options for the category <select>: top-level categories as loose
+ * options, subcategories inside an <optgroup> named after their parent (one
+ * level only — the API enforces that when saving).
+ */
+function categorySelectGroups(categories: ProductsPageCategory[]) {
+  type Group = { parent: ProductsPageCategory | null; children: ProductsPageCategory[] }
+  const parents = categories.filter((item) => !item.parentId)
+  const groups: Group[] = []
+  for (const parent of parents) {
+    const children = categories.filter((item) => item.parentId === parent.id)
+    // The parent stays a normal option; its subcategories follow inside an
+    // <optgroup> so the grouping is visible in the picker itself.
+    groups.push({ parent: null, children: [parent] })
+    if (children.length > 0) {
+      groups.push({ parent, children })
+    }
+  }
+  // Orphan subcategories (parent deactivated) still need to be selectable.
+  const known = new Set(groups.flatMap((g) => g.children.map((c) => c.id)))
+  for (const item of categories) {
+    if (!known.has(item.id)) groups.push({ parent: null, children: [item] })
+  }
+  return groups
+}
+
+function reasonLabel(
+  t: (key: string, variables?: Record<string, string | number>) => string,
+  code: string,
+) {
+  return (
+    DEACTIVATION_REASONS.find((reason) => reason.id === code)
+      ? t(DEACTIVATION_REASONS.find((reason) => reason.id === code)!.key)
+      : code
+  )
+}
+
+type ProductsPageCategory = {
+  id: number
+  name: string
+  parentId?: number | null
+}
+
 function productImageStyle(product: Product): CSSProperties {
   const primary = product.images?.[0]?.url || product.imageUrl
   return primary

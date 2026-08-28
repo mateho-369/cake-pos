@@ -5971,3 +5971,382 @@ img.qr-placeholder {
   background: var(--pink-deep);
   box-shadow: 0 3px 9px rgba(152, 20, 71, 0.22);
 }
+
+/* ============================================================
+   Image source picker (shared: product form + broadcast composer)
+   ============================================================ */
+.image-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+.image-picker-tabs {
+  width: 100%;
+}
+.image-picker-tabs button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.image-picker-dropzone {
+  min-height: 210px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  text-align: center;
+  border: 1.5px dashed rgba(190, 24, 93, 0.32);
+  border-radius: 16px;
+  background: radial-gradient(
+    circle at 50% 40%,
+    #fff 0,
+    #faedf2 60%,
+    #f8e6ee 100%
+  );
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.image-picker-dropzone:hover,
+.image-picker-dropzone.busy {
+  border-color: rgba(190, 24, 93, 0.55);
+  box-shadow: var(--focus-ring);
+}
+.image-picker-dropzone input {
+  display: none;
+}
+.image-picker-dropzone-icon {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  color: var(--pink-deep);
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 9px 25px rgba(90, 32, 58, 0.1);
+}
+.image-picker-dropzone strong {
+  color: var(--ink);
+  font-size: calc(12px * var(--font-scale));
+}
+.image-picker-dropzone small {
+  color: var(--subtle);
+  font-size: calc(9px * var(--font-scale));
+}
+.image-picker-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.image-picker-search {
+  flex: 1;
+}
+.image-picker-grid {
+  max-height: 330px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 9px;
+  padding-right: 2px;
+}
+.image-picker-tile {
+  position: relative;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid rgba(87, 43, 62, 0.12);
+  border-radius: 13px;
+  background:
+    linear-gradient(145deg, #f7eef2, #efe3e9) center / cover no-repeat;
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    transform 0.14s,
+    box-shadow 0.14s;
+}
+.image-picker-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px rgba(65, 25, 44, 0.16);
+}
+.image-picker-tile > span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--subtle);
+  font-weight: 700;
+  font-size: calc(11px * var(--font-scale));
+}
+.image-picker-tile em {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 5px 7px;
+  display: flex;
+  flex-direction: column;
+  color: #fff;
+  background: linear-gradient(transparent, rgba(45, 14, 29, 0.78));
+  font-style: normal;
+  font-size: calc(7.5px * var(--font-scale));
+  font-weight: 700;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.image-picker-tile em small {
+  font-weight: 500;
+  opacity: 0.85;
+}
+.image-picker-tile em.library-status {
+  flex-direction: row;
+  padding: 4px 7px;
+  font-size: calc(7px * var(--font-scale));
+  background: rgba(45, 14, 29, 0.6);
+}
+.image-picker-empty {
+  grid-column: 1 / -1;
+  padding: 22px;
+  color: var(--subtle);
+  text-align: center;
+  border: 1px dashed rgba(87, 43, 62, 0.14);
+  border-radius: 13px;
+  font-size: calc(9px * var(--font-scale));
+}
+
+/* Photo tile in the add-product modal is a button-triggered picker now —
+   keep the full tile clickable through an invisible overlay span. */
+.photo-upload-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  cursor: pointer;
+}
+
+/* Subcategory chip (one-level hierarchy grouping) */
+.category-chips button.subcategory-chip {
+  padding-left: 18px;
+  position: relative;
+  color: var(--subtle);
+  background: #fdf7fa;
+}
+.category-chips button.subcategory-chip::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  border-left: 1.5px solid rgba(190, 24, 93, 0.4);
+  border-bottom: 1.5px solid rgba(190, 24, 93, 0.4);
+  transform: translateY(-70%) rotate(-45deg);
+}
+.category-chips button.subcategory-chip.active {
+  color: var(--pink-deep);
+}
+.category-row.subcategory-row .category-name {
+  padding-left: 16px;
+}
+.category-row.subcategory-row .category-name strong::before {
+  content: '↳ ';
+  color: var(--subtle);
+  font-weight: 500;
+}
+
+/* ============================================================
+   Reason prompt (product deactivation / stock-zero accountability)
+   ============================================================ */
+.reason-form {
+  gap: 12px;
+}
+.reason-intro {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(9.5px * var(--font-scale));
+}
+.reason-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.reason-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 1px solid rgba(87, 43, 62, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-size: calc(9.5px * var(--font-scale));
+}
+.reason-option input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--pink-deep);
+}
+.reason-note span {
+  color: var(--subtle);
+}
+.form-notice.reason-history {
+  align-items: flex-start;
+  text-align: left;
+}
+
+/* ============================================================
+   Broadcast composer (settings → Broadcast)
+   ============================================================ */
+.broadcast-form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.broadcast-photo-button {
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1.5px dashed rgba(190, 24, 93, 0.3);
+  background: rgba(255, 255, 255, 0.6) center / cover no-repeat;
+}
+.broadcast-photo-button.has-image {
+  border-style: solid;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 0;
+}
+.broadcast-photo-change {
+  margin: 10px;
+  padding: 8px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--pink-deep);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 4px 13px rgba(65, 25, 44, 0.14);
+  font-size: calc(8.5px * var(--font-scale));
+}
+.broadcast-photo-button small {
+  color: var(--subtle);
+  font-size: calc(8.5px * var(--font-scale));
+}
+.broadcast-poster-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.broadcast-preview {
+  max-width: 420px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fff0f6;
+}
+.broadcast-preview img {
+  width: 100%;
+  border-radius: 13px;
+}
+.broadcast-preview p {
+  margin: 10px 2px;
+  color: var(--ink);
+  font-size: calc(9.5px * var(--font-scale));
+}
+.broadcast-preview-shop-button {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #f3dbe7;
+  color: #8d3a63;
+  font-size: calc(8.5px * var(--font-scale));
+  font-weight: 700;
+  text-align: center;
+}
+.broadcast-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+.broadcast-template-name {
+  flex: 1;
+  min-width: 170px;
+}
+.broadcast-history-list,
+.broadcast-template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.broadcast-history-row,
+.broadcast-template-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.66);
+}
+.broadcast-history-row img,
+.broadcast-template-row img {
+  width: 56px;
+  height: 42px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+.broadcast-history-row div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.broadcast-history-row small {
+  color: var(--subtle);
+}
+.broadcast-template-row span {
+  flex: 1;
+  font-weight: 600;
+}
+.broadcast-empty {
+  margin: 0;
+  color: var(--subtle);
+  font-size: calc(9px * var(--font-scale));
+}
+.khr-sub {
+  margin-left: 4px;
+  color: var(--subtle);
+}
+
+/* ============================================================
+   Mobile hardening: iOS Safari auto-zooms into any focused control
+   that renders below 16px, which reads as "messy resizing". Keep
+   every input at 16px+ on phone widths (pinch-zoom stays allowed).
+   ============================================================ */
+@media (max-width: 820px) {
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+  .reason-options {
+    grid-template-columns: 1fr;
+  }
+  .broadcast-poster-row {
+    grid-template-columns: 1fr;
+  }
+  .image-picker-grid {
+    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  }
+  .modal-medium,
+  .modal-small,
+  .modal-large {
+    max-width: 100%;
+  }
+}

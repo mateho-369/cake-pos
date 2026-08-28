@@ -23,7 +23,11 @@ import type {
 
 type ProductInput = {
   name: string
-  category: string
+  // Preferred: the stable category id (rename-safe, no duplicate-name
+  // collisions). The name string is still accepted by the API for older
+  // callers, but the admin app always sends categoryId.
+  categoryId?: number
+  category?: string
   price: number
   stock: number
   madeAt?: string
@@ -33,12 +37,17 @@ type ProductInput = {
   images?: Array<{ url: string; caption?: string; sortOrder?: number }>
   active?: boolean
   hideWhenOutOfStock?: boolean
+  // Required by the API when this update deactivates the product or zeroes
+  // its stock — recorded in the accountability audit trail.
+  reasonCode?: string
+  reasonNote?: string
 }
 type CategoryInput = {
   name: string
   color?: string
   active?: boolean
   sortOrder?: number
+  parentCategoryId?: number | null
 }
 type EmployeeInput = {
   name: string
@@ -62,6 +71,8 @@ type AdminDataContextValue = {
   loading: boolean
   error: string | null
   refresh: () => Promise<void>
+  /** Re-fetch only /api/shifts/current (polled; keeps status indicators live). */
+  refreshShift: () => Promise<void>
   loadDashboard: (
     preset: 'today' | 'seven_days' | 'thirty_days',
   ) => Promise<void>
@@ -184,6 +195,45 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  /**
+   * Lightweight shift-only revalidation. The shift badge/panels must reflect
+   * the SERVER's truth, which can change from another terminal (sale app,
+   * another admin tab) at any moment. Full `refresh()` covers mutations made
+   * in THIS tab; this cheap endpoint is polled every 20s and whenever the tab
+   * regains focus so the indicator can never sit on a stale "Open".
+   */
+  const refreshShift = useCallback(async () => {
+    if (!token) return
+    try {
+      const next = await apiRequest<Shift | null>('/api/shifts/current')
+      setCurrentShift((previous) =>
+        // Keep referential stability when nothing changed so components
+        // don't needlessly re-render (and effects don't re-run).
+        previous?.id === next?.id &&
+        (previous?.status ?? null) === (next?.status ?? null)
+          ? previous
+          : next,
+      )
+    } catch {
+      // Network hiccup: keep the last known state; the next poll retries.
+    }
+  }, [token])
+
+  useEffect(() => {
+    if (!token) return
+    const interval = window.setInterval(() => void refreshShift(), 20_000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refreshShift()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+    }
+  }, [token, refreshShift])
 
   const loadDashboard = useCallback(
     async (preset: 'today' | 'seven_days' | 'thirty_days') => {
@@ -359,6 +409,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       loading,
       error,
       refresh,
+      refreshShift,
       loadDashboard,
       createProduct,
       updateProduct,
@@ -387,6 +438,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       loading,
       error,
       refresh,
+      refreshShift,
       loadDashboard,
       createProduct,
       updateProduct,

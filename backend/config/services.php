@@ -29,6 +29,10 @@ return [
         'bot_token' => env('SHOP_TELEGRAM_BOT_TOKEN'),
         'staff_bot_token' => env('STAFF_TELEGRAM_BOT_TOKEN'),
         'staff_notification_chat_id' => env('STAFF_NOTIFICATION_CHAT_ID'),
+        // Base URL of the Bot API. Overridable only so the test pipeline can
+        // point sends at a local stub and verify the REAL worker-to-HTTP
+        // dispatch end to end; production never sets it.
+        'api_base' => env('TELEGRAM_API_BASE', 'https://api.telegram.org'),
         'shop_mini_app_url' => env(
             'SHOP_MINI_APP_URL',
             'https://shop.yourdomain.com',

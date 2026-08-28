@@ -49,10 +49,34 @@ class TelegramController extends Controller
             'products' => $products->map(
                 fn($product) => ProductResource::make($product)->resolve(),
             ),
+            // Flat name list (back-compat) plus the hierarchy grouping so
+            // the storefront can indent subcategories under their parent.
             'categories' => $products
                 ->pluck('category.name')
                 ->unique()
                 ->values(),
+            'categoryTree' => (function () use ($products) {
+                $ids = $products->pluck('category_id')->unique()->filter();
+                $direct = \App\Models\Category::whereIn('id', $ids)->get();
+                $parentIds = $direct
+                    ->pluck('parent_category_id')
+                    ->filter()
+                    ->unique();
+                return \App\Models\Category::whereIn(
+                    'id',
+                    $ids->merge($parentIds)->unique(),
+                )
+                    ->where('active', true)
+                    ->orderBy('sort_order')
+                    ->orderBy('id')
+                    ->get(['id', 'name', 'parent_category_id'])
+                    ->map(fn($c) => [
+                        'id' => $c->id,
+                        'name' => $c->name,
+                        'parentId' => $c->parent_category_id,
+                    ])
+                    ->values();
+            })(),
             'khqrImageUrl' => $this->khqrImageUrl(),
         ]);
     }
@@ -168,7 +192,85 @@ class TelegramController extends Controller
         if ($from && str_starts_with($text, '/today')) {
             $this->sendTodaySummary((string) $from['id']);
         }
+        // /start on the CUSTOMER bot (gcake_store): friendly bilingual
+        // welcome + an inline keyboard whose primary button launches the
+        // shop Mini App. Opening a bot chat always sends /start, so this
+        // covers both "first messages the bot" and an explicit /start.
+        if ($from && str_starts_with($text, '/start')) {
+            $this->sendShopWelcome((string) $from['id']);
+        }
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Welcome message for customers starting the shop bot. Wording is
+     * bilingual (Khmer first line, English second) and intentionally lives
+     * in one place so the shop owner can tweak the copy without hunting.
+     */
+    private function sendShopWelcome(string $chatId): void
+    {
+        $token = config('services.telegram.bot_token');
+        $miniAppUrl = config('services.telegram.shop_mini_app_url');
+        if (!$token || !$miniAppUrl) {
+            return;
+        }
+        $profile = Setting::find('business_profile')?->value_json ?? [];
+        // Copy is reviewed with the store owner; the business name itself
+        // always comes from Settings → Business profile when set.
+        $shopName =
+            trim((string) ($profile['businessName'] ?? '')) ?: 'G-Cake';
+        $text =
+            "🎂 សូមស្វាគមន៍មកកាន់ {$shopName}!\n" .
+            'យើងធ្វើនំថ្មីៗរាល់ថ្ងៃ ព្រមទាំងភេសជ្ជៈ និងសម្ភារៈពិធីជប់លៀង '
+            . "\n" .
+            'សូមមើលមឺនុយ ហើយកម្មង់មុនដើម្បីមកយកនៅហាង។' . "\n\n" .
+            "🎂 Welcome to {$shopName}!\n" .
+            "We bake fresh cakes every day — plus drinks and party supplies " .
+            "for your celebration.\n" .
+            'Browse the menu and order ahead for pickup.';
+
+        // Primary: launch the Mini App. Secondary (only when the shop has a
+        // phone or address on file): contact / location. Two buttons max.
+        $keyboard = [
+            [
+                [
+                    'type' => 'web_app',
+                    'text' => '🛍️ Open Shop / បើកហាង',
+                    'web_app' => ['url' => $miniAppUrl],
+                ],
+            ],
+        ];
+        $phone = trim((string) ($profile['phone'] ?? ''));
+        $address = trim((string) ($profile['address'] ?? ''));
+        if ($phone !== '' || $address !== '') {
+            $keyboard[] = [
+                [
+                    'type' => 'url',
+                    'text' => '📞 Contact / Location / ទំនាក់ទំនង',
+                    'url' => $address !== ''
+                        ? 'https://maps.google.com/?q=' . urlencode($address)
+                        : 'tel:' . preg_replace('/[^0-9+]/', '', $phone),
+                ],
+            ];
+        }
+        try {
+            $base = rtrim(
+                (string) config('services.telegram.api_base'),
+                '/',
+            );
+            Http::timeout(8)->post(
+                "{$base}/bot{$token}/sendMessage",
+                [
+                    'chat_id' => $chatId,
+                    'text' => $text,
+                    'reply_markup' => json_encode([
+                        'inline_keyboard' => $keyboard,
+                    ]),
+                ],
+            );
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
     }
 
     /**
@@ -199,8 +301,12 @@ class TelegramController extends Controller
             $money($s['qrRevenueCents']) .
             " ({$s['qrPaymentCount']} payments)";
         try {
+            $base = rtrim(
+                (string) config('services.telegram.api_base'),
+                '/',
+            );
             Http::timeout(8)->post(
-                "https://api.telegram.org/bot{$token}/sendMessage",
+                "{$base}/bot{$token}/sendMessage",
                 ['chat_id' => $chatId, 'text' => $text],
             );
         } catch (\Throwable $exception) {

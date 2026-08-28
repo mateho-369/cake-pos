@@ -118,7 +118,6 @@ export default function QuickAddModal({
           <input
             type="file"
             accept="image/*"
-            capture="environment"
             disabled={uploadingPhoto}
             onChange={selectPhoto}
           />

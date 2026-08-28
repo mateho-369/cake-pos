@@ -19,6 +19,9 @@ class ReportFilterRequest extends FormRequest
             'sort' => 'nullable|string|max:40',
             'employee' => 'nullable|integer|min:1',
             'action' => 'nullable|string|max:48',
+            // Filter the accountability trail to one product's events (the
+            // deactivation / stock-zero reasons recorded via details_json.
+            'productId' => 'nullable|integer|min:1',
         ];
     }
 }

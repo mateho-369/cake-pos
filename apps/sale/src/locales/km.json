@@ -677,7 +677,12 @@
     "productFailed": "មិនអាចបន្ថែមមុខទំនិញបានទេ",
     "customerDisplay": "បើកអេក្រង់អតិថិជន",
     "autoPlace": "ដាក់នៅអេក្រង់ទីពីរដោយស្វ័យប្រវត្តិ",
-    "allFresh": "ទំនិញទាំងអស់ស្រស់"
+    "allFresh": "ទំនិញទាំងអស់ស្រស់",
+    "usdReceived": "ប្រាក់ដុល្លារដែលបានទទួល",
+    "khrReceived": "ប្រាក់រៀលដែលបានទទួល",
+    "totalReceived": "សរុបបានទទួល",
+    "shortTender": "នៅខ្វះ ${{amount}}",
+    "khqrKhrEquivalent": "≈ ៛{{khr}} តាមអត្រាហាង (KHQRសេវាលក់ជាដុល្លារ)"
   },
   "app": {
     "cakePublished": "បានបន្ថែមនំ និងផ្សព្វផ្សាយទៅកន្លែងលក់"
@@ -734,7 +739,10 @@
     "float200": "$200",
     "openShiftAction": "បើកវេន",
     "closeReconcileAction": "បិទ និងផ្ទៀងផ្ទាត់",
-    "openedPerson": "{{date}} · {{name}}"
+    "openedPerson": "{{date}} · {{name}}",
+    "openingCashKhr": "សាច់ប្រាក់បើកវេន (រៀល)",
+    "countedDrawerKhr": "ថតរាប់បាន (រៀល)",
+    "khrInstruction": "រាប់ប្រាក់រៀលដាច់ពីប្រាក់ដុល្លារ។"
   },
   "display": {
     "customerDisplay": "បើកអេក្រង់អតិថិជន",

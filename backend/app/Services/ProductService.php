@@ -1,52 +1,113 @@
 <?php
 namespace App\Services;
-use App\Models\{Category, Product, ProductImage, Setting};
+use App\Models\{Category, Employee, Product, ProductImage, Setting};
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+
 class ProductService
 {
-    public function create(array $input): Product
+    public function __construct(private readonly AuditService $audit) {}
+
+    public function create(array $input, ?Employee $employee = null): Product
     {
         $values = $this->values($input);
-        return DB::transaction(function () use ($values, $input) {
+        return DB::transaction(function () use ($values, $input, $employee) {
             $product = Product::create($values);
             $this->syncImages($product, $input['images'] ?? null);
             return $product->fresh(['images']);
         });
     }
-    public function update(array $input, Product $product): Product
-    {
+
+    public function update(
+        array $input,
+        Product $product,
+        ?Employee $employee = null,
+    ): Product {
         $values = $this->values($input, $product);
-        DB::transaction(function () use ($product, $values, $input) {
-            $product->update($values);
-            $this->syncImages($product->fresh(), $input['images'] ?? null);
-        });
-        return $product->fresh(['images']);
+        return DB::transaction(
+            function () use ($product, $values, $input, $employee) {
+                $before = [
+                    'active' => (bool) $product->active,
+                    'stock' => (int) $product->stock,
+                ];
+                $product->update($values);
+                $this->syncImages($product->fresh(), $input['images'] ?? null);
+                $this->recordReasonEvents(
+                    $product->fresh(),
+                    $before,
+                    $input,
+                    $employee,
+                );
+                return $product->fresh(['images']);
+            },
+        );
     }
+
+    /**
+     * Manual deactivation / stock-zeroing of an evergreen product is an
+     * accountability event: WHO took it off sale, WHEN, and WHY. The reason
+     * (picklist code + optional free-text note) lands in the same
+     * audit_events trail as discounts, voids and shift closes.
+     */
+    private function recordReasonEvents(
+        Product $product,
+        array $before,
+        array $input,
+        ?Employee $employee,
+    ): void {
+        $reasonCode = $input['reasonCode'] ?? null;
+        $reasonNote = trim((string) ($input['reasonNote'] ?? '')) ?: null;
+        $deactivated = $before['active'] && !$product->active;
+        $stockZeroed = $before['stock'] > 0 && (int) $product->stock === 0;
+        if (!$deactivated && !$stockZeroed) {
+            return;
+        }
+        if ($deactivated || $stockZeroed) {
+            if ($reasonCode === null) {
+                throw ValidationException::withMessages([
+                    'reasonCode' => [
+                        'A reason is required when deactivating a product or setting its stock to 0',
+                    ],
+                ]);
+            }
+        }
+        $common = [
+            'productId' => $product->id,
+            'productName' => $product->name,
+            'reasonCode' => $reasonCode,
+            'reasonNote' => $reasonNote,
+            'activeBefore' => $before['active'],
+            'activeAfter' => (bool) $product->active,
+            'stockBefore' => $before['stock'],
+            'stockAfter' => (int) $product->stock,
+        ];
+        if ($deactivated) {
+            $this->audit->log(
+                $employee,
+                'product.deactivated',
+                null,
+                $common,
+            );
+        }
+        if ($stockZeroed) {
+            $this->audit->log($employee, 'product.stock_zeroed', null, $common);
+        }
+    }
+
     public function values(array $input, ?Product $existing = null): array
     {
         $name = trim((string) ($input['name'] ?? $existing?->name));
-        $category = trim(
-            (string) ($input['category'] ?? $existing?->category?->name),
-        );
+        $categoryId = $this->resolveCategoryId($input, $existing);
         $stock = filter_var(
             $input['stock'] ?? $existing?->stock,
             FILTER_VALIDATE_INT,
         );
-        if (!$name || !$category || $stock === false || $stock < 0) {
+        if (!$name || !$categoryId || $stock === false || $stock < 0) {
             throw ValidationException::withMessages([
                 'product' => [
                     'name/category are required and stock must be a non-negative integer',
                 ],
-            ]);
-        }
-        $categoryId = Category::where('name', $category)
-            ->where('active', true)
-            ->value('id');
-        if (!$categoryId) {
-            throw ValidationException::withMessages([
-                'category' => ['unknown category: ' . $category],
             ]);
         }
         $price = array_key_exists('price', $input)
@@ -91,6 +152,49 @@ class ProductService
                     ($existing?->hide_when_out_of_stock ?? false)),
         ];
     }
+
+    /**
+     * Category resolution against the REAL categories table (the same rows
+     * the admin Categories page manages). categoryId wins when present — it
+     * survives renames and duplicate names. The name string remains as a
+     * fallback for older callers (sale quick-add, CSV import).
+     */
+    private function resolveCategoryId(
+        array $input,
+        ?Product $existing,
+    ): ?int {
+        if (array_key_exists('categoryId', $input)) {
+            $id = (int) ($input['categoryId'] ?? 0);
+            if ($id > 0) {
+                $found = Category::where('id', $id)
+                    ->where('active', true)
+                    ->value('id');
+                if (!$found) {
+                    throw ValidationException::withMessages([
+                        'category' => ["unknown category id: {$id}"],
+                    ]);
+                }
+                return (int) $found;
+            }
+        }
+        $category = trim((string) ($input['category'] ?? ''));
+        if ($category === '') {
+            // Partial update with no category change: keep the existing
+            // category as-is (by id, so a later rename cannot silently move
+            // this product).
+            return $existing ? (int) $existing->category_id : null;
+        }
+        $found = Category::where('name', $category)
+            ->where('active', true)
+            ->value('id');
+        if (!$found) {
+            throw ValidationException::withMessages([
+                'category' => ['unknown category: ' . $category],
+            ]);
+        }
+        return (int) $found;
+    }
+
     public function import(array $rows): array
     {
         $categories = Category::where('active', true)->pluck('id', 'name');

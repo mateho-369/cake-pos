@@ -322,6 +322,87 @@ const prod = await api('/api/products', {
   body: { name: 'Smoke Cake', category: 'Smoke Cakes', price: 10, stock: 5 },
 })
 check('create product 201', prod.status === 201, String(prod.status))
+
+// Category hierarchy + the "unknown category" bug regression: products are
+// validated against the REAL categories table, by id first.
+const childCat = await api('/api/categories', {
+  method: 'POST',
+  token: adminToken,
+  body: { name: 'Smoke Mini', parentCategoryId: cat.json.id, active: true },
+})
+check(
+  'create subcategory 201 with parentCategoryId',
+  childCat.status === 201 && childCat.json.parentId === cat.json.id,
+  `${childCat.status} ${JSON.stringify(childCat.json)}`,
+)
+const brandNewCat = await api('/api/categories', {
+  method: 'POST',
+  token: adminToken,
+  body: { name: 'Brand New Line ' + Date.now(), active: true },
+})
+const productByNewId = await api('/api/products', {
+  method: 'POST',
+  token: adminToken,
+  body: {
+    name: 'Fresh Line Cake',
+    categoryId: brandNewCat.json.id,
+    price: 12,
+    stock: 2,
+  },
+})
+check(
+  'product in brand-new admin category is accepted (by id)',
+  productByNewId.status === 201,
+  `${productByNewId.status} ${JSON.stringify(productByNewId.json)}`,
+)
+const unknownCat = await api('/api/products', {
+  method: 'POST',
+  token: adminToken,
+  body: { name: 'Bad Cake', category: 'Not A Category', price: 1, stock: 1 },
+})
+check(
+  'unknown category still rejected with 422',
+  unknownCat.status === 422,
+  String(unknownCat.status),
+)
+// Deactivation reason codes are enforced + audited.
+const noReason = await api('/api/products/' + productByNewId.json.id, {
+  method: 'PUT',
+  token: adminToken,
+  body: { active: false },
+})
+check(
+  'deactivate without reason is refused (422)',
+  noReason.status === 422,
+  String(noReason.status),
+)
+const withReason = await api('/api/products/' + productByNewId.json.id, {
+  method: 'PUT',
+  token: adminToken,
+  body: { active: false, reasonCode: 'discontinued', reasonNote: 'smoke test' },
+})
+check(
+  'deactivate with reason succeeds',
+  withReason.status === 200,
+  String(withReason.status),
+)
+const auditRows = await api(
+  '/api/reports/audit?productId=' +
+    productByNewId.json.id +
+    '&from=2000-01-01&to=2099-12-31',
+  { token: adminToken },
+)
+check(
+  'deactivation reason lands in the audit trail',
+  auditRows.status === 200 &&
+    auditRows.json.some(
+      (r) =>
+        r.action === 'product.deactivated' &&
+        r.details.reasonCode === 'discontinued',
+    ),
+  `${auditRows.status}`,
+)
+
 const cashierToken = await login(CASHIER_EMAIL, CASHIER_PASS)
 const openShift = await api('/api/shifts/open', {
   method: 'POST',
@@ -329,6 +410,32 @@ const openShift = await api('/api/shifts/open', {
   body: { openingCash: 100 },
 })
 check('open shift 201', openShift.status === 201, String(openShift.status))
+
+// Mixed-currency worked example at the API level: $10 paid with $8 + ៛8,200.
+const mixedOrder = await api('/api/orders', {
+  method: 'POST',
+  token: adminToken,
+  body: {
+    payment: 'Cash',
+    items: [{ productId: prod.json.id, quantity: 1 }],
+    idempotencyKey: 'ui-smoke-mixed-' + Date.now(),
+    usdReceivedCents: 800,
+    khrReceived: 8200,
+    changeUsdCents: 0,
+    changeKhr: 0,
+    exchangeRateKhrPerUsd: 4100,
+  },
+})
+check(
+  'mixed tender order 201 ($8 + ៛8,200 = $10 exact)',
+  mixedOrder.status === 201,
+  `${mixedOrder.status} ${JSON.stringify(mixedOrder.json).slice(0, 200)}`,
+)
+const shiftNow = await api('/api/shifts/current', { token: adminToken })
+check(
+  'shift expected drawer tracks KHR separately',
+  shiftNow.json && typeof shiftNow.json.expectedCashKhr === 'number',
+)
 const order = await api('/api/orders', {
   method: 'POST',
   token: cashierToken,
@@ -447,12 +554,146 @@ check(
 // Add to cart and pay by cash
 await page.locator('.product-card', { hasText: 'Smoke Cake' }).first().click()
 await page.waitForTimeout(400)
-await page.locator('.cash-input input').fill('30')
+await page.locator('.cash-input input').first().fill('30')
 await page.waitForTimeout(200)
 await page.getByRole('button', { name: /Complete cash/ }).click()
 await page.waitForSelector('text=PAYMENT COMPLETE', { timeout: 20000 })
 await shot('sale-payment-success')
 pass('sale checkout completed with success overlay')
+
+// =====================================================================
+console.log('\n########## PHASE D2 — SHIFT INDICATOR + SPLIT TENDER ##########')
+// The success overlay covers the screen while "preparing"; wait for it to
+// auto-dismiss before touching the terminal UI again.
+await page.waitForSelector('.success-layer', {
+  state: 'detached',
+  timeout: 20000,
+})
+// Item 11 regression: the header shift indicator must track the SERVER's
+// shift state at every step of the cycle, including when it changes from
+// another "terminal" (here: the API) while this one sits idle.
+{
+  const badge = page.locator('.shift-status')
+  check(
+    'shift badge shows Open after login (server-open shift)',
+    (await badge.getAttribute('class')).includes('open'),
+  )
+  check(
+    'shift badge text says Shift open',
+    (await badge.innerText()).includes('Shift open'),
+  )
+
+  // --- Split tender: $10 item paid with $8 USD + ៛8,200 (rate 4100) ---
+  await page.locator('.product-card', { hasText: 'Smoke Cake' }).first().click()
+  await page.waitForTimeout(400)
+  const usdInput = page.locator('.cash-input input').first()
+  const khrInput = page.locator('.cash-input.khr input').first()
+  await usdInput.fill('8')
+  await khrInput.fill('8200')
+  await page.waitForTimeout(250)
+  const tenderText = await page.locator('.tender-summary').innerText()
+  check(
+    'split tender total received shows $10.00',
+    tenderText.includes('$10.00'),
+    tenderText.replace(/\n/g, ' '),
+  )
+  check(
+    'split tender shows no "still owed" warning (exact cover)',
+    !/still owed|owed/i.test(tenderText),
+    tenderText.replace(/\n/g, ' '),
+  )
+  await shot('sale-split-tender')
+  await page.getByRole('button', { name: /Complete cash/ }).click()
+  await page.waitForSelector('text=PAYMENT COMPLETE', { timeout: 20000 })
+  pass('split-tender checkout completed ($8 + ៛8,200 for $10)')
+  await page.waitForSelector('.success-layer', {
+    state: 'detached',
+    timeout: 20000,
+  })
+
+  // --- Logout / login cycle: an open server shift must still show Open ---
+  await page.locator('.cashier-profile').click()
+  await page.locator('.profile-popover button:has-text("Sign out")').click()
+  await page.waitForTimeout(800)
+  await page.getByRole('button', { name: 'Email' }).click()
+  await page.waitForTimeout(300)
+  await page.getByLabel('Email address').fill(CASHIER_EMAIL)
+  await page.getByLabel('Password').fill(CASHIER_PASS)
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await page.waitForSelector('text=What are we serving?', { timeout: 30000 })
+  check(
+    'shift badge still Open after logout/login (shift survives)',
+    (await page.locator('.shift-status').getAttribute('class')).includes(
+      'open',
+    ),
+  )
+
+  // --- Close the shift through the UI, counting BOTH currency piles ---
+  await page.locator('.shift-status').click()
+  await page.waitForSelector('.shift-modal-body', { timeout: 10000 })
+  const closeSummary = await page
+    .locator('.shift-close-summary')
+    .innerText()
+  const expectedUsd = closeSummary.match(/\$([\d,]+\.\d{2})/)?.[1] ?? ''
+  const expectedKhr = closeSummary.match(/៛([\d,]+)/)?.[1] ?? '0'
+  check(
+    'close modal shows per-currency expected drawer',
+    expectedUsd !== '' && expectedKhr !== '0',
+    closeSummary.replace(/\n/g, ' '),
+  )
+  // Fill the exact expected amounts → zero variance in both currencies.
+  await page.locator('.large-cash-input input').first().fill(expectedUsd)
+  await page.locator('.large-cash-input.khr input').fill(expectedKhr)
+  await shot('sale-close-shift-dual-currency')
+  await page
+    .getByRole('button', { name: /Close & reconcile|Close shift/ })
+    .first()
+    .click()
+  await page.waitForTimeout(1500)
+  check(
+    'shift badge flips to Closed after UI close',
+    (await page.locator('.shift-status').getAttribute('class')).includes(
+      'closed',
+    ),
+  )
+
+  // --- Stale-indicator regression: another terminal opens a shift via the
+  // API while this terminal sits idle. The 15s poll must flip the badge
+  // without any reload or user action.
+  const reopen = await api('/api/shifts/open', {
+    method: 'POST',
+    token: adminToken,
+    body: { openingCash: 50, openingCashKhr: 20000 },
+  })
+  check('reopen shift via API (other terminal)', reopen.status === 201)
+  let flipped = false
+  for (let i = 0; i < 24; i++) {
+    await page.waitForTimeout(1500)
+    const cls = await page.locator('.shift-status').getAttribute('class')
+    if (cls.includes('open')) {
+      flipped = true
+      break
+    }
+  }
+  check(
+    'idle sale terminal picks up externally-opened shift (live poll)',
+    flipped,
+  )
+  await shot('sale-shift-live-poll')
+
+  // Close it again from the API (admin) and check the ADMIN app badge too.
+  const closeAgain = await api('/api/shifts/close', {
+    method: 'POST',
+    token: adminToken,
+    body: { closingCash: 50, closingCashKhr: 20000 },
+  })
+  check('close shift via API', closeAgain.status === 200)
+  const current = await api('/api/shifts/current', { token: adminToken })
+  check(
+    '/api/shifts/current is null after close',
+    current.status === 200 && current.json === null,
+  )
+}
 
 // =====================================================================
 console.log('\n########## PHASE E — SHOP APP + CUSTOMER API ##########')

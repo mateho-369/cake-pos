@@ -242,8 +242,12 @@ class CustomerOrderService
             number_format(Money::toDecimal($order->total_cents), 2) .
             "\nStatus: HELD — unpaid until the customer arrives.";
         try {
+            $base = rtrim(
+                (string) config('services.telegram.api_base'),
+                '/',
+            );
             return Http::timeout(8)
-                ->post("https://api.telegram.org/bot{$token}/sendMessage", [
+                ->post("{$base}/bot{$token}/sendMessage", [
                     'chat_id' => $chat,
                     'text' => $text,
                 ])
