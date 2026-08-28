@@ -23,6 +23,17 @@ step() { echo; echo "----- $* -----"; }
 # fail the same way.) A buggy call now degrades to a loud FAIL line and the
 # run keeps going and reports everything.
 
+# Surface failures as GitHub check-run annotations — the only output visible
+# in the Actions UI / API without downloading job logs (the Azure log store is
+# unreachable from the sandbox). No-op on local runs (GITHUB_ACTIONS unset).
+annotate() { # level title message
+  if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
+    printf '::%s title=%s::%s\n' "$1" \
+      "$(printf '%s' "$2" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g' -e 's/:/%3A/g' -e 's/,/%2C/g')" \
+      "$(printf '%s' "$3" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')"
+  fi
+}
+
 # req <label> <method> <path> [json-body] [auth-token]
 req() {
   if [ "$#" -lt 3 ]; then
@@ -54,7 +65,10 @@ assert() { # label condition
     label="$label — TEST BUG: assert() wants 2 args, got $#"
   fi
   if [ "$cond" = "true" ]; then PASS=$((PASS + 1)); echo "  PASS  $label";
-  else FAIL=$((FAIL + 1)); echo "  FAIL  $label"; fi
+  else
+    FAIL=$((FAIL + 1)); echo "  FAIL  $label"
+    annotate error 'smoke-assertion-failed' "$label"
+  fi
 }
 
 jqget() { # file jsonpath -> prints value or NULL (__MISSING__ if short-called)
