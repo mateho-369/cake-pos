@@ -10,7 +10,7 @@ copy:
 ```bash
 cp docs/ci/test.yml .github/workflows/test.yml
 git add .github/workflows/test.yml
-git commit -m "ci: queue-verify + mobile audit + arena/** triggers"
+git commit -m "ci: fix .env key:generate ordering, bump Node to 22 for jsdom 30"
 git push
 ```
 
@@ -21,6 +21,8 @@ push it.)
 
 | Change | Why |
 | --- | --- |
+| write heredoc before `key:generate` in **backend-e2e** and **ui** | `key:generate` needs an existing `.env` to write `APP_KEY=` into |
+| bump `node-version` to `'22'` in **frontend** and **ui** | Node 22 required: jsdom v30 bundled undici needs `webidl.util.markAsUncloneable` |
 | trigger on `arena/**` branches | agent branches get CI instead of waiting for `main` |
 | `QUEUE_CONNECTION=database` in **backend-e2e** | queued jobs must sit in the MySQL `jobs` table, not run inline |
 | `STAFF_TELEGRAM_BOT_TOKEN=123:staff-ci-token`, `STAFF_NOTIFICATION_CHAT_ID=424242`, `TELEGRAM_API_BASE=http://127.0.0.1:8090` | point staff notifications at the local Telegram API stub |
