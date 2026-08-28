@@ -31,7 +31,7 @@ export default function ProductGrid({
   onQuery: (value: string) => void
 }) {
   const { t } = useTranslation()
-  const { categories } = useSaleData()
+  const { categories, categoryList } = useSaleData()
   const now = new Date()
   const todayLabel = `${now
     .toLocaleDateString('en', { weekday: 'long' })
@@ -63,6 +63,17 @@ export default function ProductGrid({
     'Toys & Games': 'catalog.toys',
   }
   const categoryLabel = (item: string) => t(categoryKeys[item] || item)
+  // Subcategories (one level) get an indentation marker so cashiers see
+  // they belong to a parent category — mirrors the admin picker and shop.
+  const parentIds = new Set(
+    categoryList
+      .map((category) => category.parentId)
+      .filter((id): id is number => typeof id === 'number'),
+  )
+  const isSubcategory = (name: string) => {
+    const match = categoryList.find((category) => category.name === name)
+    return Boolean(match?.parentId && parentIds.has(match.parentId))
+  }
   return (
     <section className="product-workspace">
       <div className="sale-welcome">
@@ -96,6 +107,7 @@ export default function ProductGrid({
             className={category === item ? 'active' : ''}
             onClick={() => onCategory(item)}
           >
+            {isSubcategory(item) && <i className="subcategory-mark">↳ </i>}
             {categoryLabel(item)}
             {item === 'All' && <span>{products.length}</span>}
           </button>

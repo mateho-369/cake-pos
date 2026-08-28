@@ -29,9 +29,13 @@ class SendCustomerBroadcast implements ShouldQueue
             ) {
                 foreach ($customers as $c) {
                     try {
+                        $base = rtrim(
+                            (string) config('services.telegram.api_base'),
+                            '/',
+                        );
                         $sent = Http::timeout(8)
                             ->post(
-                                "https://api.telegram.org/bot{$token}/" .
+                                "{$base}/bot{$token}/" .
                                     ($b->image_url
                                         ? 'sendPhoto'
                                         : 'sendMessage'),

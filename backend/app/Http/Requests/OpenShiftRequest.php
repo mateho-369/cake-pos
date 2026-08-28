@@ -9,6 +9,11 @@ class OpenShiftRequest extends FormRequest
     }
     public function rules(): array
     {
-        return ['openingCash' => ['required']];
+        return [
+            'openingCash' => ['required', 'numeric', 'min:0'],
+            // Riel counted in the drawer at open — whole riel, optional for
+            // backward compatibility (defaults to 0 when omitted).
+            'openingCashKhr' => ['sometimes', 'integer', 'min:0'],
+        ];
     }
 }

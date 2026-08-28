@@ -14,7 +14,9 @@ export default function ShiftModal({
   open,
   mode,
   expectedCash,
+  expectedCashKhr = 0,
   openingCash,
+  openingCashKhr = 0,
   cashSales,
   employeeName,
   shiftStartedAt,
@@ -24,17 +26,23 @@ export default function ShiftModal({
   open: boolean
   mode: 'open' | 'close'
   expectedCash: number
+  expectedCashKhr?: number
   openingCash: number
+  openingCashKhr?: number
   cashSales: number
   employeeName: string
   shiftStartedAt?: string
   onClose: () => void
-  onConfirm: (amount: number) => void
+  onConfirm: (amount: number, amountKhr?: number) => void
 }) {
   const { t } = useTranslation()
   const [amount, setAmount] = useState(mode === 'open' ? '100.00' : '')
+  const [amountKhr, setAmountKhr] = useState('')
   useEffect(() => {
-    if (open) setAmount(mode === 'open' ? '100.00' : '')
+    if (open) {
+      setAmount(mode === 'open' ? '100.00' : '')
+      setAmountKhr('')
+    }
   }, [open, mode])
   const todayLabel = new Date().toLocaleDateString('en', {
     weekday: 'long',
@@ -42,11 +50,19 @@ export default function ShiftModal({
     month: 'long',
   })
   const numericAmount = Number(amount || 0)
+  const numericAmountKhr = Math.max(
+    0,
+    Math.round(Number(amountKhr.replace(/[^0-9]/g, '') || 0)),
+  )
   const variance = numericAmount - expectedCash
+  // The drawer holds USD and riel as two separate physical piles — variance
+  // is computed per currency, never blended into one USD-equivalent number.
+  const varianceKhr = numericAmountKhr - expectedCashKhr
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
-    onConfirm(numericAmount)
+    onConfirm(numericAmount, numericAmountKhr)
     setAmount(mode === 'open' ? '100.00' : '')
+    setAmountKhr('')
   }
   return (
     <Modal
@@ -91,7 +107,9 @@ export default function ShiftModal({
           <div className="shift-close-summary">
             <div>
               <span>{t('shifts.openingFloat')}</span>
-              <strong>${openingCash.toFixed(2)}</strong>
+              <strong>
+                ${openingCash.toFixed(2)} · ៛{openingCashKhr.toLocaleString()}
+              </strong>
             </div>
             <div>
               <span>{t('shifts.cashSales')}</span>
@@ -99,7 +117,9 @@ export default function ShiftModal({
             </div>
             <div className="expected-row">
               <span>{t('shiftModal.countedDrawer')}</span>
-              <strong>${expectedCash.toFixed(2)}</strong>
+              <strong>
+                ${expectedCash.toFixed(2)} · ៛{expectedCashKhr.toLocaleString()}
+              </strong>
             </div>
           </div>
         )}
@@ -126,6 +146,23 @@ export default function ShiftModal({
               : t('shiftModal.closingInstruction')}
           </small>
         </label>
+        <label className="shift-cash-label">
+          <span>
+            {mode === 'open'
+              ? t('shiftModal.openingCashKhr')
+              : t('shiftModal.countedDrawerKhr')}
+          </span>
+          <div className="large-cash-input khr">
+            <span>៛</span>
+            <input
+              inputMode="numeric"
+              value={amountKhr}
+              onChange={(event) => setAmountKhr(event.target.value)}
+              placeholder="0"
+            />
+          </div>
+          <small>{t('shiftModal.khrInstruction')}</small>
+        </label>
         {mode === 'open' && (
           <div className="float-options">
             {[50, 100, 150, 200].map((value) => (
@@ -142,18 +179,18 @@ export default function ShiftModal({
         )}
         {mode === 'close' && numericAmount > 0 && (
           <div
-            className={`variance-preview ${Math.abs(variance) < 0.01 ? 'balanced' : 'variance'}`}
+            className={`variance-preview ${Math.abs(variance) < 0.01 && Math.abs(varianceKhr) < 50 ? 'balanced' : 'variance'}`}
           >
-            {Math.abs(variance) < 0.01 ? (
+            {Math.abs(variance) < 0.01 && Math.abs(varianceKhr) < 50 ? (
               <CheckCircle2 size={19} />
             ) : (
               <AlertTriangle size={19} />
             )}
             <div>
               <span>
-                {Math.abs(variance) < 0.01
+                {Math.abs(variance) < 0.01 && Math.abs(varianceKhr) < 50
                   ? t('shiftModal.drawerBalanced')
-                  : variance > 0
+                  : variance > 0 || varianceKhr > 0
                     ? t('shiftModal.cashOver')
                     : t('shiftModal.cashShort')}
               </span>
@@ -161,7 +198,9 @@ export default function ShiftModal({
                 {t('shiftModal.varianceAmount', {
                   sign: variance >= 0 ? '+' : '−',
                   amount: Math.abs(variance).toFixed(2),
-                })}
+                })}{' '}
+                · {varianceKhr >= 0 ? '+' : '−'}៛
+                {Math.abs(varianceKhr).toLocaleString()}
               </strong>
             </div>
           </div>

@@ -109,6 +109,24 @@ class DatabaseSeeder extends Seeder
                 ['color' => $row[1], 'active' => true, 'sort_order' => $i + 1],
             );
         }
+        // One level of hierarchy, demo only (local/testing): a couple of
+        // subcategories under existing parents so the grouping UI has real
+        // data in development. Production taxonomy is admin-managed only.
+        $demoParents = ['Drinks' => 'Coffee', 'Party Supplies' => 'Balloons'];
+        foreach ($demoParents as $parentName => $childName) {
+            $parent = Category::where('name', $parentName)->first();
+            if ($parent) {
+                Category::firstOrCreate(
+                    ['name' => $childName],
+                    [
+                        'color' => '#be185d',
+                        'active' => true,
+                        'sort_order' => $parent->sort_order + 1,
+                        'parent_category_id' => $parent->id,
+                    ],
+                );
+            }
+        }
         $products = [
             [
                 'Strawberry Cloud',

@@ -72,6 +72,57 @@ check(
   JSON.stringify(r),
 )
 
+// ---------------- tender.ts (sale app, real source) ----------------
+const tenderSrc = readFileSync(join(root, 'apps/sale/src/lib/tender.ts'), 'utf8')
+const { splitTender } = await bundle(tenderSrc, 'tender')
+// Worked example from the shop owner: $10.00 total, customer pays
+// $8.00 + ៛8,200 at rate 4100 → exactly covered, change 0.
+r = splitTender(1000, 800, 8200, 4100)
+check(
+  'splitTender($10, $8 + ៛8200 @4100) -> exact, change 0',
+  !r.short && Math.abs(r.totalReceivedUsd - 10) < 1e-9 &&
+    r.changeUsd === 0 && r.changeKhrRounded === 0,
+  JSON.stringify(r),
+)
+// Change rounding to nearest 100 riel: $10 total, $12 tendered →
+// change $2 = ៛8,200 exactly.
+r = splitTender(1000, 1200, 0, 4100)
+check(
+  'splitTender($10, $12) -> change $2 / ៛8,200',
+  Math.abs(r.changeUsd - 2) < 1e-9 && r.changeKhrRounded === 8200,
+  JSON.stringify(r),
+)
+// Fractional change rounds to nearest 100: $10.55 total, $20 tendered →
+// change $9.45 = ៛38,745 → rounds to ៛38,700 (nearest 100, no fraction).
+r = splitTender(1055, 2000, 0, 4100)
+check(
+  'splitTender($10.55, $20) -> ៛ change rounds to 38,700',
+  r.changeKhrRounded === 38700,
+  JSON.stringify(r),
+)
+// Short tender: $10 total, $5 + ៛10,000 (= $2.4390…) → short by
+// 10 − 5 − 10000/4100 = $2.560975609756…
+r = splitTender(1000, 500, 10000, 4100)
+check(
+  'splitTender($10, $5 + ៛10,000) -> short by exact remainder',
+  r.short && Math.abs(r.shortByUsd - (10 - 5 - 10000 / 4100)) < 1e-9,
+  JSON.stringify(r),
+)
+// Riel-only exact: $2.00 = ៛8,200 (the owner’s own example).
+r = splitTender(200, 0, 8200, 4100)
+check(
+  'splitTender($2, ៛8,200) -> exact',
+  !r.short && r.changeUsd === 0,
+  JSON.stringify(r),
+)
+// KHR equivalent hint for KHQR display: $10.55 → ៛43,255.
+r = splitTender(1055, 0, 0, 4100)
+check(
+  'splitTender totalKhrEquivalent($10.55 @4100) = 43,255',
+  r.totalKhrEquivalent === 43255,
+  JSON.stringify(r),
+)
+
 // ---------------- ordersInRange (admin exports lib, real source) ----------------
 const exportsSrc = readFileSync(
   join(root, 'apps/admin/src/lib/exports.ts'),

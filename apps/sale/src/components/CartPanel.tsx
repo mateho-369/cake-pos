@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react'
 import type { CartItem } from '../data'
+import { splitTender } from '../lib/tender'
 import { useTranslation } from '../lib/i18n'
 export type PaymentMethod = 'cash' | 'khqr'
 type DiscountType = 'percentage' | 'fixed'
@@ -28,6 +29,11 @@ type Props = {
   onPayment: (v: PaymentMethod) => void
   tendered: string
   onTendered: (v: string) => void
+  /** Independent KHR tender — mixed-currency split payment (USD + riel). */
+  tenderedKhr: string
+  onTenderedKhr: (v: string) => void
+  /** Admin-configured USD→KHR rate (Settings → Payments), default 4100. */
+  rate: number
   khqrConfirmed: boolean
   onKhqrConfirmed: (v: boolean) => void
   onComplete: () => void
@@ -49,6 +55,9 @@ export default function CartPanel({
   onPayment,
   tendered,
   onTendered,
+  tenderedKhr,
+  onTenderedKhr,
+  rate,
   khqrConfirmed,
   onKhqrConfirmed,
   onComplete,
@@ -67,14 +76,31 @@ export default function CartPanel({
       : requested,
   )
   const total = Math.max(0, subtotal - discount)
-  const tenderedAmount = Number(tendered || 0)
-  const change = Math.max(0, tenderedAmount - total)
+  const totalCents = Math.round(total * 100)
+
+  // ---- Split tender (USD + KHR, two INDEPENDENT inputs) ----
+  // All integer math lives in lib/tender.ts so the exact same code is
+  // unit-tested against the backend's arithmetic.
+  const usdCents = Math.round(Math.max(0, Number(tendered || 0)) * 100)
+  const khr = Math.max(
+    0,
+    Math.round(Number(tenderedKhr.replace(/[^0-9.]/g, '') || 0)),
+  )
+  const tender = splitTender(totalCents, usdCents, khr, rate)
+  const {
+    totalReceivedUsd,
+    changeUsd,
+    changeKhrRounded,
+    shortByUsd,
+    totalKhrEquivalent: khrEquivalentOfTotal,
+  } = tender
+  const short = cart.length > 0 && payment === 'cash' && tender.short
   // shiftOpen is deliberately NOT part of this: with items in the cart and
   // no open shift, clicking "Complete" prompts the open-shift flow instead
   // of silently refusing (the shift-required note below explains it).
   const canComplete =
     cart.length > 0 &&
-    (payment === 'khqr' ? khqrConfirmed : tenderedAmount >= total)
+    (payment === 'khqr' ? khqrConfirmed : !tender.short)
   const quickAmounts = [
     ...new Set([total, Math.ceil(total / 5) * 5, Math.ceil(total / 10) * 10]),
   ].filter((value) => value >= total)
@@ -231,30 +257,104 @@ export default function CartPanel({
           <div className="cash-payment">
             <div className="payment-section-label">
               <span>{t('sale.cashReceived')}</span>
-              {tenderedAmount >= total && (
+              {!short && usdCents + khr > 0 && (
                 <small>
-                  {t('sale.change')} <strong>${change.toFixed(2)}</strong>
+                  {t('sale.change')}{' '}
+                  <strong>${changeUsd.toFixed(2)}</strong>
+                  {changeKhrRounded > 0 && (
+                    <em> · ៛{changeKhrRounded.toLocaleString()}</em>
+                  )}
                 </small>
               )}
             </div>
-            <div className="cash-input">
-              <span>$</span>
-              <input
-                inputMode="decimal"
-                value={tendered}
-                onChange={(e) => onTendered(e.target.value)}
-                placeholder="0.00"
-              />
+            <div className="tender-inputs">
+              <div className="cash-input">
+                <span>$</span>
+                <input
+                  inputMode="decimal"
+                  value={tendered}
+                  onChange={(e) => onTendered(e.target.value)}
+                  placeholder="0.00"
+                  aria-label={t('sale.usdReceived')}
+                />
+                {usdCents > 0 && (
+                  <small className="tender-equivalent">
+                    ៛{Math.round((usdCents * rate) / 100).toLocaleString()}
+                  </small>
+                )}
+              </div>
+              <div className="cash-input khr">
+                <span>៛</span>
+                <input
+                  inputMode="numeric"
+                  value={tenderedKhr}
+                  onChange={(e) => onTenderedKhr(e.target.value)}
+                  placeholder="0"
+                  aria-label={t('sale.khrReceived')}
+                />
+                {khr > 0 && (
+                  <small className="tender-equivalent">
+                    ${(((khr * 100) / rate / 100).toFixed(2))}
+                  </small>
+                )}
+              </div>
+            </div>
+            <div className="tender-summary">
+              <span>
+                {t('sale.totalReceived')}{' '}
+                <strong>
+                  ${totalReceivedUsd.toFixed(2)}
+                  {khr > 0 && ` + ៛${khr.toLocaleString()}`}
+                </strong>
+              </span>
+              {short ? (
+                <em className="tender-short">
+                  {t('sale.shortTender', {
+                    amount: shortByUsd.toFixed(2),
+                  })}
+                </em>
+              ) : (
+                tender.changeUsd > 0 && (
+                  <em>
+                    {t('sale.change')} ${changeUsd.toFixed(2)} · ៛
+                    {changeKhrRounded.toLocaleString()}
+                  </em>
+                )
+              )}
             </div>
             <div className="quick-cash">
               {quickAmounts.map((amount) => (
                 <button
                   key={amount}
-                  onClick={() => onTendered(amount.toFixed(2))}
+                  onClick={() => {
+                    onTendered(amount.toFixed(2))
+                    onTenderedKhr('')
+                  }}
                 >
                   ${amount.toFixed(amount % 1 ? 2 : 0)}
                 </button>
               ))}
+              <button
+                onClick={() => {
+                  onTendered('')
+                  onTenderedKhr(String(khrEquivalentOfTotal))
+                }}
+              >
+                ៛{khrEquivalentOfTotal.toLocaleString()}
+              </button>
+              <button
+                onClick={() => {
+                  // Split shortcut: whole dollars in USD, remainder in riel.
+                  const wholeUsd = Math.floor(total)
+                  onTendered(wholeUsd.toFixed(2))
+                  const remainderCents = totalCents - wholeUsd * 100
+                  onTenderedKhr(
+                    String(Math.round((remainderCents * rate) / 100)),
+                  )
+                }}
+              >
+                $ + ៛
+              </button>
             </div>
           </div>
         )}
@@ -269,7 +369,12 @@ export default function CartPanel({
               <strong>
                 {t('sale.staticKhqr', { total: total.toFixed(2) })}
               </strong>
-              <span>{t('sale.scanConfirm')}</span>
+              {/* Informational only: KHQR payments stay USD-denominated. */}
+              <span>
+                {t('sale.khqrKhrEquivalent', {
+                  khr: khrEquivalentOfTotal.toLocaleString(),
+                })}
+              </span>
               <label>
                 <input
                   type="checkbox"

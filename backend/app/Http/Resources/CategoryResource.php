@@ -13,6 +13,14 @@ class CategoryResource extends JsonResource
         return [
             'id' => $this->id,
             'name' => $this->name,
+            // One level of hierarchy: null for a top-level category, the
+            // parent's id/name for a subcategory. Older payloads without
+            // these fields keep working (treated as flat).
+            'parentId' => $this->parent_category_id,
+            'parentName' => $this->when(
+                $this->relationLoaded('parent'),
+                fn() => $this->parent?->name,
+            ),
             'items' => (clone $products)->count(),
             'active' => (clone $products)->where('active', true)->count(),
             'revenue' => Money::toDecimal(

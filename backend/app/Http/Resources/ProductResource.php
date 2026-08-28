@@ -15,6 +15,10 @@ class ProductResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'category' => $this->category->name,
+            // Stable reference for pickers: survives renames and duplicate
+            // names (the `category` string above stays for display and for
+            // older clients that filter by name).
+            'categoryId' => $this->category_id,
             'price' => Money::toDecimal($this->price_cents),
             'stock' => (int) $this->stock,
             'sold' => (int) $this->sold,

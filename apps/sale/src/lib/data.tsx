@@ -42,8 +42,11 @@ type ProductInput = {
 type ShiftResult = {
   id: number
   openingCash: number
+  openingCashKhr?: number
   expectedCash: number
+  expectedCashKhr?: number
   cashSales?: number
+  cashSalesKhr?: number
   closingCash?: number
   variance: number
   startedAt?: string
@@ -56,8 +59,12 @@ type SaleDataContextValue = {
   products: Product[]
   orders: SaleOrder[]
   categories: string[]
+  /** Full category rows incl. parentId — chips group one level deep. */
+  categoryList: SaleCategory[]
   nextOrderNumber: number
   defaultShelfLifeDays: number
+  /** Admin-configured USD→KHR rate (Settings → Payments), default 4100. */
+  exchangeRateKhrPerUsd: number
   loading: boolean
   error: string | null
   refresh: () => Promise<void>
@@ -75,8 +82,8 @@ type SaleDataContextValue = {
     exchangeRateKhrPerUsd?: number
   }) => Promise<SaleOrder>
   currentShift: ShiftResult | null | undefined
-  openShift: (openingCash: number) => Promise<ShiftResult>
-  closeShift: (closingCash: number) => Promise<ShiftResult>
+  openShift: (openingCash: number, openingCashKhr?: number) => Promise<ShiftResult>
+  closeShift: (closingCash: number, closingCashKhr?: number) => Promise<ShiftResult>
 }
 
 const SaleDataContext = createContext<SaleDataContextValue | null>(null)
@@ -106,8 +113,10 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([])
   const [orders, setOrders] = useState<SaleOrder[]>([])
   const [categoryNames, setCategoryNames] = useState<string[]>([])
+  const [categoryList, setCategoryList] = useState<SaleCategory[]>([])
   const [nextOrderNumber, setNextOrderNumber] = useState(1)
   const [defaultShelfLifeDays, setDefaultShelfLifeDays] = useState(3)
+  const [exchangeRateKhrPerUsd, setExchangeRateKhrPerUsd] = useState(4100)
   const [currentShift, setCurrentShift] = useState<
     ShiftResult | null | undefined
   >(undefined)
@@ -119,6 +128,7 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
       setProducts([])
       setOrders([])
       setCategoryNames([])
+      setCategoryList([])
       setCurrentShift(undefined)
       return
     }
@@ -131,17 +141,22 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
           apiRequest<SaleCategory[]>('/api/categories'),
           apiRequest<SaleOrder[]>('/api/orders'),
           apiRequest<ShiftResult | null>('/api/shifts/current'),
-          apiRequest<{ defaultShelfLifeDays?: number }>(
-            '/api/settings/pos-rules',
-          ),
+          apiRequest<{
+            defaultShelfLifeDays?: number
+            exchangeRateKhrPerUsd?: number
+          }>('/api/settings/pos-rules'),
         ])
       setDefaultShelfLifeDays(apiRules.defaultShelfLifeDays ?? 3)
+      setExchangeRateKhrPerUsd(apiRules.exchangeRateKhrPerUsd ?? 4100)
       const mappedProducts = apiProducts
         .filter((product) => product.active)
         .map(mapProduct)
       const productCategories = mappedProducts.map(
         (product) => product.category,
       )
+      // Keep the full hierarchy (parentId) so the terminal can show
+      // subcategories grouped under their parent, one level deep.
+      setCategoryList(apiCategories)
       const availableCategories = [
         ...new Set(
           apiCategories
@@ -215,30 +230,76 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
     [refresh],
   )
 
-  const openShift = useCallback(async (openingCash: number) => {
-    const result = await apiRequest<ShiftResult>('/api/shifts/open', {
-      method: 'POST',
-      body: JSON.stringify({ openingCash }),
-    })
-    setCurrentShift(result)
-    return result
-  }, [])
-  const closeShift = useCallback(async (closingCash: number) => {
-    const result = await apiRequest<ShiftResult>('/api/shifts/close', {
-      method: 'POST',
-      body: JSON.stringify({ closingCash }),
-    })
-    setCurrentShift(null)
-    return result
-  }, [])
+  const openShift = useCallback(
+    async (openingCash: number, openingCashKhr = 0) => {
+      const result = await apiRequest<ShiftResult>('/api/shifts/open', {
+        method: 'POST',
+        body: JSON.stringify({ openingCash, openingCashKhr }),
+      })
+      setCurrentShift(result)
+      return result
+    },
+    [],
+  )
+  const closeShift = useCallback(
+    async (closingCash: number, closingCashKhr = 0) => {
+      const result = await apiRequest<ShiftResult>('/api/shifts/close', {
+        method: 'POST',
+        body: JSON.stringify({ closingCash, closingCashKhr }),
+      })
+      setCurrentShift(null)
+      return result
+    },
+    [],
+  )
+
+  /**
+   * Cheap shift-only revalidation, polled while the terminal is open: the
+   * shift can be opened/closed from another device (admin app, another
+   * till) and the header indicator must follow the server, not a stale
+   * local snapshot.
+   */
+  const refreshShift = useCallback(async () => {
+    if (!token) return
+    try {
+      const next = await apiRequest<ShiftResult | null>(
+        '/api/shifts/current',
+      )
+      setCurrentShift((previous) =>
+        previous?.id === next?.id &&
+        (previous?.status ?? null) === (next?.status ?? null)
+          ? previous
+          : next,
+      )
+    } catch {
+      // transient network error — the next poll retries
+    }
+  }, [token])
+
+  useEffect(() => {
+    if (!token) return
+    const interval = window.setInterval(() => void refreshShift(), 15_000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refreshShift()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+    }
+  }, [token, refreshShift])
 
   const value = useMemo(
     () => ({
       products,
       orders,
       categories: ['All', ...categoryNames],
+      categoryList,
       nextOrderNumber,
       defaultShelfLifeDays,
+      exchangeRateKhrPerUsd,
       loading,
       error,
       refresh,
@@ -252,8 +313,10 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
       products,
       orders,
       categoryNames,
+      categoryList,
       nextOrderNumber,
       defaultShelfLifeDays,
+      exchangeRateKhrPerUsd,
       loading,
       error,
       refresh,

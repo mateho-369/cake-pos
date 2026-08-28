@@ -718,6 +718,7 @@ const auditActionGroups = [
   { id: 'order.cancelled', key: 'reports.cancellations' },
   { id: 'order.completed', key: 'reports.conversions' },
   { id: 'shift', key: 'reports.shiftEvents' },
+  { id: 'product', key: 'reports.productEvents' },
   { id: 'customer_order', key: 'reports.customerOrders' },
 ]
 
@@ -736,6 +737,16 @@ function describeDetails(details: Record<string, unknown>): string {
   money('varianceUsdCents', 'variance')
   money('expectedCashUsdCents', 'expected')
   money('closingCashUsdCents', 'counted')
+  // Product deactivation / stock-zero reasons (accountability picklist).
+  if (typeof details.productName === 'string') parts.push(String(details.productName))
+  if (details.activeBefore !== undefined || details.stockBefore !== undefined) {
+    const activeBefore = details.activeBefore ? 'active' : 'off'
+    const activeAfter = details.activeAfter ? 'active' : 'off'
+    parts.push(`${activeBefore}→${activeAfter}, ${details.stockBefore}→${details.stockAfter} units`)
+  }
+  if (typeof details.reasonCode === 'string') parts.push(`reason: ${details.reasonCode}`)
+  if (typeof details.reasonNote === 'string' && details.reasonNote)
+    parts.push(`“${details.reasonNote}”`)
   if (typeof details.pickupCode === 'string')
     parts.push(`code ${details.pickupCode}`)
   if (typeof details.phone === 'string') parts.push(String(details.phone))

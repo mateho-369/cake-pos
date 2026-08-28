@@ -26,7 +26,10 @@ class ProductController extends Controller
     }
     public function store(SaveProductRequest $request): JsonResponse
     {
-        $product = $this->products->create($request->validated());
+        $product = $this->products->create(
+            $request->validated(),
+            $request->user(),
+        );
         return response()->json(
             ProductResource::make($product->load('images'))->resolve(),
             201,
@@ -36,7 +39,11 @@ class ProductController extends Controller
         SaveProductRequest $request,
         Product $product,
     ): JsonResponse {
-        $this->products->update($request->validated(), $product);
+        $product = $this->products->update(
+            $request->validated(),
+            $product,
+            $request->user(),
+        );
         return response()->json(
             ProductResource::make($product->fresh('images'))->resolve(),
         );

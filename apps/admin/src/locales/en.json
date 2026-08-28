@@ -274,7 +274,8 @@
     "toys": "Toys & Games",
     "broadcastQueued": "Announcement queued for {{count}} customers",
     "broadcastFailed": "Could not queue the announcement",
-    "broadcastHint": "Sends through the shop Telegram bot to every customer who opened the Mini App. Check Broadcast history to avoid repeats."
+    "broadcastHint": "Sends through the shop Telegram bot to every customer who opened the Mini App. Check Broadcast history to avoid repeats.",
+    "accountability": "Accountability"
   },
   "orders": {
     "transactions": "Transactions",
@@ -401,7 +402,11 @@
     "reordered": "Display order saved",
     "failed": "Could not save category",
     "moveUp": "Move up",
-    "moveDown": "Move down"
+    "moveDown": "Move down",
+    "parentCategory": "Parent category",
+    "topLevel": "None — top level",
+    "underParent": "under {{parent}}",
+    "parentHint": "Subcategories group under a parent (one level)."
   },
   "employees": {
     "teamCount": "{{count}} team members",
@@ -507,7 +512,9 @@
     "noActive": "No active shift",
     "closeFailed": "Could not close shift",
     "closing": "Closing…",
-    "noPayments": "No KHQR payments in this period"
+    "noPayments": "No KHQR payments in this period",
+    "countedCashKhr": "Counted cash (KHR)",
+    "countInstructionKhr": "Count the riel pile separately from the USD pile."
   },
   "reports": {
     "sales": "Sales",
@@ -601,7 +608,8 @@
     "returningCustomers": "Returning",
     "repeatRate": "Repeat rate",
     "customersWithOrders": "Customers ordering",
-    "thisMonth": "this month"
+    "thisMonth": "this month",
+    "productEvents": "Product events"
   },
   "settings": {
     "configuration": "Configuration",
@@ -886,5 +894,82 @@
     "loadingOrders": "Loading orders…",
     "noOrdersYet": "No orders yet.",
     "customer": "CUSTOMER"
+  },
+  "picker": {
+    "eyebrow": "Image source",
+    "title": "Choose an image",
+    "titleBroadcast": "Choose a broadcast photo",
+    "uploadNew": "Upload new",
+    "fromProduct": "From a product",
+    "fromLibrary": "From media library",
+    "chooseImage": "Tap to choose a photo",
+    "uploading": "Uploading…",
+    "uploadHint": "On your phone this opens Camera / Photo Library / Files.",
+    "uploadFailed": "Photo upload failed",
+    "mediaFailed": "Could not load the media library",
+    "searchProducts": "Search products…",
+    "noProducts": "No products found",
+    "noMedia": "No images in the media library yet",
+    "noPhoto": "{{name}} has no photo",
+    "fromProductSource": "Product: {{name}}",
+    "template": "Saved template",
+    "poster": "Generated poster"
+  },
+  "reasons": {
+    "title": "Why is this coming off sale?",
+    "deactivateIntro": "Recording a reason for taking {{name}} off sale. This is logged with your name for accountability.",
+    "zeroIntro": "Recording a reason for setting {{name}} stock to 0.",
+    "outOfStock": "Out of stock",
+    "discontinued": "Discontinued",
+    "quality": "Quality issue",
+    "seasonalReturn": "Seasonal — will return",
+    "other": "Other",
+    "noteLabel": "Describe the reason",
+    "noteOptional": "Note (optional)",
+    "notePlaceholder": "Optional details…",
+    "confirm": "Save with reason",
+    "lastRecorded": "Last recorded: {{action}} — {{code}}, by {{employee}} on {{date}}",
+    "deactivatedAction": "Deactivated",
+    "zeroedAction": "Stock zeroed"
+  },
+  "broadcast": {
+    "title": "Customer broadcast",
+    "loadTemplate": "Load from template",
+    "startNew": "Start a new broadcast",
+    "photo": "Photo",
+    "choosePhoto": "Choose photo",
+    "photoHint": "Upload new, pick from a product, or reuse the media library.",
+    "caption": "Caption",
+    "captionPlaceholder": "Announcement caption…",
+    "posterShortcut": "Poster shortcut",
+    "useChosenPhoto": "Use chosen photo",
+    "posterStyle": "Poster style",
+    "newArrival": "New Arrival",
+    "sellingFast": "Selling Fast",
+    "seasonal": "Seasonal / Holiday",
+    "previewAlt": "Broadcast preview",
+    "noCaptionYet": "No caption yet",
+    "openShopButton": "Open Shop / បើកហាង",
+    "templateName": "Template name",
+    "templateNamePlaceholder": "e.g. Weekend promo",
+    "saveAsTemplate": "Save as template",
+    "sendToAll": "Send to {{count}} customers",
+    "posterGenerated": "Poster generated",
+    "posterFailed": "Poster generation failed",
+    "needNamePhotoCaption": "Add a name, photo, and caption first",
+    "templateSaved": "Template saved",
+    "templateFailed": "Could not save template",
+    "templateNamePrompt": "Template name",
+    "confirmDeleteTemplate": "Delete this template?",
+    "needPhotoCaption": "Add a photo and caption first",
+    "confirmSend": "Send this announcement to {{count}} customers?",
+    "queued": "Broadcast queued for {{count}} customers",
+    "failed": "Broadcast failed",
+    "history": "Broadcast history",
+    "deliveredStats": "{{success}}/{{total}} delivered · {{failed}} failed",
+    "noHistory": "No broadcasts yet",
+    "savedTemplates": "Saved templates",
+    "noTemplates": "No templates saved yet",
+    "queuedStatus": "Queued"
   }
 }

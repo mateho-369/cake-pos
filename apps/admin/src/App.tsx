@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { uploadImage } from '@cake-pos/uploads'
 import {
   ArrowRight,
   CakeSlice,
@@ -22,7 +21,8 @@ import {
 import Sidebar from './components/Sidebar'
 import Header from './components/Header'
 import Modal from './components/Modal'
-import type { PageId } from './data'
+import ImageSourcePicker from './components/ImageSourcePicker'
+import type { Category, PageId, Product } from './data'
 import Dashboard from './pages/Dashboard'
 import ProductsPage from './pages/ProductsPage'
 import OrdersPage from './pages/OrdersPage'
@@ -37,7 +37,6 @@ import CustomersPage from './pages/CustomersPage'
 import LoginPage from './pages/LoginPage'
 import { useStaffAuth } from './auth/StaffAuthContext'
 import { translateCategory, useTranslation } from './lib/i18n'
-import { apiRequest } from './lib/api'
 import { useAdminData } from './lib/data'
 
 const commandItems: {
@@ -110,7 +109,8 @@ const commandItems: {
 export default function App() {
   const { token } = useStaffAuth()
   const { t } = useTranslation()
-  const { createProduct, categories, defaultShelfLifeDays } = useAdminData()
+  const { createProduct, categories, products, defaultShelfLifeDays } =
+    useAdminData()
   const [page, setPage] = useState<PageId>('overview')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -156,14 +156,14 @@ export default function App() {
   }
   const addProduct = async (
     event: React.FormEvent<HTMLFormElement>,
-    category: string,
+    categoryId: number | null,
     madeToday: boolean,
   ) => {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
     await createProduct({
       name: String(form.get('name') || ''),
-      category,
+      categoryId: categoryId ?? undefined,
       price: Number(form.get('price') || 0),
       stock: Number(form.get('stock') || 0),
       madeAt: String(
@@ -249,6 +249,8 @@ export default function App() {
         shelfLifeDays={defaultShelfLifeDays}
         photoPreview={photoPreview}
         setPhotoPreview={setPhotoPreview}
+        products={products}
+        onToast={setToast}
       />
       <CommandPalette
         open={commandOpen}
@@ -283,22 +285,36 @@ function AddCakeModal({
   shelfLifeDays,
   photoPreview,
   setPhotoPreview,
+  products,
+  onToast,
 }: {
   open: boolean
   onClose: () => void
   onSubmit: (
     event: React.FormEvent<HTMLFormElement>,
-    category: string,
+    categoryId: number | null,
     madeToday: boolean,
   ) => void
-  categories: Array<{ name: string }>
+  categories: Category[]
   shelfLifeDays: number
   photoPreview: string | null
   setPhotoPreview: (value: string | null) => void
+  products: import('./data').Product[]
+  onToast: (message: string) => void
 }) {
   const { t } = useTranslation()
-  const [category, setCategory] = useState(categories[0]?.name || 'Signature')
+  const [categoryId, setCategoryId] = useState<number | null>(
+    categories[0]?.id ?? null,
+  )
   const [madeToday, setMadeToday] = useState(true)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  // Keep the selected category valid as the admin manages categories while
+  // the modal is open (the list can change underneath us).
+  useEffect(() => {
+    if (categoryId && !categories.some((item) => item.id === categoryId)) {
+      setCategoryId(categories[0]?.id ?? null)
+    }
+  }, [categories, categoryId])
   const bestBeforeDate = new Date(
     Date.now() +
       Math.max(1, madeToday ? shelfLifeDays : shelfLifeDays - 1) * 86_400_000,
@@ -307,26 +323,27 @@ function AddCakeModal({
     month: 'short',
     day: 'numeric',
   })
-  const [uploadingPhoto, setUploadingPhoto] = useState(false)
-  const [uploadError, setUploadError] = useState<string | null>(null)
-  const onPhoto = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-    setUploadingPhoto(true)
-    setUploadError(null)
-    try {
-      const uploaded = await uploadImage(file, apiRequest)
-      setPhotoPreview(uploaded.publicUrl)
-    } catch (reason) {
-      setPhotoPreview(null)
-      setUploadError(
-        reason instanceof Error ? reason.message : 'Photo upload failed',
-      )
-    } finally {
-      setUploadingPhoto(false)
-      event.target.value = ''
+  // Category chips grouped by hierarchy: parents first, their subcategories
+  // visually nested right after them (one level — the API enforces that).
+  const grouped = useMemo(() => {
+    const parents = categories.filter((item) => !item.parentId)
+    const rows: Array<{ category: Category; child: boolean }> = []
+    for (const parent of parents) {
+      rows.push({ category: parent, child: false })
+      for (const child of categories.filter(
+        (item) => item.parentId === parent.id,
+      )) {
+        rows.push({ category: child, child: true })
+      }
     }
-  }
+    for (const orphan of categories.filter(
+      (item) => item.parentId && !parents.some((p) => p.id === item.parentId),
+    )) {
+      rows.push({ category: orphan, child: true })
+    }
+    return rows
+  }, [categories])
+  const onPicked = (image: { url: string }) => setPhotoPreview(image.url)
   return (
     <Modal
       open={open}
@@ -337,7 +354,7 @@ function AddCakeModal({
     >
       <form
         className="add-cake-form"
-        onSubmit={(event) => onSubmit(event, category, madeToday)}
+        onSubmit={(event) => onSubmit(event, categoryId, madeToday)}
       >
         <label
           className={`photo-upload ${photoPreview ? 'has-photo' : ''}`}
@@ -347,12 +364,10 @@ function AddCakeModal({
               : undefined
           }
         >
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            capture="environment"
-            disabled={uploadingPhoto}
-            onChange={onPhoto}
+          <span
+            className="photo-upload-hit"
+            aria-hidden="true"
+            onClick={() => setPickerOpen(true)}
           />
           {!photoPreview && (
             <>
@@ -372,10 +387,14 @@ function AddCakeModal({
             </span>
           )}
         </label>
+        <ImageSourcePicker
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          onPick={onPicked}
+          onToast={onToast}
+          products={products}
+        />
         <div className="quick-fields">
-          {uploadError && (
-            <div className="form-notice warning">{uploadError}</div>
-          )}
           <div className="form-grid two-columns">
             <label>
               <span>{t('sale.name')}</span>
@@ -404,14 +423,15 @@ function AddCakeModal({
           <label>
             <span>{t('catalog.category')}</span>
             <div className="category-chips">
-              {categories.map((item) => (
+              {grouped.map(({ category, child }) => (
                 <button
                   type="button"
-                  key={item.name}
-                  className={category === item.name ? 'active' : ''}
-                  onClick={() => setCategory(item.name)}
+                  key={category.id}
+                  className={`${categoryId === category.id ? 'active' : ''} ${child ? 'subcategory-chip' : ''}`}
+                  onClick={() => setCategoryId(category.id)}
                 >
-                  {translateCategory(t, item.name)}
+                  {child ? '↳ ' : ''}
+                  {translateCategory(t, category.name)}
                 </button>
               ))}
             </div>
@@ -475,9 +495,8 @@ function AddCakeModal({
             >
               {t('common.cancel')}
             </button>
-            <button className="primary-button" disabled={uploadingPhoto}>
-              <Plus size={17} />{' '}
-              {uploadingPhoto ? 'Uploading…' : t('sale.addPublish')}
+            <button className="primary-button">
+              <Plus size={17} /> {t('sale.addPublish')}
             </button>
           </div>
         </div>

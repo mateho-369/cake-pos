@@ -24,6 +24,8 @@ export type Product = {
   id: number
   name: string
   category: string
+  /** The authoritative category id (rename-safe) for pickers/saves. */
+  categoryId?: number
   price: number
   stock: number
   sold: number
@@ -96,6 +98,9 @@ export type Customer = {
 export type Category = {
   id: number
   name: string
+  /** Null for a top-level category; the parent's id for a subcategory. */
+  parentId?: number | null
+  parentName?: string | null
   items: number
   active: number
   revenue: number

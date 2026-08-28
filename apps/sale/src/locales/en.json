@@ -677,7 +677,12 @@
     "productFailed": "Product could not be added",
     "customerDisplay": "Open Customer Display",
     "autoPlace": "Auto-place on second screen",
-    "allFresh": "Everything is fresh"
+    "allFresh": "Everything is fresh",
+    "usdReceived": "USD received",
+    "khrReceived": "KHR received",
+    "totalReceived": "Total received",
+    "shortTender": "Still owed ${{amount}}",
+    "khqrKhrEquivalent": "≈ ៛{{khr}} at the shop rate (KHQR charges in USD)"
   },
   "app": {
     "cakePublished": "Cake added and published to the sale terminal"
@@ -734,7 +739,10 @@
     "float200": "$200",
     "openShiftAction": "Open shift",
     "closeReconcileAction": "Close & reconcile",
-    "openedPerson": "{{date}} · {{name}}"
+    "openedPerson": "{{date}} · {{name}}",
+    "openingCashKhr": "Opening cash (KHR)",
+    "countedDrawerKhr": "Counted drawer (KHR)",
+    "khrInstruction": "Count the riel notes separately from the USD notes."
   },
   "display": {
     "customerDisplay": "Open Customer Display",

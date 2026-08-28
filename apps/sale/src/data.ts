@@ -33,6 +33,8 @@ export type SaleCategory = {
   active?: number
   items?: number
   revenue?: number
+  parentId?: number | null
+  parentName?: string | null
 }
 export type SaleOrder = {
   id: string

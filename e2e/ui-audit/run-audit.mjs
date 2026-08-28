@@ -160,6 +160,25 @@ function route(method, url, body) {
     if (p === '/api/reports/audit')
       return [
         {
+          id: 3,
+          at: '2026-08-26T18:00:00Z',
+          employee: 'Makara Piseth',
+          employeeId: 1,
+          action: 'product.deactivated',
+          orderId: null,
+          details: {
+            productId: 2,
+            productName: 'Chocolate Fudge',
+            reasonCode: 'seasonal_return',
+            reasonNote: 'Back after Pchum Ben',
+            activeBefore: true,
+            activeAfter: false,
+            stockBefore: 6,
+            stockAfter: 6,
+          },
+          ip: '127.0.0.1',
+        },
+        {
           id: 2,
           at: '2026-08-27T09:15:00Z',
           employee: 'Sophea Chan',
@@ -512,10 +531,55 @@ async function main() {
   writeFileSync(join(outDir, 'requests.txt'), requests.join('\n'))
   writeFileSync(join(outDir, 'audit-log.txt'), auditLog.join('\n'))
   writeFileSync(join(outDir, 'downloads.txt'), downloads.join('\n'))
+
+  // ---- targeted assertions (fail the harness when a wired feature is
+  // silently broken, e.g. after a refactor) ----
+  const errors = []
+  const pageText = (label) => {
+    const h1 = $$('.sidebar-nav button').find(
+      (b) => b.textContent.trim() === label,
+    )
+    if (h1) h1.click()
+    return window.document.body.textContent || ''
+  }
+
+  // 1. Reason codes surface in the reports audit log (#7).
+  await navigate('Reports')
+  const auditTab = $$('.page-content button').find((b) =>
+    b.textContent.includes('Audit log'),
+  )
+  if (auditTab) {
+    auditTab.click()
+    await settle(300)
+    const txt = $('.page-content')?.textContent || ''
+    if (!txt.includes('seasonal_return'))
+      errors.push('audit log does not show deactivation reasonCode (seasonal_return)')
+    if (!/product\.deactivated|Deactivated/.test(txt))
+      errors.push('audit log does not show product.deactivated row')
+  } else {
+    errors.push('reports page has no Audit log tab')
+  }
+
+  // 2. Category hierarchy renders parent context on subcategories (#2).
+  await navigate('Categories')
+  const catTxt = $('.page-content')?.textContent || ''
+  if (!/under Seasonal|↳/.test(catTxt))
+    errors.push(
+      'categories page does not show parent context for subcategory Latte',
+    )
+
   console.log(report.join('\n'))
+  if (errors.length) {
+    console.log('\nHARNESS ASSERTION FAILURES:')
+    errors.forEach((e) => console.log('  ' + e))
+    process.exit(1)
+  }
   const noEffect = report.filter((r) => r.includes('NO EFFECT'))
   console.log(`\nBUTTONS WITH NO EFFECT: ${noEffect.length}`)
   noEffect.forEach((r) => console.log('  ' + r))
+  // The app keeps timers alive (polling); the harness is done once the
+  // report is written, so exit explicitly instead of hanging the runner.
+  process.exit(0)
 }
 
 main().catch((err) => {

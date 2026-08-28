@@ -3392,3 +3392,89 @@ button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ============================================================
+   Dual-currency split tender (USD + KHR, independent inputs)
+   ============================================================ */
+.tender-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.cash-input.khr input {
+  text-align: right;
+}
+.tender-equivalent {
+  position: absolute;
+  right: 10px;
+  top: -18px;
+  padding: 1px 7px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 7px;
+  font-size: calc(7.5px * var(--font-scale));
+  font-weight: 600;
+}
+.tender-summary {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 11px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid rgba(70, 34, 50, 0.08);
+}
+.tender-summary span {
+  color: var(--ink);
+  font-size: calc(8.5px * var(--font-scale));
+  font-weight: 600;
+}
+.tender-summary em {
+  color: var(--green);
+  font-style: normal;
+  font-size: calc(8.5px * var(--font-scale));
+  font-weight: 700;
+}
+.tender-summary em.tender-short {
+  color: #d4565d;
+}
+.large-cash-input.khr span {
+  font-size: calc(11px * var(--font-scale));
+}
+
+/* ============================================================
+   Mobile hardening: iOS Safari auto-zooms into any focused
+   control below 16px ("messy resizing"). Keep form controls at
+   16px+ on phone widths; pinch-zoom stays available.
+   ============================================================ */
+@media (max-width: 760px) {
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+  .tender-inputs {
+    grid-template-columns: 1fr;
+  }
+  .quick-cash {
+    flex-wrap: wrap;
+  }
+}
+
+/* Notch / gesture-bar safety when Telegram or the OS goes edge-to-edge. */
+.sale-terminal {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+.mobile-cart-dock {
+  margin-bottom: env(safe-area-inset-bottom);
+}
+
+/* Subcategory chips on the sale terminal: subtle indent marker, mirroring
+   the admin picker and the shop storefront (one level deep). */
+.category-tabs button .subcategory-mark {
+  font-style: normal;
+  opacity: 0.55;
+  margin-right: 2px;
+}

@@ -25,9 +25,10 @@ final class CustomerNotificationService
         if ($text === null) {
             return false;
         }
+        $base = rtrim((string) config('services.telegram.api_base'), '/');
         try {
             return Http::timeout(8)
-                ->post("https://api.telegram.org/bot{$token}/sendMessage", [
+                ->post("{$base}/bot{$token}/sendMessage", [
                     'chat_id' => $customer->telegram_user_id,
                     'text' => $text,
                 ])
