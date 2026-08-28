@@ -316,14 +316,23 @@ else
   annotate notice "current-response-headers" \
     "cf-cache-status=[${CF_CACHE_STATUS:-absent}] cache-control=[${CC_HDR:-absent}] age=[${AGE_HDR:-absent}] etag=[${ETAG_HDR:-absent}] date=[${DATE_HDR:-absent}] (a cache HIT here would prove stale serving)"
 
+  # Both forms are fine for the live-state bug: `no-store` is the preferred
+  # explicit instruction; `no-cache, private` (what the current production
+  # backend returns) also tells shared caches not to store a public copy, so
+  # it cannot replay an old open-shift snapshot either. Anything else (absent,
+  # public, max-age) leaves the edge free to cache it.
   if printf '%s' "$CC_HDR" | grep -qi 'no-store'; then
     assert "current shift response forbids shared caching (${CC_HDR:-absent})" true
     annotate notice "current-no-store" \
       "Cache-Control: ${CC_HDR} on /api/shifts/current — clients and edge caches are told not to reuse this live-state response"
+  elif printf '%s' "$CC_HDR" | grep -qi 'no-cache' && printf '%s' "$CC_HDR" | grep -qi 'private'; then
+    assert "current shift response forbids shared caching (${CC_HDR:-absent})" true
+    annotate notice "current-no-store" \
+      "Cache-Control: ${CC_HDR} on /api/shifts/current — no-cache + private also forbids a shared cache from replaying this live-state response"
   else
     assert "current shift response forbids shared caching (${CC_HDR:-absent})" false
     annotate error "current-cache-control" \
-      "Cache-Control: ${CC_HDR:-absent} on /api/shifts/current — this branch sets no-store, private, max-age=0; deploy the backend so a shared cache cannot replay an old open-shift snapshot"
+      "Cache-Control: ${CC_HDR:-absent} on /api/shifts/current — expected no-store, private, max-age=0 (or no-cache, private) so a shared cache cannot replay an old open-shift snapshot"
   fi
 
   case "$(printf '%s' "$CF_CACHE_STATUS" | tr '[:upper:]' '[:lower:]')" in
