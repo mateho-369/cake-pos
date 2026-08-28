@@ -40,7 +40,15 @@ class ShiftController extends Controller
     {
         $shift = $this->shifts->current();
         if (!$shift) {
-            return response()->json(null);
+            // response()->json(null) does NOT emit the JSON literal null:
+            // Symfony's JsonResponse substitutes an empty ArrayObject for a
+            // null payload (and json_encode renders that as {}), while a
+            // naive new JsonResponse('null', ...) would emit the quoted
+            // string "null". Anything object-shaped is truthy in JavaScript,
+            // so every badge/panel read "no open shift" as OPEN — the
+            // ghost-Open bug. Emit the literal null the API contract tests
+            // (and the clients) expect.
+            return JsonResponse::fromJsonString('null');
         }
         $data = ShiftResource::make($shift)->resolve();
         if ($shift->status === 'Open') {

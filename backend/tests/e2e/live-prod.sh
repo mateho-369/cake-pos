@@ -491,7 +491,7 @@ print('yes' if isinstance(d, dict) and d.get('id') is not None else 'no')
   if [ "$CURRENT_IS_SHIFT" != "yes" ]; then
     assert "GET /api/shifts/current returns 'null' or a shift object (got: ${CURRENT_BODY:0:80})" false
     annotate error "current-body-not-a-shift" \
-      "HTTP 200 from /api/shifts/current is neither 'null' nor a shift object: ${CURRENT_BODY:0:160} — stale backend deploy or a transforming component in front; the apps (and this probe) used to read that as an OPEN shift"
+      "HTTP 200 from /api/shifts/current is neither 'null' nor a shift object: ${CURRENT_BODY:0:160} — e.g. backend emitting {} (Symfony's json(null) -> empty ArrayObject), a stale deploy, or a transforming layer in front; the apps (and this probe) used to read that as an OPEN shift"
     CURRENT_BODY=""
   fi
 fi
