@@ -25,10 +25,14 @@
     "deploy:sale": "npm run deploy --workspace=@cake-pos/sale",
     "deploy:shop": "npm run deploy --workspace=@cake-pos/shop",
     "format": "prettier --write \"apps/**/*.{ts,tsx,css,json}\" \"packages/**/*.{ts,css,json}\" \"backend/**/*.php\" \"*.{json,md}\"",
-    "format:check": "prettier --check \"apps/**/*.{ts,tsx,css,json}\" \"packages/**/*.{ts,css,json}\" \"backend/**/*.php\" \"*.{json,md}\""
+    "format:check": "prettier --check \"apps/**/*.{ts,tsx,css,json}\" \"packages/**/*.{ts,css,json}\" \"backend/**/*.php\" \"*.{json,md}\"",
+    "test:unit": "node e2e/unit/unit-tests.mjs",
+    "test:locale": "node e2e/locale-audit.mjs",
+    "test:jsdom": "node e2e/ui-audit/run-audit.mjs"
   },
   "devDependencies": {
     "@prettier/plugin-php": "^0.25.0",
+    "esbuild": "^0.28.1",
     "playwright": "^1.62.1",
     "prettier": "^3.9.6"
   }

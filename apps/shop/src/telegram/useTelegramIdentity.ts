@@ -1,59 +1,21 @@
-import { useEffect } from 'react'
+import { useTelegramChrome } from '@cake-pos/telegram/react'
 
 /**
  * Telegram initData is only a transport credential. Laravel verifies its HMAC
  * on every customer request before treating it as an identity.
+ *
+ * The chrome work (ready → expand → true fullscreen, with one retry after the
+ * first user gesture because iOS clients reject a programmatic request before
+ * any interaction) is shared with the sale app via @cake-pos/telegram, so
+ * every Mini App surface opens edge-to-edge.
  */
 export function useTelegramIdentity() {
-  const webApp = window.Telegram?.WebApp
+  const { webApp } = useTelegramChrome()
+  // Read live (never frozen into state): a client that finishes the Mini App
+  // handshake a tick later must not be stuck on the "open from Telegram" gate.
   const initData = webApp?.initData || ''
   const botUrl =
     import.meta.env.VITE_TELEGRAM_BOT_URL || 'https://t.me/your_shop_bot'
-
-  useEffect(() => {
-    if (!webApp) return
-    webApp.ready()
-    webApp.expand()
-    webApp.setHeaderColor?.('#FDF2F6')
-    webApp.setBackgroundColor?.('#FDF2F6')
-
-    // True edge-to-edge fullscreen landed in Telegram Web App API 8.0
-    // (November 2024) alongside safeAreaInset. Guard by BOTH the client
-    // version and the method existing, and fall back to plain expand() on
-    // older clients. Some clients only honour fullscreen after a user
-    // gesture, so a fullscreenFailed event schedules one retry on the first
-    // interaction instead of silently giving up.
-    const supportsFullscreen =
-      typeof webApp.requestFullscreen === 'function' &&
-      (webApp.isVersionAtLeast?.('8.0') ?? false)
-    if (supportsFullscreen) {
-      let retried = false
-      const retryOnGesture = () => {
-        if (retried) return
-        retried = true
-        try {
-          webApp.requestFullscreen?.()
-        } catch {
-          /* older wrapper — expand() already applied */
-        }
-        document.removeEventListener('pointerdown', retryOnGesture)
-        cleanup()
-      }
-      const onFullscreenFailed = () => {
-        document.addEventListener('pointerdown', retryOnGesture, {
-          once: true,
-        })
-      }
-      const cleanup = () =>
-        webApp.offEvent?.('fullscreenFailed', onFullscreenFailed)
-      webApp.onEvent?.('fullscreenFailed', onFullscreenFailed)
-      try {
-        webApp.requestFullscreen?.()
-      } catch {
-        onFullscreenFailed()
-      }
-    }
-  }, [webApp])
 
   return {
     webApp,

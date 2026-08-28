@@ -14,6 +14,7 @@ import { type CartItem, type Product } from './data'
 import { useTranslation } from './lib/i18n'
 import { apiRequest } from './lib/api'
 import { useSaleData } from './lib/data'
+import { useTelegramChrome } from '@cake-pos/telegram/react'
 import CustomerApp from './CustomerApp'
 import CustomerDisplay from './components/CustomerDisplay'
 
@@ -32,18 +33,11 @@ export default function App() {
     return <CustomerDisplay />
   if (window.location.pathname.replace(/\/$/, '') === '/customer')
     return <CustomerApp />
-  const [isTelegram, setIsTelegram] = useState(false)
-  useEffect(() => {
-    const webApp = window.Telegram?.WebApp
-    if (!webApp) return
-    webApp.ready()
-    webApp.expand()
-    webApp.setHeaderColor?.('#FDF2F6')
-    webApp.setBackgroundColor?.('#FDF2F6')
-    setIsTelegram(true)
-  }, [])
+  // The staff terminal is itself a Telegram Mini App: it must open
+  // edge-to-edge exactly like the customer storefront, not just expanded.
+  const { inTelegram } = useTelegramChrome()
   return (
-    <div className={isTelegram ? 'telegram-app' : ''}>
+    <div className={inTelegram ? 'telegram-app' : ''}>
       {token ? <SaleTerminal /> : <LoginScreen />}
     </div>
   )
