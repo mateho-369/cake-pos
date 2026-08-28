@@ -12,9 +12,15 @@ class ShiftResource extends JsonResource
             'id' => $this->id,
             'employeeId' => $this->employee_id,
             'openingCash' => Money::toDecimal($this->opening_cash_cents),
-            'closingCash' => Money::toDecimal($this->closing_cash_cents),
-            'expectedCash' => Money::toDecimal($this->expected_cash_cents),
-            'variance' => Money::toDecimal($this->variance_cents),
+            'closingCash' => Money::toDecimal(
+                $this->closing_cash_cents ?? $this->closing_cash_usd_cents,
+            ),
+            'expectedCash' => Money::toDecimal(
+                $this->expected_cash_cents ?? $this->expected_cash_usd_cents,
+            ),
+            'variance' => Money::toDecimal(
+                $this->variance_cents ?? $this->variance_usd_cents,
+            ),
             'openedAt' => $this->opened_at->toISOString(),
             'closedAt' => $this->closed_at?->toISOString(),
             'status' => $this->status,
