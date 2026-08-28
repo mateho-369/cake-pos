@@ -509,7 +509,13 @@ await page.getByLabel('Email address').fill(ADMIN_EMAIL)
 await page.getByLabel('Password', { exact: true }).fill(ADMIN_PASS)
 await page.getByRole('button', { name: 'Sign in securely' }).click()
 await page.waitForSelector('text=Net sales', { timeout: 30000 })
-await page.waitForTimeout(1200) // data refresh
+// Wait until the dashboard reflects the real API sale; the "Net sales"
+// heading renders immediately while the data requests are still in flight.
+await page.waitForFunction(
+  () => document.querySelector('.live-card strong')?.textContent?.trim() === '$20.00',
+  { timeout: 30000 },
+)
+await page.waitForTimeout(400)
 await shot('admin-overview-seeded')
 
 const sidebarLive2 = await page.locator('.live-card strong').innerText()
@@ -588,7 +594,7 @@ await page.getByRole('button', { name: 'Email' }).click()
 await page.waitForTimeout(300)
 await page.getByLabel('Email address').fill(CASHIER_EMAIL)
 await page.getByLabel('Password', { exact: true }).fill(CASHIER_PASS)
-await page.getByRole('button', { name: 'Continue' }).click()
+await page.getByRole('button', { name: 'Sign in securely' }).click()
 await page.waitForSelector('text=What are we serving?', { timeout: 30000 })
 await shot('sale-menu')
 const menuText = await page.locator('.product-workspace').innerText()
