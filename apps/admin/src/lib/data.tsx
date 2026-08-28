@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { useStaffAuth } from '../auth/StaffAuthContext'
 import { apiRequest } from './api'
+import { normalizeCurrentShift } from '@cake-pos/api-client'
 import type {
   Category,
   Customer,
@@ -171,7 +172,9 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         apiRequest<Employee[]>('/api/employees'),
         apiRequest<Customer[]>('/api/customers'),
         apiRequest<Shift[]>('/api/shifts'),
-        apiRequest<Shift | null>('/api/shifts/current'),
+        apiRequest<Shift | null>('/api/shifts/current').then(
+          normalizeCurrentShift,
+        ),
         apiRequest<ReportSummary>('/api/reports/summary'),
         apiRequest<FreshnessReport>('/api/reports/freshness'),
         apiRequest<{ defaultShelfLifeDays?: number }>(
@@ -211,7 +214,9 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const refreshShift = useCallback(async () => {
     if (!token) return
     try {
-      const next = await apiRequest<Shift | null>('/api/shifts/current')
+      const next = normalizeCurrentShift(
+        await apiRequest<Shift | null>('/api/shifts/current'),
+      )
       setCurrentShift((previous) =>
         // Keep referential stability when nothing changed so components
         // don't needlessly re-render (and effects don't re-run).

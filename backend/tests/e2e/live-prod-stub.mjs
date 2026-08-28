@@ -10,8 +10,21 @@
  * Fault injection (env):
  *   FAIL_CLOSE_TIMES=n  the first n POST /api/shifts/close calls return 500
  *   SLOW_LOGOUT_MS=n    delay the cashier logout by n ms (window to SIGTERM)
- *   SEED_SHIFT=ci|real  start with a shift already open (CI leftover vs a
- *                       real cashier's shift)
+ *   SEED_SHIFT=ci|real|closed-ci
+ *                       start with a shift already open (CI leftover vs a
+ *                       real cashier's shift) — or, with closed-ci, a shift
+ *                       that is already CLOSED (the list says Closed) while
+ *                       SIMULATE_STALE_EDGE_CACHE keeps serving its last
+ *                       open snapshot on the plain /current URL
+ *   SIMULATE_STALE_EDGE_CACHE=1
+ *                       GET /api/shifts/current WITHOUT a `cb` query param
+ *                       returns the last open snapshot even after close
+ *                       (a URL-keyed edge cache holding a stale entry);
+ *                       any ?cb=... request bypasses it and sees the truth
+ *   EMPTY_OBJECT_CURRENT=1
+ *                       with no shift open, /api/shifts/current answers {}
+ *                       instead of null — the stale production deploy that
+ *                       trained every client to render a ghost Open shift
  */
 import { createServer } from 'node:http'
 
@@ -19,6 +32,8 @@ const PORT = Number(process.env.PORT || 8099)
 const FAIL_CLOSE_TIMES = Number(process.env.FAIL_CLOSE_TIMES || 0)
 const SLOW_LOGOUT_MS = Number(process.env.SLOW_LOGOUT_MS || 0)
 const SEED_SHIFT = process.env.SEED_SHIFT || ''
+const STALE_CACHE = process.env.SIMULATE_STALE_EDGE_CACHE === '1'
+const EMPTY_OBJECT_CURRENT = process.env.EMPTY_OBJECT_CURRENT === '1'
 
 let nextId = 1
 let closeFailures = 0
@@ -31,7 +46,9 @@ const shiftBody = (shift, extra = {}) => ({
   closingCash: 0,
   expectedCash: shift.openingCashUsdCents / 100,
   variance: 0,
-  openedAt: new Date().toISOString(),
+  // Frozen at open time — a fresh timestamp per render would make two polls
+  // differ, and the probe's cache forensics reads that as a cache artifact.
+  openedAt: shift.openedAt,
   closedAt: null,
   status: 'Open',
   openingCashUsdCents: shift.openingCashUsdCents,
@@ -48,20 +65,41 @@ const shiftBody = (shift, extra = {}) => ({
 })
 
 let shift = null
+const closedShifts = []
+// The last snapshot a "stale edge cache" serves after the shift is gone.
+let staleOpenSnapshot = null
+const makeShift = (fields) => ({
+  id: nextId++,
+  openedAt: new Date().toISOString(),
+  ...fields,
+})
 if (SEED_SHIFT === 'ci')
-  shift = {
-    id: nextId++,
+  shift = makeShift({
     openingCashUsdCents: 10000,
     openingCashKhr: 0,
     openedBy: 'Sophea Chan',
-  }
+  })
 if (SEED_SHIFT === 'real')
-  shift = {
-    id: nextId++,
+  shift = makeShift({
     openingCashUsdCents: 3750,
     openingCashKhr: 0,
     openedBy: 'Real Cashier',
-  }
+  })
+if (SEED_SHIFT === 'closed-ci') {
+  const seeded = makeShift({
+    openingCashUsdCents: 10000,
+    openingCashKhr: 0,
+    openedBy: 'Sophea Chan',
+  })
+  staleOpenSnapshot = shiftBody(seeded) // what the "edge cache" holds
+  closedShifts.push({
+    ...staleOpenSnapshot,
+    status: 'Closed',
+    closingCash: 100,
+    closingCashUsdCents: 10000,
+    closedAt: new Date().toISOString(),
+  })
+}
 
 const readBody = (req) =>
   new Promise((resolve) => {
@@ -131,16 +169,27 @@ const server = createServer(async (req, res) => {
     return send(200, { ok: true })
   }
   if (path === '/api/shifts/current') {
+    // A URL-keyed shared cache holds the snapshot from when the shift was
+    // open; any request with a cache-busting `cb` query misses it and sees
+    // the live truth. Requests WITHOUT cb get the stale copy.
+    if (STALE_CACHE && staleOpenSnapshot && !url.searchParams.has('cb')) {
+      return send(200, staleOpenSnapshot)
+    }
+    // The stale production deploy: "no open shift" as an empty object.
+    if (!shift && EMPTY_OBJECT_CURRENT) return send(200, {})
     return send(200, shift ? shiftBody(shift) : null)
+  }
+  if (path === '/api/shifts' && req.method === 'GET') {
+    return send(200, shift ? [...closedShifts, shiftBody(shift)] : closedShifts)
   }
   if (path === '/api/shifts/open' && req.method === 'POST') {
     if (shift) return send(409, { message: 'A shift is already open' })
-    shift = {
-      id: nextId++,
+    shift = makeShift({
       openingCashUsdCents: Math.round(Number(body.openingCash || 0) * 100),
       openingCashKhr: Number(body.openingCashKhr || 0),
       openedBy: employee || 'unknown',
-    }
+    })
+    staleOpenSnapshot = shiftBody(shift)
     return send(201, shiftBody(shift))
   }
   if (path === '/api/shifts/close' && req.method === 'POST') {
@@ -155,6 +204,7 @@ const server = createServer(async (req, res) => {
       closingCashUsdCents: Math.round(Number(body.closingCash || 0) * 100),
       closedAt: new Date().toISOString(),
     })
+    closedShifts.push(closed)
     shift = null
     return send(200, closed)
   }

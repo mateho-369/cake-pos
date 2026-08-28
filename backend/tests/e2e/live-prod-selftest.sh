@@ -151,6 +151,33 @@ check "H: probe exits non-zero on the CORS failure" \
 check "H: read-only sweep still ran after the CORS failure" \
   "$(grep -q 'Read-only endpoint sweep' "$LAST_LOG" && echo true || echo false)"
 
+# ---- I: a URL-keyed cache in front serves a stale /current -----------------
+# The stub returns a closed shift's last OPEN snapshot on the plain URL but
+# the truth on ?cb= reads — the production symptom the cache forensics exist
+# to catch (plain /current said Open while /api/shifts said long Closed).
+run_case I 0 SIMULATE_STALE_EDGE_CACHE=1 SEED_SHIFT=closed-ci
+check "I: probe proves the cache-busted read differs (URL-keyed stale cache)" \
+  "$(grep -q 'STALE-CACHE-PROOF' "$LAST_LOG" && echo true || echo false)"
+check "I: probe cross-checks /current against /api/shifts in the same run" \
+  "$(grep -q 'STALE-SHIFT' "$LAST_LOG" && echo true || echo false)"
+check "I: probe acts on the cache-busted truth (no self-heal on a phantom)" \
+  "$(grep -q 'cache-busted truth' "$LAST_LOG" && ! grep -q 'self-healing' "$LAST_LOG" && echo true || echo false)"
+check "I: exits non-zero — a stale cache is a bug worth failing CI for" \
+  "$([ "$LAST_EXIT" != 0 ] && echo true || echo false)"
+
+# ---- J: backend answers "no shift" as {} — the production ghost shift ------
+# What production actually serves today (stale deploy): HTTP 200 {} instead
+# of null. The probe must flag it loudly and must NOT call it a real shift.
+run_case J 0 EMPTY_OBJECT_CURRENT=1
+check "J: forensics labels the body an error/empty response, not shift JSON" \
+  "$(grep -q 'current-probe-errored' "$LAST_LOG" && echo true || echo false)"
+check "J: probe flags {} as not-a-shift" \
+  "$(grep -q 'current-body-not-a-shift' "$LAST_LOG" && echo true || echo false)"
+check "J: does NOT mistake {} for a real cashier's shift" \
+  "$(! grep -q 'A REAL SHIFT IS OPEN' "$LAST_LOG" && echo true || echo false)"
+check "J: exits non-zero — a malformed backend answer fails loudly" \
+  "$([ "$LAST_EXIT" != 0 ] && echo true || echo false)"
+
 echo
 echo "############################################################"
 echo "LIVE-PROD SELF-TEST: $PASS passed, $FAIL failed"

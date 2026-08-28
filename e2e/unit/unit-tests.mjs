@@ -335,6 +335,47 @@ check('telegram: outside Telegram every helper is a safe no-op', true)
 
 globalThis.document = originalDocument
 
+// ---------------- @cake-pos/api-client normalizeCurrentShift (real package source) ----------------
+// The production badge bug: the stale backend deploy answered "no open
+// shift" from /api/shifts/current with an empty object {} instead of null,
+// and every badge/panel gates on plain truthiness — {} is truthy, so admin
+// and sale permanently showed an "Open" ghost shift (Invalid Date and all)
+// while /api/shifts said the shift had been closed for hours. The
+// normalizer both apps now run the response through must collapse anything
+// that is not a real shift object (identified by its id) to null.
+{
+  const apiClientEntry = `export * from '${join(
+    root,
+    'packages/api-client/src/index.ts',
+  )}'\n`
+  const { normalizeCurrentShift } = await bundle(apiClientEntry, 'api-client')
+  check(
+    'normalizeCurrentShift(null) -> null',
+    normalizeCurrentShift(null) === null,
+  )
+  check(
+    'normalizeCurrentShift(undefined) -> null',
+    normalizeCurrentShift(undefined) === null,
+  )
+  check(
+    'normalizeCurrentShift({}) -> null  (the production ghost shift)',
+    normalizeCurrentShift({}) === null,
+  )
+  check(
+    'normalizeCurrentShift([]) -> null',
+    normalizeCurrentShift([]) === null,
+  )
+  const realShift = { id: 7, status: 'Open', openingCashUsdCents: 10000 }
+  check(
+    'normalizeCurrentShift(shift with id) passes the object through',
+    normalizeCurrentShift(realShift) === realShift,
+  )
+  check(
+    'normalizeCurrentShift({ id: 1, status: "Closed" }) passes through (states with a record keep it)',
+    normalizeCurrentShift({ id: 1, status: 'Closed' })?.id === 1,
+  )
+}
+
 console.log(
   failures === 0
     ? '\nALL UNIT TESTS PASSED'

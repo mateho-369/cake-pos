@@ -50,3 +50,21 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     },
   }
 }
+
+/**
+ * `/api/shifts/current` answers "no open shift" with the JSON literal `null`.
+ * Anything else that is not a real shift object must ALSO mean "no shift":
+ * the stale production deploy served an empty object `{}` here (and any
+ * transforming proxy in front of the API could do the same), and every
+ * badge/panel gates on plain truthiness of this value — `{}` is truthy,
+ * which is exactly how admin and sale ended up permanently showing an
+ * "Open" ghost shift (with an Invalid Date) while `/api/shifts` — the
+ * canonical list — said the shift had been closed for hours. A shift is
+ * only real when it carries its id.
+ */
+export function normalizeCurrentShift<T>(
+  value: T | null | undefined,
+): T | null {
+  if (value && typeof value === 'object' && 'id' in value) return value
+  return null
+}

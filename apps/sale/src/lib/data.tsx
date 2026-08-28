@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { useStaffAuth } from '../auth/StaffAuthContext'
 import { apiRequest } from './api'
+import { normalizeCurrentShift } from '@cake-pos/api-client'
 import type { Product, SaleCategory, SaleOrder } from '../data'
 
 type ApiProduct = {
@@ -146,7 +147,9 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
           apiRequest<ApiProduct[]>('/api/products'),
           apiRequest<SaleCategory[]>('/api/categories'),
           apiRequest<SaleOrder[]>('/api/orders'),
-          apiRequest<ShiftResult | null>('/api/shifts/current'),
+          apiRequest<ShiftResult | null>('/api/shifts/current').then(
+            normalizeCurrentShift,
+          ),
           apiRequest<{
             defaultShelfLifeDays?: number
             exchangeRateKhrPerUsd?: number
@@ -268,8 +271,8 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
   const refreshShift = useCallback(async () => {
     if (!token) return
     try {
-      const next = await apiRequest<ShiftResult | null>(
-        '/api/shifts/current',
+      const next = normalizeCurrentShift(
+        await apiRequest<ShiftResult | null>('/api/shifts/current'),
       )
       setCurrentShift((previous) =>
         previous?.id === next?.id &&
