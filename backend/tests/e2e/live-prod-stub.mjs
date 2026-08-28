@@ -130,6 +130,7 @@ const server = createServer(async (req, res) => {
   const send = (code, payload, extraHeaders = {}) => {
     res.writeHead(code, {
       'Content-Type': 'application/json',
+      'Cache-Control': 'no-store, private, max-age=0',
       ...extraHeaders,
     })
     res.end(JSON.stringify(payload))

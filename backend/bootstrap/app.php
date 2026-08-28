@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureActiveEmployee;
+use App\Http\Middleware\PreventApiResponseCaching;
 use App\Http\Middleware\RequireAdmin;
 use App\Http\Middleware\RequireOpenShift;
 use Illuminate\Foundation\Application;
@@ -23,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'active' => EnsureActiveEmployee::class,
             'open-shift' => RequireOpenShift::class,
         ]);
+        $middleware->api(append: [PreventApiResponseCaching::class]);
         $middleware->redirectGuestsTo(fn() => null);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

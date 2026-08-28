@@ -35,6 +35,13 @@ export default function CustomerDisplay() {
         <h1>{t('display.thankYou')}</h1>
         <p>{t('display.orderNumber', { number: state.orderId || '' })}</p>
         <small>{t('display.ready')}</small>
+        <button
+          type="button"
+          className="display-return"
+          onClick={() => window.close()}
+        >
+          {t('display.closeAndReturn')}
+        </button>
       </main>
     )
   return (
@@ -82,6 +89,13 @@ export default function CustomerDisplay() {
       <small className="display-powered">
         <Heart size={13} /> {t('display.thankYou')}
       </small>
+      <button
+        type="button"
+        className="display-return"
+        onClick={() => window.close()}
+      >
+        {t('display.closeAndReturn')}
+      </button>
     </main>
   )
 }

@@ -286,11 +286,12 @@ annotate notice "deploy-markers" \
 # ---------- 2c. Cache forensics on /api/shifts/current (READ-ONLY) ----------
 # The badge and (twice) this probe's logs saw /api/shifts/current report an
 # OPEN shift while /api/shifts in the SAME run showed that shift long Closed
-# (id:1, closedAt 12:45:53Z, no second record). Nothing anywhere sets
-# Cache-Control on this API (zero matches repo-wide), so any shared cache in
-# front of Laravel — the Cloudflare edge, via the g-cake-api Worker's plain
-# fetch() passthrough, is the prime suspect — is free to keep serving the one
-# moment the shift really was open. This battery settles it WITHOUT touching
+# (id:1, closedAt 12:45:53Z, no second record). Shift responses now set
+# Cache-Control: no-store, private, max-age=0, but older deployments did not
+# and any shared cache in front of Laravel — the Cloudflare edge, via the
+# g-cake-api Worker's plain fetch() passthrough, is the prime suspect — is
+# free to keep serving the one moment the shift really was open. This battery
+# settles it WITHOUT touching
 # production: read /current twice (3s apart), once more with a cache-buster
 # query (a URL-keyed cache MUST miss on it), once from the VM origin directly
 # (no Cloudflare in front of it), and /api/shifts for ground truth. Only
@@ -314,6 +315,16 @@ else
   echo "  -----------------------------------------------"
   annotate notice "current-response-headers" \
     "cf-cache-status=[${CF_CACHE_STATUS:-absent}] cache-control=[${CC_HDR:-absent}] age=[${AGE_HDR:-absent}] etag=[${ETAG_HDR:-absent}] date=[${DATE_HDR:-absent}] (a cache HIT here would prove stale serving)"
+
+  if printf '%s' "$CC_HDR" | grep -qi 'no-store'; then
+    assert "current shift response forbids shared caching (${CC_HDR:-absent})" true
+    annotate notice "current-no-store" \
+      "Cache-Control: ${CC_HDR} on /api/shifts/current — clients and edge caches are told not to reuse this live-state response"
+  else
+    assert "current shift response forbids shared caching (${CC_HDR:-absent})" false
+    annotate error "current-cache-control" \
+      "Cache-Control: ${CC_HDR:-absent} on /api/shifts/current — this branch sets no-store, private, max-age=0; deploy the backend so a shared cache cannot replay an old open-shift snapshot"
+  fi
 
   case "$(printf '%s' "$CF_CACHE_STATUS" | tr '[:upper:]' '[:lower:]')" in
     hit|stale|revalidated|updating)

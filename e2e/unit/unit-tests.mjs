@@ -374,6 +374,108 @@ globalThis.document = originalDocument
     'normalizeCurrentShift({ id: 1, status: "Closed" }) passes through (states with a record keep it)',
     normalizeCurrentShift({ id: 1, status: 'Closed' })?.id === 1,
   )
+
+  // The browser-cache half of the shift fix: authenticated requests must ask
+  // the browser not to reuse live state (the backend also emits no-store).
+  const clientCalls = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url, init = {}) => {
+    clientCalls.push({ url: String(url), init })
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  const { createApiClient } = await bundle(apiClientEntry, 'api-client-client')
+  await createApiClient({ getAccessToken: () => 'token' }).request(
+    '/api/shifts/current',
+  )
+  check(
+    'authenticated API requests use cache: "no-store"',
+    clientCalls.at(-1)?.init.cache === 'no-store',
+  )
+  await createApiClient({}).request('/api/shifts/current')
+  check(
+    'unauthenticated public requests are not forced to no-store (cached menu still allowed)',
+    clientCalls.at(-1)?.init.cache === undefined,
+  )
+  globalThis.fetch = originalFetch
+}
+
+// ---------------- shift start-time formatting (sale app, real source) ------
+// The badge bug: both hydration sites silently fell back to "now" when the
+// shift response was missing startedAt/openedAt. The formatter must return
+// null when neither exists so the UI can say "start time unavailable".
+{
+  const shiftSrc = readFileSync(
+    join(root, 'apps/sale/src/lib/shift.ts'),
+    'utf8',
+  )
+  const { formatShiftStartedAt } = await bundle(shiftSrc, 'shift-start')
+  check(
+    'formatShiftStartedAt("9:00 AM") keeps the backend display string',
+    formatShiftStartedAt('9:00 AM') === '9:00 AM',
+  )
+  check(
+    'formatShiftStartedAt(undefined, openedAt) formats the ISO timestamp',
+    formatShiftStartedAt(undefined, '2026-08-27T08:00:00Z') !== null,
+  )
+  check(
+    'formatShiftStartedAt() returns null when both fields are missing (no fake "now")',
+    formatShiftStartedAt() === null,
+  )
+  check(
+    'formatShiftStartedAt(undefined, "not-a-date") returns null',
+    formatShiftStartedAt(undefined, 'not-a-date') === null,
+  )
+}
+
+// ---------------- customer-display device gating (sale app, real source) ---
+// The iPad/phone hazard: window.open with popup features navigates the whole
+// browser away. The button/function must only be available where a second
+// display is actually possible, not on a coarse-touch device.
+{
+  const deviceSrc = readFileSync(
+    join(root, 'apps/sale/src/lib/device.ts'),
+    'utf8',
+  )
+  const { supportsCustomerDisplay } = await bundle(deviceSrc, 'device')
+  check(
+    'customer display supported with multi-screen API',
+    supportsCustomerDisplay({
+      hasGetScreenDetails: true,
+      isExtendedScreen: false,
+      finePointer: false,
+      coarsePointer: true,
+    }),
+  )
+  check(
+    'customer display supported on a desktop mouse/trackpad',
+    supportsCustomerDisplay({
+      hasGetScreenDetails: false,
+      isExtendedScreen: false,
+      finePointer: true,
+      coarsePointer: false,
+    }),
+  )
+  check(
+    'customer display hidden on iPad/phone (coarse touch, no second screen)',
+    !supportsCustomerDisplay({
+      hasGetScreenDetails: false,
+      isExtendedScreen: false,
+      finePointer: false,
+      coarsePointer: true,
+    }),
+  )
+  check(
+    'customer display hidden when the environment cannot answer any pointer query',
+    !supportsCustomerDisplay({
+      hasGetScreenDetails: false,
+      isExtendedScreen: false,
+      finePointer: false,
+      coarsePointer: false,
+    }),
+  )
 }
 
 console.log(

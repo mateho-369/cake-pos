@@ -21,7 +21,9 @@ class ShiftController extends Controller
         $data['expectedCash'] = $data['openingCash'];
         $data['variance'] = 0;
         $data['startedAt'] = $shift->opened_at->format('g:i A');
-        return response()->json($data, 201);
+        return response()
+            ->json($data, 201)
+            ->header('Cache-Control', 'no-store, private, max-age=0');
     }
     public function close(CloseShiftRequest $request): JsonResponse
     {
@@ -34,13 +36,17 @@ class ShiftController extends Controller
         $data = ShiftResource::make($shift)->resolve();
         $data['cashSales'] = Money::toDecimal($cashSales[0]);
         $data['cashSalesKhr'] = $cashSales[1];
-        return response()->json($data);
+        return response()
+            ->json($data)
+            ->header('Cache-Control', 'no-store, private, max-age=0');
     }
     public function current(): JsonResponse
     {
         $shift = $this->shifts->current();
         if (!$shift) {
-            return response()->json(null);
+            return response()
+                ->json(null)
+                ->header('Cache-Control', 'no-store, private, max-age=0');
         }
         $data = ShiftResource::make($shift)->resolve();
         if ($shift->status === 'Open') {
@@ -52,14 +58,18 @@ class ShiftController extends Controller
             $data['expectedCashKhr'] = $shift->opening_cash_khr + $cash[1];
         }
         $data['startedAt'] = $shift->opened_at->format('g:i A');
-        return response()->json($data);
+        return response()
+            ->json($data)
+            ->header('Cache-Control', 'no-store, private, max-age=0');
     }
     public function index(): JsonResponse
     {
-        return response()->json(
-            ShiftResource::collection(
-                Shift::latest('opened_at')->limit(50)->get(),
-            )->resolve(),
-        );
+        return response()
+            ->json(
+                ShiftResource::collection(
+                    Shift::latest('opened_at')->limit(50)->get(),
+                )->resolve(),
+            )
+            ->header('Cache-Control', 'no-store, private, max-age=0');
     }
 }

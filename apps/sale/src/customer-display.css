@@ -87,6 +87,21 @@
   gap: 6px;
   color: #a76c81;
 }
+.display-return {
+  margin: 28px auto 0;
+  padding: 10px 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(167, 108, 129, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  color: #a7466b;
+  font-family: inherit;
+  font-size: calc(14px * var(--font-scale));
+  font-weight: 700;
+  cursor: pointer;
+}
 .customer-display.success {
   align-items: center;
   justify-content: center;

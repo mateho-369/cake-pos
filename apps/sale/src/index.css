@@ -92,6 +92,30 @@ button:disabled {
   color: #695a64;
   cursor: pointer;
 }
+.held-orders-button {
+  position: relative;
+}
+.held-count {
+  position: absolute;
+  right: -3px;
+  top: -3px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  border: 2px solid #fdf4f7;
+  border-radius: 9px;
+  background: #be185d;
+  font-size: calc(8px * var(--font-scale));
+  font-weight: 800;
+  line-height: 1;
+}
+.held-count.zero {
+  background: #a8a0a4;
+  color: #fff;
+}
 .primary-button,
 .secondary-button {
   min-height: 42px;
@@ -3570,6 +3594,14 @@ button:disabled {
   margin: 6px 0 0;
   color: #92400e;
   font-size: calc(10px * var(--font-scale));
+}
+.held-panel-empty {
+  margin: 6px 0 0;
+  color: #92400e;
+  font-size: calc(10px * var(--font-scale));
+}
+.held-panel {
+  scroll-margin-top: 72px;
 }
 .held-panel-list {
   display: grid;

@@ -733,6 +733,33 @@ class ApiContractTest extends TestCase
         );
     }
 
+    public function test_shift_endpoints_are_never_shared_cacheable(): void
+    {
+        $admin = Employee::where('role', 'admin')->first();
+        $headers = $this->auth($admin);
+
+        // No open shift: the null answer is still live state.
+        $this->getJson('/api/shifts/current', $headers)
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private, max-age=0');
+
+        $this->postJson(
+            '/api/shifts/open',
+            ['openingCash' => '100.00'],
+            $headers,
+        )
+            ->assertCreated()
+            ->assertHeader('Cache-Control', 'no-store, private, max-age=0');
+
+        $this->getJson('/api/shifts/current', $headers)
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private, max-age=0');
+
+        $this->getJson('/api/shifts', $headers)
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private, max-age=0');
+    }
+
     public function test_sale_endpoints_require_an_open_shift(): void
     {
         $cashier = Employee::where('role', 'cashier')->first();
