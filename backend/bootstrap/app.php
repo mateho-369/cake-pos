@@ -38,6 +38,27 @@ return Application::configure(basePath: dirname(__DIR__))
                 400,
             );
         });
+        // Local/CI diagnostics only: when a request arrives against the
+        // localhost/127.0.0.1 origin (the CI API on :8080, or a dev server),
+        // include the concrete exception so logs are diagnosable from the
+        // response body/annotations. Remote production requests never see
+        // internals — they keep the safe generic JSON error.
+        $exceptions->render(function (Throwable $e, Request $request) {
+            if (! in_array($request->getHost(), ['127.0.0.1', 'localhost'], true)) {
+                return null;
+            }
+            return response()->json(
+                [
+                    'message' => $e->getMessage(),
+                    'exception' => get_class($e),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                ],
+                500,
+                [],
+                JSON_PRETTY_PRINT,
+            );
+        });
         // Error responses MUST still carry CORS headers. An exception unwinds
         // past HandleCors::addHeaders, so a 500 came back with no
         // Access-Control-Allow-Origin and the browser reported it as
