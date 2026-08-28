@@ -101,6 +101,25 @@ login_token() { # email password -> token (empty when login failed)
   json_field "$OUT/login.body" token ""
 }
 
+# Surface a finding as a GitHub check-run annotation — the ONLY probe output
+# visible in the Actions UI / API without downloading job logs. Gated to the
+# real production Worker on a real runner: the local self-test (live-prod
+# -selftest.sh) drives this script against a stub, and stub "findings" must
+# never pollute anyone's annotations.
+annotate() { # level title message
+  echo "  [annotate:$1] $2 — $3"
+  if [ "${GITHUB_ACTIONS:-false}" = "true" ] && \
+     [ "$WORKER" = "https://g-cake-api.system-app.workers.dev" ]; then
+    printf '::%s title=%s::%s\n' "$1" \
+      "$(printf '%s' "$2" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g' -e 's/:/%3A/g' -e 's/,/%2C/g')" \
+      "$(printf '%s' "$3" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')"
+  fi
+}
+
+hdr() { # header-name -> first value captured from the last response
+  tr -d '\r' <"$OUT/last.headers" 2>/dev/null | grep -i "^$1:" | head -n1 | cut -d' ' -f2-
+}
+
 # Closes whatever shift is currently open, counting the shift's own expected
 # float back so the variance is 0, retrying through transient failures, then
 # VERIFIES production is left with no open shift. Returns 1 if it cannot.
@@ -251,11 +270,166 @@ print("  has ordersData (new):", 'ordersData' in d)
 print("  todaySalesTotal:", d.get('todaySalesTotal'))
 PY
 
+# ---------- 2c. Cache forensics on /api/shifts/current (READ-ONLY) ----------
+# The badge and (twice) this probe's logs saw /api/shifts/current report an
+# OPEN shift while /api/shifts in the SAME run showed that shift long Closed
+# (id:1, closedAt 12:45:53Z, no second record). Nothing anywhere sets
+# Cache-Control on this API (zero matches repo-wide), so any shared cache in
+# front of Laravel — the Cloudflare edge, via the g-cake-api Worker's plain
+# fetch() passthrough, is the prime suspect — is free to keep serving the one
+# moment the shift really was open. This battery settles it WITHOUT touching
+# production: read /current twice (3s apart), once more with a cache-buster
+# query (a URL-keyed cache MUST miss on it), once from the VM origin directly
+# (no Cloudflare in front of it), and /api/shifts for ground truth. Only
+# identity/state fields are compared, so a live shop taking sales mid-probe
+# (counter drift) cannot false-positive a caching verdict.
+note "2c. Cache forensics: is /api/shifts/current served stale from in front?"
+CACHE_STALE_CURRENT=0
+CURRENT_TRUTH_BODY=""
+if [ -z "$TOKEN_ADMIN" ]; then
+  echo "  (skipping — admin login already failed above)"
+else
+  req "current (A: plain, via Worker)" "$WORKER" GET /api/shifts/current "" "$TOKEN_ADMIN"
+  cp "$OUT/last.body" "$OUT/curr-a.body"; cp "$OUT/last.code" "$OUT/curr-a.code"
+  CF_CACHE_STATUS="$(hdr cf-cache-status)"
+  AGE_HDR="$(hdr age)"
+  CC_HDR="$(hdr cache-control)"
+  ETAG_HDR="$(hdr etag)"
+  DATE_HDR="$(hdr date)"
+  echo "  --- response headers for /current (probe A) ---"
+  sed 's/^/    /' "$OUT/last.headers" 2>/dev/null | head -30
+  echo "  -----------------------------------------------"
+  annotate notice "current-response-headers" \
+    "cf-cache-status=[${CF_CACHE_STATUS:-absent}] cache-control=[${CC_HDR:-absent}] age=[${AGE_HDR:-absent}] etag=[${ETAG_HDR:-absent}] date=[${DATE_HDR:-absent}] (a cache HIT here would prove stale serving)"
+
+  case "$(printf '%s' "$CF_CACHE_STATUS" | tr '[:upper:]' '[:lower:]')" in
+    hit|stale|revalidated|updating)
+      assert "cf-cache-status: $CF_CACHE_STATUS — /current WAS served from a Cloudflare edge cache" false
+      annotate error "edge-cache-hit" \
+        "cf-cache-status: $CF_CACHE_STATUS on /api/shifts/current — the response did NOT come from Laravel; this is the stale-shift mechanism" ;;
+    *)
+      assert "no edge cache hit on /current (cf-cache-status: ${CF_CACHE_STATUS:-absent})" true ;;
+  esac
+  if [ -n "$AGE_HDR" ] && [ "$AGE_HDR" -gt 0 ] 2>/dev/null; then
+    assert "Age: $AGE_HDR — /current is a cached copy $AGE_HDR seconds old" false
+    annotate error "age-header" "/api/shifts/current carried Age: $AGE_HDR — a shared cache served a ${AGE_HDR}s-old copy"
+  else
+    assert "no Age header on /current (${AGE_HDR:-absent})" true
+  fi
+
+  sleep 3
+  req "current (B: plain again, 3s later)" "$WORKER" GET /api/shifts/current "" "$TOKEN_ADMIN"
+  cp "$OUT/last.body" "$OUT/curr-b.body"; cp "$OUT/last.code" "$OUT/curr-b.code"
+  req "current (C: cache-buster query)" "$WORKER" GET "/api/shifts/current?cb=$RANDOM$RANDOM$RANDOM" "" "$TOKEN_ADMIN"
+  cp "$OUT/last.body" "$OUT/curr-c.body"; cp "$OUT/last.code" "$OUT/curr-c.code"
+  req "current (D: VM origin direct, no Cloudflare)" "$VM" GET /api/shifts/current "" "$TOKEN_ADMIN"
+  cp "$OUT/last.body" "$OUT/curr-d.body"; cp "$OUT/last.code" "$OUT/curr-d.code"
+  req "shifts list (same run, ground truth)" "$WORKER" GET /api/shifts "" "$TOKEN_ADMIN"
+  cp "$OUT/last.body" "$OUT/shifts-list.body"
+
+  VERDICTS="$(python3 - "$OUT/curr-a.body" "$OUT/curr-b.body" "$OUT/curr-c.body" "$OUT/curr-d.body" "$OUT/curr-d.code" "$OUT/shifts-list.body" <<'PY'
+import json, sys
+
+def load(p):
+    try:
+        with open(p) as fh:
+            return json.load(fh)
+    except Exception:
+        return "__unreadable__"
+
+A, B, C, D = (load(p) for p in sys.argv[1:5])
+with open(sys.argv[5]) as fh:
+    d_code = fh.read().strip()
+L = load(sys.argv[6])
+
+# state fields only — money counters / timestamps may drift on a live shop
+STATE = ("id", "status", "closedAt", "openedBy", "openingCashUsdCents")
+def st(o):
+    if o is None: return None
+    if not isinstance(o, dict): return "<%s>" % type(o).__name__
+    return {k: o.get(k) for k in STATE}
+
+SA, SB, SC, SD = st(A), st(B), st(C), st(D)
+
+if SA == SB:
+    print("PASS::repeat-read::a second plain read 3s later returned the same shift state: %s" % SA)
+else:
+    print("INFO::state-drift::shift state changed between reads 3s apart (%s -> %s) — live activity, not necessarily a cache" % (SA, SB))
+
+if SA == SC:
+    print("PASS::cache-buster::a cache-busted read matches the plain read — no URL-keyed cache served a different copy")
+else:
+    print("FAIL::STALE-CACHE-PROOF::plain read = %s but ?cb= read = %s — a URL-keyed cache in front of the app served the stale copy" % (SA, SC))
+
+if d_code != "200":
+    print("INFO::origin-direct::VM origin probe returned HTTP %s — Worker-vs-origin comparison skipped" % d_code)
+elif SA == SD:
+    print("PASS::worker-vs-origin::the Worker and the VM origin agree on the current shift")
+else:
+    print("FAIL::WORKER-ORIGIN-DIVERGE::Worker = %s but origin direct = %s — something between them served a different answer" % (SA, SD))
+
+if not isinstance(L, list):
+    print("INFO::current-vs-list::/api/shifts was not a JSON list — consistency check skipped")
+elif A is None:
+    print("PASS::current-vs-list::/current is null and the shift history (%d record(s)) has no open shift inside this run" % len(L))
+elif not isinstance(A, dict) or A.get("id") is None:
+    print("INFO::current-vs-list::/current returned no shift object (error body?) — consistency check skipped")
+else:
+    match = [s for s in L if isinstance(s, dict) and s.get("id") == A.get("id")]
+    if not match:
+        print("FAIL::PHANTOM-SHIFT::/current returned shift id=%s but /api/shifts captured moments later in this run has no such record" % A.get("id"))
+    elif match[0].get("status") != A.get("status"):
+        print("FAIL::STALE-SHIFT::/current says '%s' for shift id=%s while /api/shifts in this same run says '%s' (closedAt=%s) — the /current snapshot is stale" % (
+            A.get("status"), A.get("id"), match[0].get("status"), match[0].get("closedAt")))
+    else:
+        print("PASS::current-vs-list::/current and /api/shifts agree (id=%s, status=%s)" % (A.get("id"), A.get("status")))
+PY
+)"
+  echo "$VERDICTS" | sed 's/^/  /'
+  while IFS= read -r verdict_line; do
+    [ -n "$verdict_line" ] || continue
+    V_SEV="${verdict_line%%::*}"
+    V_REST="${verdict_line#*::}"
+    V_LABEL="${V_REST%%::*}"
+    V_DETAIL="${V_REST#*::}"
+    case "$V_SEV" in
+      PASS)
+        assert "$V_LABEL — $V_DETAIL" true
+        annotate notice "$V_LABEL" "$V_DETAIL" ;;
+      INFO)
+        echo "  (info) $V_LABEL: $V_DETAIL"
+        annotate notice "$V_LABEL" "$V_DETAIL" ;;
+      FAIL)
+        assert "$V_LABEL — $V_DETAIL" false
+        annotate error "$V_LABEL" "$V_DETAIL"
+        case "$V_LABEL" in
+          STALE-CACHE-PROOF|STALE-SHIFT|PHANTOM-SHIFT) CACHE_STALE_CURRENT=1 ;;
+        esac ;;
+    esac
+  done <<< "$VERDICTS"
+
+  # When the plain read was proven stale, trust the cache-busted read as the
+  # server's actual truth for the shift-state handling below — never run the
+  # self-healing close against a phantom.
+  if [ "$(cat "$OUT/curr-c.code" 2>/dev/null || echo 000)" = "200" ]; then
+    CURRENT_TRUTH_BODY="$(tr -d '[:space:]' <"$OUT/curr-c.body")"
+  else
+    CURRENT_TRUTH_BODY="$(tr -d '[:space:]' <"$OUT/curr-a.body")"
+  fi
+fi
+
 # ---------- 3. Shift state: never strand production, never fight a cashier ----------
 note "3. Shift state on production"
 req "GET /api/shifts/current (state check)" "$WORKER" GET /api/shifts/current "" "$TOKEN_ADMIN"
 CURRENT_BODY="$(cat "$OUT/last.body" | tr -d '[:space:]')"
 echo "  current shift on prod: $CURRENT_BODY"
+if [ "${CACHE_STALE_CURRENT:-0}" = "1" ] && [ -n "$CURRENT_TRUTH_BODY" ]; then
+  echo "  !! forensics PROVED the plain /current read is a stale cache artifact"
+  echo "  !! acting on the cache-busted truth instead: $CURRENT_TRUTH_BODY"
+  annotate error "stale-current-confirmed" \
+    "the plain /api/shifts/current read is stale; cache-busted truth is: ${CURRENT_TRUTH_BODY:0:200} — see the cache forensics section"
+  CURRENT_BODY="$CURRENT_TRUTH_BODY"
+fi
 if [ "$CURRENT_BODY" != "null" ] && [ -n "$CURRENT_BODY" ]; then
   echo "  --- Raw response dump (open shift detected) ---"
   echo "  Headers:"

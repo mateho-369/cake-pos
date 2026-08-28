@@ -53,6 +53,14 @@ jobs:
         working-directory: backend
         run: |
           cat >> .env <<'EOF'
+          # key:generate only REPLACES an existing APP_KEY= line — without one
+          # it prints "Unable to set application key" and quietly moves on,
+          # leaving .env keyless so EVERY request 500s (MissingAppKeyException).
+          APP_KEY=
+          # CI-only: real stack traces instead of a generic "Server Error"
+          # page, so the next fatal fails in one round-trip, not two.
+          APP_ENV=testing
+          APP_DEBUG=true
           DB_CONNECTION=mysql
           DB_HOST=127.0.0.1
           DB_PORT=3306
@@ -82,6 +90,13 @@ jobs:
           TELEGRAM_API_BASE=http://127.0.0.1:8090
           EOF
           php artisan key:generate --force
+          # Make this failure LOUD, not silent: key:generate exits 0 even when
+          # it set nothing. Without this gate a missing APP_KEY only surfaces
+          # as generic 500s in every later step (healthz included).
+          if ! grep -q '^APP_KEY=base64:' .env; then
+            echo "::error::APP_KEY was not set — key:generate needs an APP_KEY= line in .env to replace"
+            exit 1
+          fi
           grep -E 'APP_ENV|DB_|ADMIN_ORIGIN|QUEUE_' .env | head -20
 
       - name: Migrate + seed (db:seed --force, exactly like production)
@@ -180,6 +195,14 @@ jobs:
         working-directory: backend
         run: |
           cat >> .env <<'EOF'
+          # key:generate only REPLACES an existing APP_KEY= line — without one
+          # it prints "Unable to set application key" and quietly moves on,
+          # leaving .env keyless so EVERY request 500s (MissingAppKeyException).
+          APP_KEY=
+          # CI-only: real stack traces instead of a generic "Server Error"
+          # page, so the next fatal fails in one round-trip, not two.
+          APP_ENV=testing
+          APP_DEBUG=true
           DB_CONNECTION=mysql
           DB_HOST=127.0.0.1
           DB_PORT=3306
@@ -201,6 +224,12 @@ jobs:
           SHOP_TELEGRAM_BOT_TOKEN=123:test-token
           EOF
           php artisan key:generate --force
+          # Fail here, not as generic 500s in every later step — key:generate
+          # exits 0 even when it set nothing (see above).
+          if ! grep -q '^APP_KEY=base64:' .env; then
+            echo "::error::APP_KEY was not set — key:generate needs an APP_KEY= line in .env to replace"
+            exit 1
+          fi
       - name: Migrate + seed
         working-directory: backend
         run: |

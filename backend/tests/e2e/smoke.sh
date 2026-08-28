@@ -15,8 +15,22 @@ FAIL=0
 note() { echo; echo "===== $* ====="; }
 step() { echo; echo "----- $* -----"; }
 
+# Every helper takes `${N:-}` defaults and checks its own arity: with `set -u`
+# a bare unbound expansion ABORTS the whole script mid-run, hiding every
+# result collected so far. (Seen in CI as `smoke.sh: line 109: $1: unbound
+# variable` — that one was a label containing "$100.00", which interpolates
+# $1; the money labels are single-quoted now. A short-called helper would
+# fail the same way.) A buggy call now degrades to a loud FAIL line and the
+# run keeps going and reports everything.
+
 # req <label> <method> <path> [json-body] [auth-token]
 req() {
+  if [ "$#" -lt 3 ]; then
+    echo "  [req] TEST BUG: req() wants >= 3 args (label method path), got $#: $*"
+    echo 000 >"$OUT/last.code"
+    : >"$OUT/last.body"
+    return 0
+  fi
   local label="$1" method="$2" path="$3" body="${4:-}" token="${5:-}"
   local args=(-sS -X "$method" -H 'Accept: application/json' -w '\n%{http_code}')
   if [ -n "$body" ]; then args+=(-H 'Content-Type: application/json' -d "$body"); fi
@@ -34,12 +48,17 @@ req() {
 }
 
 assert() { # label condition
-  if [ "$2" = "true" ]; then PASS=$((PASS + 1)); echo "  PASS  $1";
-  else FAIL=$((FAIL + 1)); echo "  FAIL  $1"; fi
+  local label="${1:-(unlabeled assertion)}" cond="${2:-}"
+  if [ "$#" -lt 2 ]; then
+    cond="false"
+    label="$label — TEST BUG: assert() wants 2 args, got $#"
+  fi
+  if [ "$cond" = "true" ]; then PASS=$((PASS + 1)); echo "  PASS  $label";
+  else FAIL=$((FAIL + 1)); echo "  FAIL  $label"; fi
 }
 
-jqget() { # file jsonpath -> prints value or NULL
-  python3 - "$1" "$2" <<'PY'
+jqget() { # file jsonpath -> prints value or NULL (__MISSING__ if short-called)
+  python3 - "${1:-}" "${2:-}" <<'PY'
 import json, sys
 try:
     d = json.load(open(sys.argv[1]))
@@ -63,7 +82,11 @@ PY
 
 expect_code() { # label expected_code
   local actual
-  actual="$(cat "$OUT/last.code")"
+  actual="$(cat "$OUT/last.code" 2>/dev/null || echo 000)"
+  if [ "$#" -lt 2 ]; then
+    assert "${1:-(unlabeled expect_code)} — TEST BUG: expect_code() wants 2 args, got $# (HTTP $actual)" false
+    return 0
+  fi
   assert "$1 (expected $2, got $actual)" "$([ "$actual" = "$2" ] && echo true || echo false)"
 }
 
@@ -106,7 +129,7 @@ assert "refusal carries requires_open_shift flag" "$([ "$(jqget "$OUT/last.body"
 req "hold without shift" POST /api/orders/hold '{"items":[{"productId":1,"quantity":1}]}' "$TOKEN_CASHIER"
 expect_code "POST /api/orders/hold without shift returns 409" 409
 
-step "3b. Cashier opens a shift with $100.00 opening cash"
+step '3b. Cashier opens a shift with $100.00 opening cash'
 req "open shift" POST /api/shifts/open '{"openingCash":100.00}' "$TOKEN_CASHIER"
 expect_code "POST /api/shifts/open returns 201" 201
 SHIFT_ID="$(jqget "$OUT/last.body" id)"
@@ -143,7 +166,7 @@ PRODUCT_ID="$(jqget "$OUT/last.body" id)"
 assert "product id returned" "$([ -n "$PRODUCT_ID" ] && [ "$PRODUCT_ID" != "__MISSING__" ] && echo true || echo false)"
 assert "product stock = 5" "$([ "$(jqget "$OUT/last.body" stock)" = "5" ] && echo true || echo false)"
 
-step "4b. Cashier sells 2 x $10.00 by cash (total $20.00)"
+step '4b. Cashier sells 2 x $10.00 by cash (total $20.00)'
 req "create order" POST /api/orders "{\"payment\":\"Cash\",\"items\":[{\"productId\":$PRODUCT_ID,\"quantity\":2}],\"idempotencyKey\":\"smoke-order-001\"}" "$TOKEN_CASHIER"
 expect_code "create order returns 201" 201
 ORDER_ID="$(jqget "$OUT/last.body" id)"
@@ -252,7 +275,7 @@ assert "expiresTodayUnits = 0" "$([ "$(jqget "$OUT/last.body" expiresTodayUnits)
 assert "wasteThisWeekCents = 0" "$([ "$(jqget "$OUT/last.body" wasteThisWeekCents)" = "0" ] && echo true || echo false)"
 assert "events empty" "$([ "$(jqget "$OUT/last.body" events.0)" = "__MISSING__" ] && echo true || echo false)"
 
-step "6b. Record 1 unit of waste (damaged) — stock 3 -> 2, waste $10.00"
+step '6b. Record 1 unit of waste (damaged) — stock 3 -> 2, waste $10.00'
 req "record waste" POST /api/inventory/waste "{\"productId\":$PRODUCT_ID,\"quantity\":1,\"reason\":\"damaged\",\"note\":\"smoke test\"}" "$TOKEN_ADMIN"
 expect_code "POST /api/inventory/waste returns 201" 201
 assert "waste response remainingStock = 2" "$([ "$(jqget "$OUT/last.body" remainingStock)" = "2" ] && echo true || echo false)"
