@@ -1715,6 +1715,7 @@ class ApiContractTest extends TestCase
         // Each hold keeps its own label; an unlabelled one still shows up.
         $this->assertSame('First', $queue[0]['holdLabel']);
         $this->assertNull($queue[2]['holdLabel']);
+        $this->travelBack();
     }
 
     public function test_paying_a_held_order_directly_stops_it_being_held(): void
@@ -1824,7 +1825,8 @@ class ApiContractTest extends TestCase
             $this->auth(Employee::where('role', 'admin')->first()),
         )->assertOk()->json();
         $this->assertSame(2000, (int) round($summary['todaySalesTotal'] * 100));
-        $this->assertSame(1, (int) $summary['completedOrderCount']);
+        // Only the paid sale counts; the released hold is not an order.
+        $this->assertSame(1, (int) $summary['todayOrdersCount']);
     }
 
     public function test_hold_release_is_idempotent_and_unknown_ids_are_rejected(): void

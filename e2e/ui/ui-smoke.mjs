@@ -769,7 +769,7 @@ console.log('\n########## PHASE F — HOLD / PARK AN ORDER, THEN PAY IT ########
   const stockBefore = before.json.find((p) => p.id === product.id)?.stock
 
   // 1. Park an order for a customer who will pay when they come back.
-  await page.locator('.product-card').first().click()
+  await page.locator('.product-card', { hasText: 'Smoke Cake' }).first().click()
   await page.waitForTimeout(400)
   await page.locator('.cart-hold-button').click()
   await page.locator('.cart-hold-form input').fill('Dara — pays on collection')

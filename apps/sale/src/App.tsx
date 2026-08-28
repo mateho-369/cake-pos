@@ -93,7 +93,6 @@ function SaleTerminal() {
   // Held ("parked") orders and the holds the current cart was resumed from.
   const [held, setHeld] = useState<HeldOrder[]>([])
   const [heldBusy, setHeldBusy] = useState(false)
-  const [resumedFrom, setResumedFrom] = useState<string[]>([])
   const promptOpenShift = (action: PendingSaleAction) => {
     setPendingAction(action)
     setShiftMode('open')
@@ -316,6 +315,13 @@ function SaleTerminal() {
       return
     }
     try {
+      const heldOrderIdsInCart = Array.from(
+        new Set(
+          cart
+            .map((item) => item.fromHoldId)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      )
       // Mixed-currency split tender: both fields are independent; the
       // server validates the combined value covers the total and records
       // cash_usd_cents and cash_khr as two distinct per-currency values
@@ -342,9 +348,12 @@ function SaleTerminal() {
           : {}),
         idempotencyKey: checkoutKey,
         confirmed: payment === 'khqr' ? khqrConfirmed : undefined,
-        // Holds resumed into this cart stop being held the moment the sale is
-        // paid (server-side, in the same transaction).
-        ...(resumedFrom.length ? { heldOrderIds: resumedFrom } : {}),
+        // Holds whose lines are in THIS cart stop being held the moment the
+        // sale is paid (server-side, in the same transaction). Derived from
+        // the cart, so a cleared cart can never release a hold by accident.
+        ...heldOrderIdsInCart.length
+          ? { heldOrderIds: heldOrderIdsInCart }
+          : {},
         ...(payment === 'cash'
           ? {
               usdReceivedCents: usdCents,
@@ -366,8 +375,7 @@ function SaleTerminal() {
       setKhqrConfirmed(false)
       setPayment('cash')
       setMobileCart(false)
-      setResumedFrom([])
-      if (resumedFrom.length) void loadHeld()
+      if (heldOrderIdsInCart.length) void loadHeld()
       if (payment === 'cash') setCashSales((current) => current + order.total)
     } catch (reason) {
       const message =
@@ -461,16 +469,20 @@ function SaleTerminal() {
         if (existing) {
           return current.map((item) =>
             item.product.id === product.id
-              ? { ...item, quantity: item.quantity + line.quantity }
+              ? {
+                  ...item,
+                  quantity: item.quantity + line.quantity,
+                  fromHoldId: item.fromHoldId ?? order.id,
+                }
               : item,
           )
         }
-        return [...current, { product, quantity: line.quantity }]
+        return [
+          ...current,
+          { product, quantity: line.quantity, fromHoldId: order.id },
+        ]
       })
     }
-    setResumedFrom((current) =>
-      current.includes(order.id) ? current : [...current, order.id],
-    )
     setMobileCart(true)
     setToast(
       missing
@@ -521,7 +533,8 @@ function SaleTerminal() {
     setHeldBusy(true)
     try {
       await apiRequest(`/api/orders/${order.id}/cancel`, { method: 'POST' })
-      setResumedFrom((current) => current.filter((id) => id !== order.id))
+      // Lines already in the cart keep their fromHoldId; the server skips a
+      // hold that is no longer held, so nothing is double-released.
       setToast(t('hold.voided', { id: order.holdLabel || order.id }))
       await Promise.all([loadHeld(), refresh()])
     } catch (reason) {

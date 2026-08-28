@@ -25,7 +25,17 @@ export type Product = {
   active?: boolean
 }
 
-export type CartItem = { product: Product; quantity: number }
+export type CartItem = {
+  product: Product
+  quantity: number
+  /**
+   * Set when the line was put in the cart by resuming a held order. At
+   * checkout these ids tell the server which holds this sale pays for — and
+   * because it lives on the LINE, removing the line (or clearing the cart)
+   * stops the hold being released by an unrelated sale.
+   */
+  fromHoldId?: string
+}
 export type SaleCategory = {
   id: number
   name: string
