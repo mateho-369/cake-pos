@@ -130,6 +130,8 @@ jobs:
         run: node e2e/unit/unit-tests.mjs
       - name: Locale parity (every en/km key resolves)
         run: node e2e/locale-audit.mjs
+      - name: live-prod safety self-test (probe can never strand an open shift)
+        run: bash backend/tests/e2e/live-prod-selftest.sh
       - name: Production build (same env as deploy)
         run: npm run build
         env:
@@ -249,10 +251,19 @@ jobs:
   # ============================================================
   live-prod:
     runs-on: ubuntu-latest
+    # Only ONE shift can be open store-wide: two probes racing on the same
+    # production shift is exactly how a shift got stranded Open before.
+    concurrency:
+      group: live-prod
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - name: Probe live production API
         env:
           WORKER_URL: https://g-cake-api.system-app.workers.dev
           VM_URL: http://34.9.115.19:8080
+          # The mutating open/close lifecycle runs only when a human triggers
+          # the workflow. Pushes stay read-only — backend-e2e/ui already cover
+          # open/close/conflict/relogin against a throwaway MySQL.
+          LIVE_PROD_SHIFT_LIFECYCLE: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: bash backend/tests/e2e/live-prod.sh
