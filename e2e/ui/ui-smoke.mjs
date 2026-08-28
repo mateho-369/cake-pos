@@ -33,10 +33,28 @@ const CASHIER_EMAIL = process.env.CASHIER_EMAIL || 'sophea@atelier.local'
 const CASHIER_PASS = process.env.CASHIER_PASS || 'ChangeMe123!'
 
 let failures = 0
+const annotate = (level, title, msg) =>
+  process.stderr.write(
+    `::${level} title=${title}::${String(msg)
+      .replace(/%/g, '%25')
+      .replace(/\r/g, '%0D')
+      .replace(/\n/g, '%0A')}\n`,
+  )
+// Surface the reason for a red UI job even when the Actions log store is
+// unreachable (the Azure log blob regularly returns EOF from the sandbox).
+process.on('unhandledRejection', (err) => {
+  annotate('error', 'ui-unhandled-rejection', err)
+  process.exit(1)
+})
+process.on('uncaughtException', (err) => {
+  annotate('error', 'ui-uncaught-exception', err)
+  process.exit(1)
+})
 const pass = (label) => console.log(`PASS  ${label}`)
 const fail = (label, extra = '') => {
   failures++
   console.log(`FAIL  ${label}${extra ? '  — ' + extra : ''}`)
+  annotate('error', 'ui-check-failed', `${label}${extra ? ' — ' + extra : ''}`)
 }
 const check = (label, cond, extra = '') =>
   cond ? pass(label) : fail(label, extra)
@@ -52,9 +70,20 @@ async function api(path, { method = 'GET', body, token } = {}) {
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
   let json = null
+  let text = ''
   try {
-    json = await res.json()
-  } catch {}
+    text = await res.text()
+    json = text ? JSON.parse(text) : null
+  } catch {
+    json = null
+  }
+  if (res.status >= 500) {
+    annotate(
+      'error',
+      'api-5xx',
+      `${method} ${path} -> ${res.status}: ${text.slice(0, 300)}`,
+    )
+  }
   return { status: res.status, json }
 }
 

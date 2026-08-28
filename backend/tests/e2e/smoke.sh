@@ -55,6 +55,12 @@ req() {
   if [ -s "$OUT/last.body" ]; then
     echo "  body: $(head -c 600 "$OUT/last.body")"
   fi
+  # A 5xx here is the app failing to answer at all — surface the body as a
+  # check-run annotation so the root cause is visible without job logs.
+  if [ "$code" -ge 500 ] 2>/dev/null; then
+    annotate error "http-$code-$method-$path" \
+      "$(head -c 300 "$OUT/last.body" | tr '\n' ' ')"
+  fi
   echo "$code" >"$OUT/last.code"
 }
 
