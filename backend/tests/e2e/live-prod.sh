@@ -201,6 +201,25 @@ for base in "$WORKER" "$VM"; do
   expect_code "healthz returns 200 ($base)" 200
 done
 
+# ---------- 1b. CORS ----------
+# The three browser origins must be allowed, or the apps cannot call the API
+# at all. Checked on EVERY run because this is what the media library broke
+# with: an exception unwound past HandleCors and the browser reported a
+# "blocked by CORS policy" error that hid the real 500 underneath.
+note "1b. CORS preflight from the real browser origins"
+CORS_ORIGINS="${CORS_ORIGINS:-https://g-cake-admin.system-app.workers.dev https://g-cake-sale.system-app.workers.dev https://g-cake-shop.system-app.workers.dev}"
+for origin in $CORS_ORIGINS; do
+  ACAO="$(curl -sS --max-time 30 -o /dev/null -D - -X OPTIONS \
+    -H "Origin: $origin" \
+    -H 'Access-Control-Request-Method: GET' \
+    -H 'Access-Control-Request-Headers: authorization,content-type' \
+    "$WORKER/healthz" 2>/dev/null |
+    tr -d '\r' | grep -i '^access-control-allow-origin:' |
+    head -n1 | cut -d' ' -f2-)"
+  assert "CORS: preflight from $origin is allowed" \
+    "$([ "$ACAO" = "$origin" ] && echo true || echo false)"
+done
+
 # ---------- 2. Login + deployed version markers ----------
 note "2. Login (admin) and deployed-version markers"
 req "admin login" "$WORKER" POST /api/login "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASS\"}"

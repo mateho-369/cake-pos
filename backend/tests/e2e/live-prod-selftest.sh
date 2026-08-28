@@ -47,6 +47,7 @@ run_case() { # name lifecycle stub_env... -> sets LAST_EXIT, LAST_LOG
   LAST_LOG="$SELFTEST_DIR/$name.log"
   WORKER_URL="http://127.0.0.1:$PORT" \
   VM_URL="http://127.0.0.1:$PORT" \
+  CORS_ORIGINS="http://127.0.0.1:$PORT" \
   LIVE_PROD_SHIFT_LIFECYCLE="$lifecycle" \
     bash "$ROOT/backend/tests/e2e/live-prod.sh" >"$LAST_LOG" 2>&1 &
   local probe_pid=$!
@@ -70,6 +71,7 @@ echo; echo "===== CASE B: SIGTERM mid-lifecycle ====="
 start_stub SLOW_LOGOUT_MS=20000 || { FAIL=$((FAIL + 1)); }
 B_LOG="$SELFTEST_DIR/B.log"
 WORKER_URL="http://127.0.0.1:$PORT" VM_URL="http://127.0.0.1:$PORT" \
+CORS_ORIGINS="http://127.0.0.1:$PORT" \
 LIVE_PROD_SHIFT_LIFECYCLE=1 bash "$ROOT/backend/tests/e2e/live-prod.sh" >"$B_LOG" 2>&1 &
 B_PID=$!
 # Wait until the shift is open (the probe is parked in the slow logout).
@@ -110,6 +112,7 @@ check "E: a CI-owned shift is open before the probe" \
   "$([ "$(current_shift | tr -d '[:space:]')" != "null" ] && echo true || echo false)"
 E_LOG="$SELFTEST_DIR/E.log"
 WORKER_URL="http://127.0.0.1:$PORT" VM_URL="http://127.0.0.1:$PORT" \
+CORS_ORIGINS="http://127.0.0.1:$PORT" \
 LIVE_PROD_SHIFT_LIFECYCLE=1 bash "$ROOT/backend/tests/e2e/live-prod.sh" >"$E_LOG" 2>&1
 E_EXIT=$?
 check "E: probe self-healed the stale shift" \
@@ -123,6 +126,7 @@ echo; echo "===== CASE F: real cashier shift present ====="
 start_stub SEED_SHIFT=real
 F_LOG="$SELFTEST_DIR/F.log"
 WORKER_URL="http://127.0.0.1:$PORT" VM_URL="http://127.0.0.1:$PORT" \
+CORS_ORIGINS="http://127.0.0.1:$PORT" \
 LIVE_PROD_SHIFT_LIFECYCLE=1 bash "$ROOT/backend/tests/e2e/live-prod.sh" >"$F_LOG" 2>&1
 F_EXIT=$?
 check "F: did NOT close the real shift" \
@@ -137,6 +141,15 @@ check "G: no shift was ever opened" \
   "$(! grep -q 'opened shift id' "$LAST_LOG" && echo true || echo false)"
 check "G: production left with NO open shift" \
   "$([ "$CURRENT_AFTER" = "null" ] && echo true || echo false)"
+
+# ---- H: a browser origin that is not allowed must fail loudly --------------
+run_case H 1 ALLOWED_ORIGINS="https://not-the-real-origin.example"
+check "H: CORS probe fails when the origin is not allowed" \
+  "$(grep -q 'FAIL  CORS: preflight' "$LAST_LOG" && echo true || echo false)"
+check "H: probe exits non-zero on the CORS failure" \
+  "$([ "$LAST_EXIT" != 0 ] && echo true || echo false)"
+check "H: read-only sweep still ran after the CORS failure" \
+  "$(grep -q 'Read-only endpoint sweep' "$LAST_LOG" && echo true || echo false)"
 
 echo
 echo "############################################################"

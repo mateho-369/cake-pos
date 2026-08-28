@@ -76,19 +76,45 @@ const readBody = (req) =>
     })
   })
 
+// Defaults to the stub's own origin so the probe passes by default; the
+// self-test overrides it to prove a disallowed origin fails loudly.
+const ALLOWED_ORIGINS = (
+  process.env.ALLOWED_ORIGINS || `http://127.0.0.1:${PORT}`
+)
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean)
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`)
   const path = url.pathname
   const body = await readBody(req)
-  const send = (code, payload) => {
-    res.writeHead(code, { 'Content-Type': 'application/json' })
+  const send = (code, payload, extraHeaders = {}) => {
+    res.writeHead(code, {
+      'Content-Type': 'application/json',
+      ...extraHeaders,
+    })
     res.end(JSON.stringify(payload))
   }
   const auth = req.headers.authorization || ''
   const token = auth.replace(/^Bearer\s+/i, '')
   const employee = tokens.get(token)
 
-  if (path === '/healthz') return send(200, { ok: true })
+  const origin = req.headers.origin
+  const corsHeaders =
+    origin && ALLOWED_ORIGINS.includes(origin)
+      ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' }
+      : {}
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      ...corsHeaders,
+      'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+      'Access-Control-Allow-Headers': 'Accept,Authorization,Content-Type',
+    })
+    return res.end()
+  }
+  if (path === '/healthz')
+    return send(200, { ok: true }, corsHeaders)
   if (path === '/api/login') {
     const token = `tok-${Math.random().toString(36).slice(2)}`
     const name = String(body.email || '').startsWith('sophea')

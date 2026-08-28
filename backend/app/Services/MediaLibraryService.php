@@ -4,7 +4,29 @@ use App\Models\{Product, Broadcast, BroadcastTemplate};
 use Illuminate\Support\Facades\Storage;
 final class MediaLibraryService
 {
+    /**
+     * Object storage is a separate service (MinIO/S3). When it is down or
+     * misconfigured the Media Library must degrade to "storage unavailable"
+     * instead of throwing a 500 — which, before the CORS fix in
+     * bootstrap/app.php, the browser reported as a misleading CORS error.
+     */
     public function list(): array
+    {
+        try {
+            return $this->listFromDisk();
+        } catch (\Throwable $e) {
+            report($e);
+            return [
+                'available' => false,
+                'reason' => 'Object storage is unreachable',
+                'totalBytes' => 0,
+                'objectCount' => 0,
+                'objects' => [],
+            ];
+        }
+    }
+
+    private function listFromDisk(): array
     {
         $disk = Storage::disk('s3');
         $used = [];
@@ -49,6 +71,7 @@ final class MediaLibraryService
             ];
         }
         return [
+            'available' => true,
             'totalBytes' => $total,
             'objectCount' => count($objects),
             'objects' => $objects,

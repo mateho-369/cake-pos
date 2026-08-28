@@ -709,7 +709,9 @@
     "deleteFailed": "Delete failed",
     "loadFailed": "Could not load media",
     "empty": "No media files yet",
-    "emptyHint": "Product photos you upload will appear here."
+    "emptyHint": "Product photos you upload will appear here.",
+    "storageDown": "Object storage is unreachable",
+    "storageDownHint": "Photos cannot be listed right now. Check the storage service (MinIO/S3) on the server — the rest of the app keeps working."
   },
   "modal": {
     "closeDialog": "Close dialog",
