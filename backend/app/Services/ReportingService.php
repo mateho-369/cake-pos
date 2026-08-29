@@ -399,7 +399,7 @@ final class ReportingService
         $r = DateRange::from($input);
         $byCustomer = Order::whereBetween('created_at', [$r->from, $r->to])
             ->whereNull('parent_order_id')
-            ->whereNotIn('status', ['Cancelled'])
+            ->whereNotIn('status', ['Cancelled', 'Released'])
             ->whereNotNull('customer_id')
             ->selectRaw('customer_id, COUNT(*) cnt')
             ->groupBy('customer_id')
@@ -427,7 +427,7 @@ final class ReportingService
                 'totalOrders' => (int) ($customer
                     ? Order::where('customer_id', $customer->id)
                         ->whereNull('parent_order_id')
-                        ->whereNotIn('status', ['Cancelled'])
+                        ->whereNotIn('status', ['Cancelled', 'Released'])
                         ->count()
                     : 0),
             ];

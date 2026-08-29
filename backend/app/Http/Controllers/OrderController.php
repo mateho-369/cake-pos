@@ -135,7 +135,7 @@ class OrderController extends Controller
 
     public function index(): JsonResponse
     {
-        $orders = Order::with(['cashier', 'customer'])
+        $orders = Order::with(['cashier', 'customer', 'orderItems', 'payments'])
             ->latest('created_at')
             ->get();
         return response()->json(OrderResource::collection($orders)->resolve());

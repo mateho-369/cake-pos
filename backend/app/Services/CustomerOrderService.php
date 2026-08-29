@@ -1,6 +1,7 @@
 <?php
 namespace App\Services;
-use App\Models\{Customer, Order, OrderItem, Product, Shift};
+use App\Jobs\SendCustomerStatusNotification;
+use App\Models\{Customer, Order, OrderItem, OrderStatusEvent, Product, Shift};
 use App\Support\Money;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\{DB, Http};
@@ -213,6 +214,82 @@ class CustomerOrderService
                 'line_total_cents' => $product->price_cents * $quantity,
             ]);
         }
+    }
+
+    /**
+     * Customer-initiated cancellation from the phone Mini App.
+     *
+     * Only before the seller accepts: Pending/Confirmed/Ready. Once the
+     * seller has accepted (status Held), staff owns the order and this
+     * window is closed. Reserved stock is returned, the order is marked
+     * Cancelled, and the customer is told through the shop bot.
+     */
+    public function cancel(Customer $customer, Order $order): void
+    {
+        DB::transaction(function () use ($customer, $order) {
+            $order = Order::whereKey($order->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $cancellable =
+                $order->customer_id === $customer->id &&
+                $order->source === 'telegram' &&
+                $order->payment_status !== 'paid' &&
+                in_array(
+                    $order->status,
+                    ['Pending', 'Confirmed', 'Ready'],
+                    true,
+                );
+            if (!$cancellable) {
+                throw new HttpResponseException(
+                    response()->json(
+                        [
+                            'message' =>
+                                'This order can no longer be cancelled — it has already been accepted by the store',
+                        ],
+                        409,
+                    ),
+                );
+            }
+            $from = $order->status;
+            foreach ($order->orderItems()->lockForUpdate()->get() as $item) {
+                if ($item->product_id) {
+                    $product = Product::whereKey($item->product_id)
+                        ->lockForUpdate()
+                        ->first();
+                    if ($product && $product->reserved_stock > 0) {
+                        $product->decrement(
+                            'reserved_stock',
+                            min(
+                                $product->reserved_stock,
+                                (int) $item->quantity,
+                            ),
+                        );
+                    }
+                }
+            }
+            $order->update([
+                'status' => 'Cancelled',
+                'fulfillment_status' => 'Cancelled',
+            ]);
+            OrderStatusEvent::create([
+                'order_id' => $order->id,
+                'from_status' => $from,
+                'to_status' => 'Cancelled',
+                'metadata' => ['source' => 'customer'],
+            ]);
+            $this->audit->log(
+                null,
+                'customer_order.cancelled',
+                $order->id,
+                [
+                    'customerId' => $customer->id,
+                    'fromStatus' => $from,
+                    'totalCents' => $order->total_cents,
+                    'source' => 'customer',
+                ],
+            );
+        });
+        SendCustomerStatusNotification::dispatch($order->id);
     }
 
     /** Short human-readable lookup code, unique among open orders. */

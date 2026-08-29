@@ -206,9 +206,11 @@ class OrderService
      * Held orders reserve stock while they wait, so a hold that is resumed
      * into the cart and then checked out must be closed — otherwise the
      * customer's order stays in the held list forever and its reserved stock
-     * never comes back. Deliberately sets status Cancelled (never Completed:
-     * only the paid order carries the revenue, so reports cannot double
-     * count), frees the reservation, and records why in the audit trail.
+     * never comes back. Deliberately uses the Released status instead of
+     * Cancelled (a hold the customer legitimately paid for was never
+     * cancelled; only the paid order carries the revenue, so reports cannot
+     * double count), frees the reservation, and records why in the audit
+     * trail.
      *
      * Idempotent: a hold that is no longer held (already paid directly,
      * voided, or released by a retry) is skipped, never released twice.
@@ -254,13 +256,13 @@ class OrderService
                 }
             }
             $order->update([
-                'status' => 'Cancelled',
-                'fulfillment_status' => 'Cancelled',
+                'status' => 'Released',
+                'fulfillment_status' => 'Released',
             ]);
             OrderStatusEvent::create([
                 'order_id' => $order->id,
                 'from_status' => 'Held',
-                'to_status' => 'Cancelled',
+                'to_status' => 'Released',
                 'employee_id' => $employee->id,
                 'metadata' => [
                     'reason' => 'hold_paid',
@@ -346,12 +348,16 @@ class OrderService
         });
     }
     /**
-     * Cancel an order and give its reserved stock back. Used both for
-     * discarding a walk-in hold and for REJECTING a pending Telegram
-     * customer order (staff called to verify and it was not real). The
-     * optional reason travels into the audit trail and the status event —
-     * never into the customer notification, where it has no business
-     * being (a "prank order" reason is internal information).
+     * Cancel a held order and give its reserved stock back.
+     *
+     * Staff may cancel a HOLD after the seller accepted it (walk-in holds
+     * parked at the counter, or a Telegram customer order already moved to
+     * the held queue). A Telegram order that has NOT been accepted yet
+     * (Pending/Confirmed/Ready) CANNOT be cancelled by staff — that window
+     * belongs exclusively to the customer through the phone Mini App, so a
+     * staff mis-click can never kill a real customer order before it is
+     * verified. The optional reason travels into the audit trail and the
+     * status event — never into the customer notification.
      */
     public function cancel(
         Order $order,
@@ -363,18 +369,9 @@ class OrderService
             $order = Order::whereKey($order->id)
                 ->lockForUpdate()
                 ->firstOrFail();
-            $cancellable =
-                $order->status === 'Held' ||
-                ($order->source === 'telegram' &&
-                    $order->payment_status !== 'paid' &&
-                    in_array(
-                        $order->status,
-                        ['Pending', 'Confirmed', 'Ready'],
-                        true,
-                    ));
-            if (!$cancellable) {
+            if ($order->status !== 'Held') {
                 $this->conflict(
-                    'Only unpaid held/pending orders can be cancelled',
+                    'Only accepted held orders can be cancelled by staff; a new customer order can only be cancelled by the customer in Telegram',
                 );
             }
             foreach ($order->orderItems()->lockForUpdate()->get() as $item) {

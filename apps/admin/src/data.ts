@@ -62,6 +62,7 @@ export type Order = {
     name: string
     phone?: string
     telegram_username?: string
+    telegramUserId?: string
   } | null
   customerId?: number | null
   source: 'walk-in' | 'telegram'
@@ -71,6 +72,7 @@ export type Order = {
   discountValue?: number | null
   discountAmount?: number
   originalOrderId?: string | null
+  holdLabel?: string | null
   total: number
   payment: 'Cash' | 'KHQR' | null
   status:
@@ -81,6 +83,32 @@ export type Order = {
     | 'Completed'
     | 'Refunded'
     | 'Voided'
+    | 'Held'
+    | 'Cancelled'
+    | 'Released'
+  paymentStatus?: string
+  fulfillmentStatus?: string
+  lineItems?: Array<{
+    productId: number | null
+    description: string | null
+    quantity: number
+    unitPriceCents: number
+    lineTotalCents?: number
+  }>
+  payments?: Array<{
+    id: number
+    method: string
+    status: string
+    amountUsdCents: number
+    exchangeRateKhrPerUsd: number
+    tenderedUsdCents?: number | null
+    tenderedKhr?: number | null
+    changeUsdCents?: number | null
+    changeKhr?: number | null
+    settlementRoundingKhr?: number | null
+    confirmedByEmployeeId?: number | null
+    confirmedAt?: string | null
+  }>
   detail: string[]
 }
 

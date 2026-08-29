@@ -272,13 +272,6 @@ export function PendingOrdersPage() {
       )
     }
   }
-  const rejectPending = async (orderId: string, reason?: string) => {
-    await apiRequest(`/api/orders/${orderId}/cancel`, {
-      method: 'POST',
-      body: JSON.stringify(reason ? { reason } : {}),
-    })
-    await Promise.all([refresh(), loadPending()])
-  }
   const messagePending = async (orderId: string, text: string) => {
     const result = await apiRequest<{ delivered: boolean }>(
       `/api/orders/${orderId}/message`,
@@ -295,7 +288,6 @@ export function PendingOrdersPage() {
         rate={exchangeRateKhrPerUsd}
         onPay={payPending}
         onAccept={acceptPending}
-        onReject={rejectPending}
         onMessage={messagePending}
         onNeedShift={shiftGate.requestShiftThen}
         onToast={setToast}

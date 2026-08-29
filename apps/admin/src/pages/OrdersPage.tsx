@@ -26,6 +26,18 @@ import {
   ordersInRange,
 } from '../lib/exports'
 
+// Money is safe even when the API omits a field (a null/undefined value must
+// never throw `toFixed is not a function` on the admin dashboard).
+const asNumber = (value: number | null | undefined) =>
+  Number.isFinite(value as number) ? (value as number) : 0
+const usd = (value: number | null | undefined) =>
+  `$${asNumber(value).toFixed(2)}`
+const khr = (value: number | null | undefined) =>
+  `${Math.round(asNumber(value)).toLocaleString()} ៛`
+const centsUsd = (cents: number | null | undefined) =>
+  `$${(asNumber(cents) / 100).toFixed(2)}`
+const statusClass = (status: string) => `order-status-${status.toLowerCase()}`
+
 /**
  * Live "pending customer orders" panel: Telegram self-orders that are held
  * (unpaid) until the customer arrives. Polls every 15 s so new orders appear
@@ -58,20 +70,6 @@ function PendingCustomerOrders({
       await load()
     } catch (reason) {
       onToast(reason instanceof Error ? reason.message : 'Update failed')
-    } finally {
-      setBusy(false)
-    }
-  }
-  const cancelOrder = async (order: Order) => {
-    if (!window.confirm(t('orders.cancelPendingConfirm', { id: order.id })))
-      return
-    setBusy(true)
-    try {
-      await apiRequest(`/api/orders/${order.id}/cancel`, { method: 'POST' })
-      await refresh()
-      await load()
-    } catch (reason) {
-      onToast(reason instanceof Error ? reason.message : 'Cancel failed')
     } finally {
       setBusy(false)
     }
@@ -165,7 +163,7 @@ function PendingCustomerOrders({
               </small>
             </div>
             <div className="pending-order-total">
-              <strong>${order.total.toFixed(2)}</strong>
+              <strong>{usd(order.total)}</strong>
             </div>
             <div className="pending-order-actions">
               {order.status === 'Pending' && (
@@ -192,15 +190,6 @@ function PendingCustomerOrders({
                 onClick={() => setPaying(order)}
               >
                 <Banknote size={15} /> {t('reports.takePayment')}
-              </button>
-              <button
-                className="icon-button"
-                disabled={busy}
-                onClick={() => void cancelOrder(order)}
-                aria-label={t('common.cancel')}
-                title={t('common.cancel')}
-              >
-                <X size={16} />
               </button>
             </div>
           </article>
@@ -258,7 +247,7 @@ function PayHeldOrderModal({
         <div className="modal-form pay-held-form">
           <p className="pay-held-total">
             {order.customer?.name || 'Customer'} ·{' '}
-            <strong>${order.total.toFixed(2)}</strong>
+            <strong>{usd(order.total)}</strong>
           </p>
           <div className="filter-tabs">
             <button
@@ -321,6 +310,7 @@ type OrdersPageProps = {
 const telegramStatuses: Order['status'][] = [
   'Pending',
   'Confirmed',
+  'Held',
   'Paid',
   'Ready',
   'Completed',
@@ -344,8 +334,11 @@ export default function OrdersPage({
     'Confirmed',
     'Paid',
     'Ready',
+    'Held',
     'Completed',
     'Refunded',
+    'Cancelled',
+    'Released',
   ]
   const visible = useMemo(
     () =>
@@ -528,154 +521,308 @@ export default function OrdersPage({
                 )}{' '}
                 {order.payment || t('orders.notPaid')}
               </span>
-              <span
-                className={`status-badge order-status-${order.status.toLowerCase()}`}
-              >
+              <span className={`status-badge ${statusClass(order.status)}`}>
                 <i />
                 {order.status}
               </span>
-              <strong className="numeric">${order.total.toFixed(2)}</strong>
+              <strong className="numeric">{usd(order.total)}</strong>
               <MoreHorizontal size={17} />
             </button>
           ))}
         </div>
         {selected && (
-          <aside className="glass-panel order-detail">
-            <div className="order-detail-head">
-              <div>
-                <span>
-                  {selected.source === 'telegram'
-                    ? 'TELEGRAM ORDER'
-                    : t('orders.orderDetails')}
-                </span>
-                <h2>{selected.id}</h2>
-              </div>
-              <button className="text-button" onClick={() => onSelect(null)}>
-                <X size={16} />
-              </button>
-            </div>
-            {selected.customer && (
-              <div className="telegram-customer-note">
-                <Send size={16} />
-                <span>
-                  <strong>{selected.customer.name}</strong>
-                  <small>
-                    {selected.customer.phone || 'Phone unavailable'}
-                    {selected.customer.telegram_username
-                      ? ` · @${selected.customer.telegram_username}`
-                      : ''}
-                  </small>
-                </span>
-              </div>
-            )}
-            <div className="receipt-lines">
-              <span>{t('orders.items')}</span>
-              {selected.detail.map((item) => (
-                <div key={item}>
-                  <strong>{item}</strong>
+            <aside className="glass-panel order-detail">
+              <div className="order-detail-head">
+                <div>
+                  <span>
+                    {selected.source === 'telegram'
+                      ? 'TELEGRAM ORDER'
+                      : t('orders.orderDetails')}
+                  </span>
+                  <h2>{selected.id}</h2>
                 </div>
-              ))}
-            </div>
-            {selected.source === 'telegram' ? (
-              <div className="telegram-order-controls">
-                <label>
-                  <span>Final agreed price</span>
-                  <div className="admin-price-input">
-                    <b>$</b>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      defaultValue={selected.total}
-                      disabled={selected.status === 'Completed'}
-                      onBlur={(event) => {
-                        const total = Number(event.target.value)
-                        if (total !== selected.total) void save({ total })
-                      }}
-                    />
-                  </div>
-                </label>
-                <label>
-                  <span>Order status</span>
-                  <select
-                    value={selected.status}
-                    disabled={selected.status === 'Completed'}
-                    onChange={(event) =>
-                      void save({
-                        status: event.target.value as Order['status'],
-                      })
-                    }
+                <div className="order-detail-actions">
+                  <span
+                    className={`status-badge ${statusClass(selected.status)}`}
                   >
-                    {telegramStatuses.map((item) => (
-                      <option key={item}>{item}</option>
-                    ))}
-                  </select>
-                </label>
-                <p>
-                  Confirm the final price with the customer in Telegram. Mark
-                  Paid only after you verify their KHQR payment.
-                </p>
+                    <i />
+                    {selected.status}
+                  </span>
+                  <button
+                    className="text-button"
+                    onClick={() => onSelect(null)}
+                    aria-label={t('common.close')}
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
               </div>
-            ) : (
-              <>
-                <div className="receipt-total">
-                  <span className="grand-total">
-                    <small>{t('orders.total')}</small>
-                    <strong>${selected.total.toFixed(2)}</strong>
+
+              {selected.customer && (
+                <div className="telegram-customer-note">
+                  <Send size={16} />
+                  <span>
+                    <strong>{selected.customer.name}</strong>
+                    <small>
+                      {selected.customer.phone || 'Phone unavailable'}
+                      {selected.customer.telegram_username
+                        ? ` · @${selected.customer.telegram_username}`
+                        : ''}
+                    </small>
                   </span>
                 </div>
+              )}
+
+              <div className="receipt-meta">
+                <div>
+                  <span>{t('orders.source')}</span>
+                  <strong>
+                    {selected.source === 'telegram'
+                      ? t('orders.telegram')
+                      : t('orders.walkIn')}
+                  </strong>
+                </div>
+                <div>
+                  <span>{t('orders.date')}</span>
+                  <strong>
+                    {selected.date} · {selected.time}
+                  </strong>
+                </div>
+                <div>
+                  <span>{t('orders.customerCashier')}</span>
+                  <strong>{selected.cashier}</strong>
+                </div>
+                <div>
+                  <span>{t('orders.payment')}</span>
+                  <strong>
+                    {selected.payment || t('orders.notPaid')}
+                    {selected.paymentStatus
+                      ? ` · ${selected.paymentStatus}`
+                      : ''}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="receipt-lines">
+                <span>
+                  {t('orders.items')} ({selected.items})
+                </span>
+                {(selected.lineItems?.length
+                  ? selected.lineItems
+                  : selected.detail.map((description) => ({
+                      productId: null,
+                      description,
+                      quantity: 1,
+                      unitPriceCents: 0,
+                    }))
+                ).map((line, index) => (
+                  <div key={`${line.productId ?? index}-${line.description ?? index}`}>
+                    <span>
+                      <strong>{line.description}</strong>
+                      <small>
+                        {line.quantity} × {centsUsd(line.unitPriceCents)}
+                      </small>
+                    </span>
+                    <strong className="numeric">
+                      {centsUsd(line.unitPriceCents * line.quantity)}
+                    </strong>
+                  </div>
+                ))}
+              </div>
+
+              <div className="receipt-total">
+                <span>
+                  <small>{t('orders.subtotal')}</small>
+                  <strong>{usd(selected.subtotal ?? selected.total)}</strong>
+                </span>
+                {selected.discountAmount ? (
+                  <span>
+                    <small>{t('orders.discount')}</small>
+                    <strong>-{usd(selected.discountAmount)}</strong>
+                  </span>
+                ) : null}
+                <span className="grand-total">
+                  <small>{t('orders.total')}</small>
+                  <strong>{usd(selected.total)}</strong>
+                </span>
+              </div>
+
+              {selected.payments?.length ? (
+                <div className="payment-breakdown">
+                  <span>{t('orders.paymentBreakdown')}</span>
+                  {selected.payments.map((payment) => {
+                    const hasTender =
+                      payment.tenderedUsdCents != null ||
+                      payment.tenderedKhr != null
+                    const hasChange =
+                      payment.changeUsdCents != null ||
+                      payment.changeKhr != null
+                    return (
+                      <div className="payment-row" key={payment.id}>
+                        <div className="payment-row-head">
+                          <strong>
+                            {payment.method === 'cash'
+                              ? t('payment.cash')
+                              : t('payment.khqr')}
+                          </strong>
+                          <span>{centsUsd(payment.amountUsdCents)}</span>
+                        </div>
+                        {hasTender && (
+                          <div className="payment-row-values">
+                            <span>
+                              {t('shifts.tendered')}:{' '}
+                              {payment.tenderedUsdCents != null &&
+                                `${usd(payment.tenderedUsdCents / 100)} + `}
+                              {payment.tenderedKhr != null
+                                ? khr(payment.tenderedKhr)
+                                : null}
+                            </span>
+                          </div>
+                        )}
+                        {hasChange && (
+                          <div className="payment-row-values change">
+                            <span>
+                              {t('shifts.change')}:{' '}
+                              {payment.changeUsdCents != null &&
+                                `${usd(payment.changeUsdCents / 100)} + `}
+                              {payment.changeKhr != null
+                                ? khr(payment.changeKhr)
+                                : null}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : null}
+
+              {selected.status === 'Held' && (
+                <div className="receipt-confirmation held">
+                  <ShoppingBag size={17} />
+                  <span>
+                    <strong>{t('orders.heldInCart')}</strong>
+                    <small>{t('orders.heldNotCancelled')}</small>
+                  </span>
+                </div>
+              )}
+
+              {selected.status === 'Cancelled' && selected.source === 'telegram' && (
+                <div className="receipt-confirmation cancelled">
+                  <AlertTriangle size={17} />
+                  <span>
+                    <strong>{t('orders.cancelledByCustomer')}</strong>
+                    <small>{t('orders.cancelledBeforeAccept')}</small>
+                  </span>
+                </div>
+              )}
+
+              {selected.source === 'telegram' ? (
+                <div className="telegram-order-controls">
+                  <label>
+                    <span>Final agreed price</span>
+                    <div className="admin-price-input">
+                      <b>$</b>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        defaultValue={selected.total}
+                        disabled={
+                          selected.status === 'Completed' ||
+                          selected.status === 'Cancelled' ||
+                          selected.status === 'Released'
+                        }
+                        onBlur={(event) => {
+                          const total = Number(event.target.value)
+                          if (total !== selected.total) void save({ total })
+                        }}
+                      />
+                    </div>
+                  </label>
+                  <label>
+                    <span>Order status</span>
+                    <select
+                      value={selected.status}
+                      disabled={
+                        selected.status === 'Completed' ||
+                        selected.status === 'Cancelled' ||
+                        selected.status === 'Released'
+                      }
+                      onChange={(event) =>
+                        void save({
+                          status: event.target.value as Order['status'],
+                        })
+                      }
+                    >
+                      {telegramStatuses.map((item) => (
+                        <option key={item}>{item}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <p>
+                    Confirm the final price with the customer in Telegram. Mark
+                    Paid only after you verify their KHQR payment.
+                  </p>
+                </div>
+              ) : (
                 <div className="receipt-confirmation">
                   <ReceiptText size={17} />
                   <span>
-                    <strong>{t('orders.paymentConfirmed')}</strong>
+                    <strong>
+                      {selected.status === 'Completed'
+                        ? t('orders.paymentConfirmed')
+                        : t('orders.paymentPending')}
+                    </strong>
                     <small>{selected.cashier}</small>
                   </span>
                 </div>
-              </>
-            )}
-            {selected.status === 'Completed' && (
-              <div className="audit-correction-actions">
-                <strong>Audit-safe correction</strong>
+              )}
+
+              {selected.status === 'Completed' && (
+                <div className="audit-correction-actions">
+                  <strong>Audit-safe correction</strong>
+                  <button
+                    className="secondary-button"
+                    onClick={() => void correct('refund')}
+                  >
+                    Create refund record
+                  </button>
+                  <button
+                    className="danger-outline"
+                    onClick={() => void correct('void')}
+                  >
+                    Create void record
+                  </button>
+                </div>
+              )}
+
+              <div className="receipt-print-actions">
+                <span>
+                  <Printer size={15} /> Reprint receipt
+                </span>
                 <button
                   className="secondary-button"
-                  onClick={() => void correct('refund')}
+                  onClick={() =>
+                    void printReceipt(selected.id, 1).catch((error) =>
+                      onToast(error.message),
+                    )
+                  }
                 >
-                  Create refund record
+                  Customer copy
                 </button>
                 <button
-                  className="danger-outline"
-                  onClick={() => void correct('void')}
+                  className="primary-button"
+                  onClick={() =>
+                    void printReceipt(selected.id, 2).catch((error) =>
+                      onToast(error.message),
+                    )
+                  }
                 >
-                  Create void record
+                  Customer + Store
                 </button>
               </div>
-            )}
-            <div className="receipt-print-actions">
-              <span>
-                <Printer size={15} /> Reprint receipt
-              </span>
-              <button
-                className="secondary-button"
-                onClick={() =>
-                  void printReceipt(selected.id, 1).catch((error) =>
-                    onToast(error.message),
-                  )
-                }
-              >
-                Customer copy
-              </button>
-              <button
-                className="primary-button"
-                onClick={() =>
-                  void printReceipt(selected.id, 2).catch((error) =>
-                    onToast(error.message),
-                  )
-                }
-              >
-                Customer + Store
-              </button>
-            </div>
-          </aside>
+            </aside>
         )}
       </section>
     </div>

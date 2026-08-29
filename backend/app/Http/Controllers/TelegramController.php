@@ -164,6 +164,27 @@ class TelegramController extends Controller
         }
         return response()->json(OrderResource::make($order)->resolve());
     }
+
+    /**
+     * Customer cancels a not-yet-accepted Telegram order from the Mini App.
+     * Before the seller accepts (Pending/Confirmed/Ready) this is the ONLY
+     * path that may mark it Cancelled; the backend staff cancel endpoint
+     * refuses those statuses.
+     */
+    public function cancelOrder(Request $request, Order $order): JsonResponse
+    {
+        $customer = $this->identity->customerFromInitData(
+            $request->input('initData'),
+        );
+        if (
+            $order->customer_id !== $customer->id ||
+            $order->source !== 'telegram'
+        ) {
+            abort(404, 'Order not found');
+        }
+        $this->orders->cancel($customer, $order);
+        return response()->json(OrderResource::make($order->fresh())->resolve());
+    }
     public function webhook(Request $request): JsonResponse
     {
         if (

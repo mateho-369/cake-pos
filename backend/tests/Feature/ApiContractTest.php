@@ -1119,6 +1119,13 @@ class ApiContractTest extends TestCase
             ['total' => 12.0],
             $this->auth($admin),
         )->assertOk();
+        // The seller accepts it first (Moves to the held queue with stock
+        // still reserved); only then can staff cancel an accepted hold.
+        $this->postJson(
+            "/api/orders/$tgId/accept",
+            [],
+            $this->auth($admin),
+        )->assertOk();
         $this->postJson(
             "/api/orders/$tgId/cancel",
             [],
@@ -1299,14 +1306,14 @@ class ApiContractTest extends TestCase
     }
 
     /**
-     * Rejecting a pending Telegram order (staff called to verify and the
-     * customer says they never placed it): the order leaves the pending
-     * queue, its reserved stock is given back, the rejection is
-     * audit-logged with the acting employee and reason, and the customer
-     * is told their order was cancelled. A rejected order cannot be
-     * rejected or paid twice.
+     * A customer cancelling a Pending Telegram order from the phone Mini
+     * App: the order leaves the pending queue, its reserved stock is given
+     * back, the cancellation is audit-logged as customer-initiated, and the
+     * customer is told their order was cancelled. A cancelled order cannot
+     * be cancelled or paid twice, and staff cannot cancel a not-yet-accepted
+     * order through the staff endpoint.
      */
-    public function test_rejecting_a_pending_customer_order_releases_stock_and_notifies(): void
+    public function test_customer_cancels_a_pending_order_releases_stock_and_notifies(): void
     {
         Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
         config(['services.telegram.bot_token' => '123:test-token']);
@@ -1331,11 +1338,18 @@ class ApiContractTest extends TestCase
             ->json('order.id');
         $this->assertSame(2, (int) $product->fresh()->reserved_stock);
 
-        // Reject it, with the reason staff typed into the confirm prompt.
+        // Staff cannot cancel before the seller accepts: that window belongs
+        // exclusively to the customer in the phone Mini App.
         $this->postJson(
             "/api/orders/$orderId/cancel",
             ['reason' => 'Customer says they never placed it'],
             $this->auth($cashier),
+        )->assertStatus(409);
+
+        // The customer cancels it themselves through the Mini App.
+        $this->postJson(
+            "/api/customer-orders/$orderId/cancel",
+            ['initData' => $initData],
         )->assertOk();
 
         $order = Order::find($orderId);
@@ -1353,21 +1367,20 @@ class ApiContractTest extends TestCase
                 )->json(),
             )->pluck('id'),
         );
-        // Audit trail: who rejected it and why.
-        $audit = AuditEvent::where('action', 'order.cancelled')
+        // Audit trail: customer-initiated, no staff reason recorded.
+        $audit = AuditEvent::where('action', 'customer_order.cancelled')
             ->where('order_id', $orderId)
             ->first();
-        $this->assertNotNull($audit, 'reject audit event missing');
-        $this->assertSame($cashier->id, $audit->employee_id);
+        $this->assertNotNull($audit, 'customer cancel audit event missing');
         $this->assertSame(
-            'Customer says they never placed it',
-            $audit->details_json['reason'],
+            'customer',
+            $audit->details_json['source'],
         );
         $this->assertSame(
-            'Customer says they never placed it',
+            'customer',
             OrderStatusEvent::where('order_id', $orderId)
                 ->where('to_status', 'Cancelled')
-                ->value('metadata->reason'),
+                ->value('metadata->source'),
         );
         // The customer was told (shop bot, sync queue -> inline send).
         Http::assertSent(function ($request) {
@@ -1378,11 +1391,11 @@ class ApiContractTest extends TestCase
                 (string) $request['chat_id'] === '77' &&
                 str_contains((string) $request['text'], 'was cancelled');
         });
-        // A rejected order is final: no second reject, no paying it either.
+        // A cancelled order is final: no second customer cancellation, and
+        // it can never be accepted/paid afterwards.
         $this->postJson(
-            "/api/orders/$orderId/cancel",
-            [],
-            $this->auth($cashier),
+            "/api/customer-orders/$orderId/cancel",
+            ['initData' => $initData],
         )->assertStatus(409);
         $this->openShiftIfNone($cashier);
         $this->postJson(
@@ -2198,9 +2211,10 @@ class ApiContractTest extends TestCase
         $this->assertSame(8200, (int) $payment->tendered_khr);
         $this->assertSame(0, (int) $payment->change_usd_cents);
         $this->assertSame(0, (int) $payment->change_khr);
-        // The hold is released, not silently left parked.
+        // The hold is Released (the customer paid for it), never labelled
+        // Cancelled — a paid-hold release is not a cancellation.
         $this->assertSame(
-            'Cancelled',
+            'Released',
             DB::table('orders')->where('id', $held['id'])->value('status'),
         );
         $this->assertSame(

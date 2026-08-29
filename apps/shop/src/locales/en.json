@@ -52,7 +52,13 @@
     "payment": "PAYMENT",
     "scan": "Scan to pay with KHQR",
     "wait": "Please wait for the shop to confirm your final price before paying.",
-    "back": "Back to today’s menu"
+    "back": "Back to today’s menu",
+    "cancel": "Cancel this order",
+    "cancelConfirm": "Cancel this order? You can still cancel before the store accepts it.",
+    "cancelFailed": "Could not cancel the order. It may already be accepted.",
+    "cancelled": "ORDER CANCELLED",
+    "cancelTitle": "Order cancelled",
+    "cancelBody": "Your order has been cancelled. You can place a new order any time."
   },
   "errors": {
     "telegram": "Open this storefront from the shop’s Telegram bot to browse and order.",

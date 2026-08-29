@@ -75,3 +75,16 @@ changeset addresses all of them together:
    applies it, run `backend/bin/post-deploy.sh` after every deploy. The
    frontend deploy picks up `_headers` automatically because it rebuilds
    and re-uploads the `dist/` assets.
+
+4. **No CI shift lifecycle against production.** The live-prod probe is now
+   strictly read-only: it never opens or closes a shift, even if
+   `LIVE_PROD_SHIFT_LIFECYCLE=1` is set, and the workflow pins it to `"0"`.
+   A shift may only close through the explicit admin/sale "Close shift"
+   action. A background probe closing the shop's only open shift was the
+   "shift closed by itself" mechanism; it also flipped `storeOpen` to false,
+   so Telegram customers suddenly saw the shop closed and could not order.
+   The `.github/workflows/test.yml` edit cannot be pushed by the GitHub App
+   (it lacks `workflows` permission), so it is preserved in
+   `docs/patches/live-prod-readonly.patch` — apply it, or just rely on the
+   read-only probe script itself, which forces `LIVE_PROD_SHIFT_LIFECYCLE=0`
+   regardless of the workflow env.

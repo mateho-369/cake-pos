@@ -48,6 +48,10 @@ type MenuResponse = {
 }
 type Cart = Record<number, number>
 const statusSteps = ['Pending', 'Confirmed', 'Paid', 'Ready']
+const safeNumber = (value: number | null | undefined) =>
+  Number.isFinite(value as number) ? (value as number) : 0
+const usd = (value: number | null | undefined) =>
+  `$${safeNumber(value).toFixed(2)}`
 
 export default function CustomerApp() {
   const { webApp, initData, botUrl, launchedInTelegram } = useTelegramIdentity()
@@ -63,6 +67,7 @@ export default function CustomerApp() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [openOrder, setOpenOrder] = useState<CustomerOrder | null>(null)
+  const [cancelling, setCancelling] = useState(false)
   // One idempotency key per placement attempt: a double-tap on "Send Order"
   // sends the same key twice, and the server returns the original order.
   const [placeKey, setPlaceKey] = useState(newPlaceKey)
@@ -184,8 +189,14 @@ export default function CustomerApp() {
     [menu, cart],
   )
   const count = items.reduce((sum, item) => sum + item.quantity, 0)
+  // Price may be missing on a legacy/partial product row; a NaN total would
+  // be serialized as null and rejected by the backend. Treat unknown prices
+  // as 0 so the cart totals/order never throw.
   const total = items.reduce(
-    (sum, item) => sum + item.product.price * item.quantity,
+    (sum, item) =>
+      sum +
+      (Number.isFinite(item.product.price as number) ? item.product.price : 0) *
+        item.quantity,
     0,
   )
   const change = (product: Product, delta: number) =>
@@ -257,7 +268,7 @@ export default function CustomerApp() {
               productId: product.id,
               quantity,
             })),
-            requestedTotal: Number(total.toFixed(2)),
+            requestedTotal: safeNumber(total).toFixed(2),
           }),
         },
       )
@@ -275,6 +286,35 @@ export default function CustomerApp() {
       )
     } finally {
       setSending(false)
+    }
+  }
+
+  const cancelOrder = async () => {
+    if (
+      !order ||
+      !['Pending', 'Confirmed', 'Ready'].includes(order.status) ||
+      cancelling
+    )
+      return
+    if (!window.confirm(t('status.cancelConfirm'))) return
+    setCancelling(true)
+    setError(null)
+    try {
+      const result = await apiRequest<CustomerOrder>(
+        `/api/customer-orders/${order.id}/cancel`,
+        { method: 'POST', body: JSON.stringify({ initData }) },
+      )
+      setOrder(result)
+      setOpenOrder(null)
+      webApp?.HapticFeedback?.notificationOccurred?.('warning')
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : t('status.cancelFailed'),
+      )
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -324,6 +364,8 @@ export default function CustomerApp() {
         order={order}
         khqrImageUrl={menu.khqrImageUrl}
         onBack={() => setOrder(null)}
+        onCancel={cancelOrder}
+        cancelling={cancelling}
       />
     )
 
@@ -369,7 +411,7 @@ export default function CustomerApp() {
             </strong>
             <small>{t('menu.openOrderHint')}</small>
           </div>
-          <em>${openOrder.total.toFixed(2)}</em>
+          <em>{usd(openOrder.total)}</em>
         </section>
       )}
       <section className="customer-menu">
@@ -438,7 +480,7 @@ export default function CustomerApp() {
                   <small>{product.category}</small>
                   <strong>{product.name}</strong>
                   <div>
-                    <span>${product.price.toFixed(2)}</span>
+                    <span>{usd(product.price)}</span>
                     {quantity ? (
                       <span className="customer-stepper">
                         <button onClick={() => change(product, -1)}>
@@ -498,7 +540,7 @@ export default function CustomerApp() {
               ))}
             </div>
             <footer>
-              <span>${activeGallery.price.toFixed(2)}</span>
+              <span>{usd(activeGallery.price)}</span>
               <button
                 className="customer-send"
                 disabled={activeGallery.stock <= 0}
@@ -530,7 +572,7 @@ export default function CustomerApp() {
             <b>{count}</b>
             <strong>View your order</strong>
           </span>
-          <em>${total.toFixed(2)}</em>
+          <em>{usd(total)}</em>
         </button>
       )}
       {cartOpen && (
@@ -560,7 +602,7 @@ export default function CustomerApp() {
                   />
                   <div>
                     <strong>{product.name}</strong>
-                    <small>${product.price.toFixed(2)} each</small>
+                    <small>{usd(product.price)} each</small>
                     <span className="customer-stepper">
                       <button onClick={() => change(product, -1)}>
                         <Minus size={13} />
@@ -571,14 +613,14 @@ export default function CustomerApp() {
                       </button>
                     </span>
                   </div>
-                  <b>${(product.price * quantity).toFixed(2)}</b>
+                  <b>{usd(safeNumber(product.price) * quantity)}</b>
                 </div>
               ))}
             </div>
             <footer>
               <div>
                 <span>Requested total</span>
-                <strong>${total.toFixed(2)}</strong>
+                <strong>{usd(total)}</strong>
               </div>
               <p>
                 Final price is confirmed with our team in Telegram before
@@ -658,14 +700,44 @@ function OrderStatus({
   order,
   khqrImageUrl,
   onBack,
+  onCancel,
+  cancelling,
 }: {
   order: CustomerOrder
   khqrImageUrl?: string
   onBack: () => void
+  onCancel: () => void
+  cancelling: boolean
 }) {
   const { t } = useTranslation()
   const effectiveStatus = order.status === 'Completed' ? 'Ready' : order.status
   const current = Math.max(0, statusSteps.indexOf(effectiveStatus))
+  const cancellable = ['Pending', 'Confirmed', 'Ready'].includes(order.status)
+  if (order.status === 'Cancelled')
+    return (
+      <main className="customer-order-status">
+        <header>
+          <button onClick={onBack}>
+            <ChevronLeft size={20} />
+          </button>
+          <div>
+            <small>ORDER</small>
+            <strong>{order.id}</strong>
+          </div>
+        </header>
+        <section className="status-celebration cancelled">
+          <span>
+            <X size={28} />
+          </span>
+          <small>{t('status.cancelled')}</small>
+          <h1>{t('status.cancelTitle')}</h1>
+          <p>{t('status.cancelBody')}</p>
+        </section>
+        <button className="status-back" onClick={onBack}>
+          {t('status.back')}
+        </button>
+      </main>
+    )
   return (
     <main className="customer-order-status">
       <header>
@@ -682,11 +754,8 @@ function OrderStatus({
           <Check size={28} />
         </span>
         <small>ORDER SENT</small>
-        <h1>We’re on it!</h1>
-        <p>
-          We’ll confirm your final price and any special details with you in
-          Telegram.
-        </p>
+        <h1>{t('status.title')}</h1>
+        <p>{t('status.body')}</p>
         {order.pickupCode && (
           <div className="status-pickup-code">
             <small>{t('menu.pickupCodeLabel')}</small>
@@ -701,7 +770,7 @@ function OrderStatus({
             <small>ORDER STATUS</small>
             <strong>{effectiveStatus}</strong>
           </div>
-          <span>${order.total.toFixed(2)}</span>
+          <span>{usd(order.total)}</span>
         </div>
         <div className="status-timeline">
           {statusSteps.map((step, index) => (
@@ -712,10 +781,10 @@ function OrderStatus({
                 <small>
                   {
                     [
-                      'We received your request',
-                      'Price and details agreed',
-                      'Payment confirmed',
-                      'Ready for pickup',
+                      t('status.pending'),
+                      t('status.confirmed'),
+                      t('status.paid'),
+                      t('status.ready'),
                     ][index]
                   }
                 </small>
@@ -727,17 +796,23 @@ function OrderStatus({
       {['Confirmed', 'Paid', 'Ready', 'Completed'].includes(order.status) &&
         khqrImageUrl && (
           <section className="customer-khqr">
-            <span>PAYMENT</span>
-            <h2>Scan to pay with KHQR</h2>
+            <span>{t('status.payment')}</span>
+            <h2>{t('status.scan')}</h2>
             <img src={khqrImageUrl} alt="Shop KHQR payment code" />
-            <p>
-              Please wait for the shop to confirm your final price before
-              paying.
-            </p>
+            <p>{t('status.wait')}</p>
           </section>
         )}
+      {cancellable && (
+        <button
+          className="status-cancel"
+          disabled={cancelling}
+          onClick={onCancel}
+        >
+          {cancelling ? '…' : t('status.cancel')}
+        </button>
+      )}
       <button className="status-back" onClick={onBack}>
-        Back to today’s menu
+        {t('status.back')}
       </button>
     </main>
   )

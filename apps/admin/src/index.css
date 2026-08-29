@@ -2665,6 +2665,11 @@ button.order-full-row.selected {
   margin: 3px 0 0;
   font-size: calc(16px * var(--font-scale));
 }
+.order-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .receipt-meta {
   margin-top: 15px;
   padding: 12px;
@@ -2701,7 +2706,20 @@ button.order-full-row.selected {
   margin-top: 11px;
   display: flex;
   justify-content: space-between;
+  gap: 10px;
   font-size: calc(12px * var(--font-scale));
+}
+.receipt-lines > div > span {
+  display: flex;
+  flex-direction: column;
+}
+.receipt-lines > div > span small {
+  margin-top: 2px;
+  color: var(--subtle);
+  font-size: calc(11px * var(--font-scale));
+}
+.receipt-lines .numeric {
+  white-space: nowrap;
 }
 .receipt-total {
   padding: 11px 0;
@@ -2750,6 +2768,48 @@ button.order-full-row.selected {
   margin-top: 3px;
   color: #738e84;
   font-size: calc(12px * var(--font-scale));
+}
+.receipt-confirmation.held {
+  color: #7a5a16;
+  background: #fbf3e0;
+}
+.receipt-confirmation.cancelled {
+  color: #a92c36;
+  background: #f9e1e3;
+}
+.payment-breakdown {
+  margin-top: 15px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed rgba(74, 39, 55, 0.18);
+}
+.payment-breakdown > span {
+  color: var(--subtle);
+  font-size: calc(12px * var(--font-scale));
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.payment-row {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: #f7f2f4;
+}
+.payment-row-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: calc(12px * var(--font-scale));
+}
+.payment-row-head span {
+  color: var(--pink-deep);
+  font-weight: 700;
+}
+.payment-row-values {
+  margin-top: 5px;
+  color: var(--subtle);
+  font-size: calc(12px * var(--font-scale));
+}
+.payment-row-values.change {
+  color: #2f6b58;
 }
 .detail-actions {
   margin-top: 13px;
@@ -3513,6 +3573,12 @@ button.order-full-row.selected {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
+}
+.report-presets .text-button.active {
+  color: var(--pink-deep);
+  border-color: rgba(190, 24, 93, 0.35);
+  background: rgba(190, 24, 93, 0.08);
+  font-weight: 800;
 }
 .report-tabs {
   overflow-x: auto;
@@ -5464,6 +5530,18 @@ img.qr-placeholder {
 .status-badge.order-status-voided {
   color: #a92c36;
   background: #f9e1e3;
+}
+.status-badge.order-status-held {
+  color: #7a5a16;
+  background: #fbf3e0;
+}
+.status-badge.order-status-cancelled {
+  color: #a92c36;
+  background: #f9e1e3;
+}
+.status-badge.order-status-released {
+  color: #756a71;
+  background: #eee9eb;
 }
 .telegram-customer-note {
   margin: 12px 16px 0;

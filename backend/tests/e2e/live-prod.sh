@@ -1,29 +1,13 @@
 #!/usr/bin/env bash
-# Live production API probes.
+# Live production API probes — READ-ONLY.
 #
-# Non-destructive first: health, login, read-only endpoints, and a check of
-# whether the latest fixes are actually deployed. Then — only when
-# LIVE_PROD_SHIFT_LIFECYCLE=1 — the shift lifecycle the user asked to verify
-# (open -> persist across relogin -> close -> error cases).
-#
-# PRODUCTION SAFETY (this script used to be able to strand a real shift OPEN
-# on production — only one shift can be open store-wide, and the admin/sale
-# apps read that server truth):
-#
-#   1. An EXIT trap closes WHATEVER SHIFT THIS SCRIPT OPENED, even if an
-#      assertion fails, curl times out (Aiven free-tier wake-up) or the job
-#      is cancelled. It closes with the shift's own expected float so the
-#      variance is 0, then VERIFIES /api/shifts/current is null and screams
-#      (non-zero exit) if it is not.
-#   2. If production already has an open shift when the probe starts:
-#        - stale CI leftover (opened by the CI cashier with the probe's own
-#          round floats) -> closed and reported loudly, so the next run
-#          heals the stuck state by itself;
-#        - anything else (a real cashier's shift) -> NOT touched: the probe
-#          skips the lifecycle and EXITS NON-ZERO so a human sees it.
-#   3. The mutating lifecycle is opt-in (LIVE_PROD_SHIFT_LIFECYCLE), because
-#      backend-e2e/ui already cover the same behaviour against an ephemeral
-#      MySQL with zero production risk.
+# Health, login, read-only endpoints, CORS, cache forensics and a check that
+# the latest fixes are actually deployed. IMPORTANT: this probe NEVER opens
+# or closes a production shift. A shift may only be closed by the admin /
+# sale UI's explicit Close action; closing a shift from a CI probe (or any
+# background job) is exactly the "shift closed on its own" production bug the
+# owner reported. Even `LIVE_PROD_SHIFT_LIFECYCLE=1` is ignored now — the
+# mutating lifecycle was removed.
 #
 # No orders are ever created against production (data hygiene).
 set -uo pipefail
@@ -37,8 +21,11 @@ CI_CASHIER_PASS="${CI_CASHIER_PASS:-ChangeMe123!}"
 # Only the CI probe uses these exact round floats — that is how a stranded
 # shift is recognised as "ours" and safe to close.
 CI_FLOATS="100.00 50.00"
-# Set to 1 to run the mutating open/close lifecycle (workflow_dispatch).
-LIVE_PROD_SHIFT_LIFECYCLE="${LIVE_PROD_SHIFT_LIFECYCLE:-0}"
+# Mutating open/close lifecycle was REMOVED. Always 0, even if an environment
+# variable says otherwise, so no CI job can accidentally turn a shift probe
+# into a shift closer. Open/close is covered by backend-e2e/ui against an
+# ephemeral MySQL.
+LIVE_PROD_SHIFT_LIFECYCLE=0
 OUT="$(mktemp -d)"
 PASS=0
 FAIL=0
@@ -211,8 +198,7 @@ echo "############################################################"
 echo "# LIVE PRODUCTION PROBE — $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "# Worker: $WORKER"
 echo "# VM:     $VM"
-LIFECYCLE_STATE="SKIPPED (read-only probe)"
-if [ "$LIVE_PROD_SHIFT_LIFECYCLE" = "1" ]; then LIFECYCLE_STATE="ENABLED (mutating)"; fi
+LIFECYCLE_STATE="REMOVED (read-only probe — never opens/closes a shift)"
 echo "# Shift lifecycle: $LIFECYCLE_STATE"
 echo "############################################################"
 
@@ -542,91 +528,29 @@ if [ "$CURRENT_BODY" != "null" ] && [ -n "$CURRENT_BODY" ]; then
     if [ "$OPENING_FLOAT_N" = "$(norm_money "$f")" ] && [ "$OPENING_KHR" = "0" ]; then MINE="true"; fi
   done
   if [ "$MINE" = "true" ]; then
-    banner "STALE CI SHIFT ON PRODUCTION — self-healing"
-    echo "# /api/shifts/current returned an open shift that this probe almost"
-    echo "# certainly opened on an earlier run:"
+    banner "OPEN SHIFT DETECTED — READ-ONLY (will NOT close it)"
+    echo "# /api/shifts/current returned an open shift whose opening float"
+    echo "# matches the old CI probe floats:"
     echo "#   openedBy=$OPENED_BY openingCash=$OPENING_FLOAT openingCashKhr=$OPENING_KHR"
-    echo "# Closing it now so the store is not stuck. If a real cashier IS"
-    echo "# using it, re-open it in the admin UI — its float is unchanged."
+    echo "# This probe is read-only and NO LONGER closes shifts automatically."
+    echo "# If this really is a stranded probe shift, close it in the admin"
+    echo "# UI — the Shift close action is the only allowed close path."
     echo "############################################################"
-    if close_current_shift "stale-ci-recovery"; then
-      echo "  RECOVERED — production has no open shift again"
-    else
-      CLEANUP_FAILED=1
-    fi
   else
-    STUCK_SHIFT=1
-    banner "A REAL SHIFT IS OPEN ON PRODUCTION — lifecycle skipped"
+    banner "A SHIFT IS OPEN ON PRODUCTION — READ-ONLY (will NOT close it)"
     echo "# openedBy=$OPENED_BY openingCash=$OPENING_FLOAT openingCashKhr=$OPENING_KHR"
-    echo "# This is NOT a CI leftover, so the probe will not touch it. The"
-    echo "# admin/sale apps are correct: they show Open because a shift is"
+    echo "# The admin/sale apps are correct: they show Open because a shift is"
     echo "# open on the server. The read-only sweep below still runs."
     echo "############################################################"
   fi
 fi
 
-if [ "$LIVE_PROD_SHIFT_LIFECYCLE" != "1" ]; then
-  note "3b. Shift lifecycle SKIPPED (set LIVE_PROD_SHIFT_LIFECYCLE=1 to run it)"
-  echo "  Covered by the backend-e2e and ui jobs against an ephemeral MySQL,"
-  echo "  which carry zero production risk. Two CI pushes racing on the one"
-  echo "  global shift is exactly how production got stranded before."
-elif [ "$STUCK_SHIFT" -ne 0 ]; then
-  note "3b. Shift lifecycle SKIPPED (a real shift is open — see above)"
-else
-  note "3b. Shift lifecycle on production (cleanup guaranteed by EXIT trap)"
-
-  req "cashier login" "$WORKER" POST /api/login "{\"email\":\"$CI_CASHIER_EMAIL\",\"password\":\"$CI_CASHIER_PASS\"}"
-  expect_code "cashier login returns 200" 200
-  TOKEN_CASHIER="$(json_field "$OUT/last.body" token "")"
-  CASHIER_NAME="$(python3 - "$OUT/last.body" <<'PY'
-import json,sys
-try: print(json.load(open(sys.argv[1]))['employee']['name'])
-except Exception: print("?")
-PY
-)"
-  echo "  cashier: $CASHIER_NAME"
-
-  req "open shift" "$WORKER" POST /api/shifts/open '{"openingCash":100.00}' "$TOKEN_CASHIER"
-  expect_code "open shift returns 201" 201
-  SHIFT_ID="$(json_field "$OUT/last.body" id "")"
-  if [ -n "$SHIFT_ID" ] && [ "$SHIFT_ID" != "?" ]; then OPENED_SHIFT_ID="$SHIFT_ID"; fi
-  echo "  opened shift id: $SHIFT_ID"
-
-  req "current shift (open)" "$WORKER" GET /api/shifts/current "" "$TOKEN_ADMIN"
-  assert "current shift is Open" "$([ "$(json_field "$OUT/last.body" status '')" = "Open" ] && echo true || echo false)"
-
-  req "cashier logout" "$WORKER" POST /api/logout '{}' "$TOKEN_CASHIER"
-  expect_code "logout returns 200" 200
-
-  req "cashier relogin" "$WORKER" POST /api/login "{\"email\":\"$CI_CASHIER_EMAIL\",\"password\":\"$CI_CASHIER_PASS\"}"
-  expect_code "relogin returns 200" 200
-  TOKEN_CASHIER2="$(json_field "$OUT/last.body" token "")"
-  req "current shift with new token" "$WORKER" GET /api/shifts/current "" "$TOKEN_CASHIER2"
-  assert "shift is STILL OPEN after relogin" "$([ "$(json_field "$OUT/last.body" status '')" = "Open" ] && echo true || echo false)"
-  assert "same shift id persists" "$([ "$(json_field "$OUT/last.body" id '')" = "$SHIFT_ID" ] && echo true || echo false)"
-
-  req "close shift (no sales yet => closing 100 = balanced)" "$WORKER" POST /api/shifts/close '{"closingCash":100.00}' "$TOKEN_CASHIER2"
-  expect_code "close shift returns 200" 200
-  echo "  close body: $(head -c 400 "$OUT/last.body")"
-
-  req "current shift after close" "$WORKER" GET /api/shifts/current "" "$TOKEN_ADMIN"
-  assert "no open shift after close" "$([ "$(cat "$OUT/last.body" | tr -d '[:space:]')" = "null" ] && echo true || echo false)"
-  if [ "$(cat "$OUT/last.body" | tr -d '[:space:]')" = "null" ]; then OPENED_SHIFT_ID=""; fi
-
-  req "close an already-closed shift" "$WORKER" POST /api/shifts/close '{"closingCash":100.00}' "$TOKEN_CASHIER2"
-  expect_code "double close rejected with 409" 409
-
-  req "open shift (second attempt setup)" "$WORKER" POST /api/shifts/open '{"openingCash":50.00}' "$TOKEN_CASHIER2"
-  expect_code "reopen returns 201" 201
-  SHIFT_ID2="$(json_field "$OUT/last.body" id "")"
-  if [ -n "$SHIFT_ID2" ] && [ "$SHIFT_ID2" != "?" ]; then OPENED_SHIFT_ID="$SHIFT_ID2"; fi
-  req "open a second shift while one is open" "$WORKER" POST /api/shifts/open '{"openingCash":50.00}' "$TOKEN_ADMIN"
-  expect_code "second open rejected with 409" 409
-  req "cleanup: close the open shift" "$WORKER" POST /api/shifts/close '{"closingCash":50.00}' "$TOKEN_ADMIN"
-  expect_code "cleanup close returns 200" 200
-  req "verify no open shift after cleanup" "$WORKER" GET /api/shifts/current "" "$TOKEN_ADMIN"
-  if [ "$(cat "$OUT/last.body" | tr -d '[:space:]')" = "null" ]; then OPENED_SHIFT_ID=""; fi
-fi
+note "3b. Shift lifecycle REMOVED (read-only)"
+echo "  The mutating open/close lifecycle was removed: this probe NEVER opens"
+echo "  or closes a production shift. A shift may only be closed by an admin"
+echo "  clicking Close in the admin/sale UI. Open/close/conflict behaviour is"
+echo "  covered by backend-e2e and ui jobs against an ephemeral MySQL, which"
+echo "  carries zero production risk."
 
 # ---------- 4. Read-only endpoint sweep on production ----------
 note "4. Read-only endpoint sweep"
