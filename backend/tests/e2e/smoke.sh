@@ -59,7 +59,9 @@ req() {
   fi
   # Surface the FIRST non-2xx response body as a check-run annotation so the
   # concrete validation/server error is visible without job logs.
-  if [ "$code" -ge 400 ] 2>/dev/null && [ -z "${FIRST_BAD_REQUEST_NOTE:-}" ]; then
+  # 4xx that the suite expects (409 shift-gate, 422 validation) are not
+  # "first bad". Only 5xx / unexpected 4xx should surface without logs.
+  if [ "$code" -ge 500 ] 2>/dev/null && [ -z "${FIRST_BAD_REQUEST_NOTE:-}" ]; then
     FIRST_BAD_REQUEST_NOTE="[$label] $method $path -> HTTP $code: $(head -c 240 "$OUT/last.body" | tr '\n' ' ')"
     annotate error 'first-bad-request' "$FIRST_BAD_REQUEST_NOTE"
   fi
