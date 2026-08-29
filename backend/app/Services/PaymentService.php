@@ -4,6 +4,7 @@ use App\Jobs\SendCustomerStatusNotification;
 use App\Jobs\SendStaffOrderNotification;
 use App\Models\{Employee, Order, OrderPayment, Product, OrderStatusEvent};
 use App\Support\ExchangeRate;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 final class PaymentService
@@ -32,6 +33,7 @@ final class PaymentService
             if ($existing) {
                 return $existing;
             }
+            $this->ensurePayable($order);
             $payment = OrderPayment::create([
                 'order_id' => $order->id,
                 'method' => 'qr_manual',
@@ -68,6 +70,7 @@ final class PaymentService
             if ($existing) {
                 return $existing;
             }
+            $this->ensurePayable($order);
             $rate = ExchangeRate::current();
             if (
                 isset($input['exchangeRateKhrPerUsd']) &&
@@ -123,6 +126,34 @@ final class PaymentService
             return $payment;
         });
     }
+    /**
+     * Only an order that is still open (pending/confirmed/ready Telegram
+     * order, or a parked hold) can take a payment. A REJECTED or discarded
+     * order is Cancelled: its reserved stock is already back on the shelf,
+     * so letting a stale terminal pay it would sell stock nobody reserved.
+     * Already-paid orders never reach this check — the idempotent
+     * existing-payment return above handles them.
+     */
+    private function ensurePayable(Order $order): void
+    {
+        $open = ['Pending', 'Confirmed', 'Ready', 'Held'];
+        if (
+            in_array($order->status, $open, true) &&
+            $order->payment_status !== 'paid'
+        ) {
+            return;
+        }
+        throw new HttpResponseException(
+            response()->json(
+                [
+                    'message' =>
+                        "Order {$order->id} is {$order->status} — only open orders can be paid",
+                ],
+                409,
+            ),
+        );
+    }
+
     private function settle(Order $order, OrderPayment $payment): void
     {
         $from = $order->status;

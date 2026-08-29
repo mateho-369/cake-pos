@@ -68,8 +68,9 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     ])->middleware('admin');
     Route::get('/orders', [OrderController::class, 'index']);
     // Sale-creating endpoints require an open store shift. Deliberately NOT
-    // gated: GET endpoints, cancel/corrections (bookkeeping on past orders),
-    // and the public customer/Telegram order flow.
+    // gated: GET endpoints, cancel/message/corrections (bookkeeping and
+    // customer communication, not sales), and the public customer/Telegram
+    // order flow.
     Route::post('/orders', [OrderController::class, 'store'])->middleware(
         'open-shift',
     );
@@ -83,6 +84,8 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         'pay',
     ])->middleware('open-shift');
     Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
+    // Quick manual note from staff to the order's customer over Telegram.
+    Route::post('/orders/{order}/message', [OrderController::class, 'message']);
     Route::patch('/orders/{order}', [
         OrderController::class,
         'update',

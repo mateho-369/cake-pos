@@ -93,3 +93,25 @@ export type HeldOrder = SaleOrder & {
   status: 'Held'
   lineItems: NonNullable<SaleOrder['lineItems']>
 }
+
+/**
+ * An open Telegram customer order waiting in the pending-orders panel.
+ * The customer placed it in the Mini App; staff verify it by phone or
+ * Telegram message, then take payment when the customer arrives.
+ */
+export type PendingOrder = {
+  id: string
+  pickupCode?: string | null
+  isStale?: boolean
+  createdAt: string
+  status: string
+  total: number
+  detail: string[]
+  customer?: {
+    name: string
+    phone?: string
+    telegram_username?: string | null
+    /** Telegram chat id — set for every Mini App customer, enables "Message". */
+    telegramUserId?: string | null
+  } | null
+}

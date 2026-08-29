@@ -1289,6 +1289,181 @@ class ApiContractTest extends TestCase
         );
     }
 
+    /**
+     * Rejecting a pending Telegram order (staff called to verify and the
+     * customer says they never placed it): the order leaves the pending
+     * queue, its reserved stock is given back, the rejection is
+     * audit-logged with the acting employee and reason, and the customer
+     * is told their order was cancelled. A rejected order cannot be
+     * rejected or paid twice.
+     */
+    public function test_rejecting_a_pending_customer_order_releases_stock_and_notifies(): void
+    {
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        config(['services.telegram.bot_token' => '123:test-token']);
+        $cashier = Employee::where('role', 'cashier')->first();
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 77,
+            'first_name' => 'Chantrea',
+            'username' => 'chantrea',
+        ]);
+        Customer::where('telegram_user_id', '77')->update([
+            'phone' => '+855 92 111 222',
+        ]);
+        $orderId = $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 2]],
+            'requestedTotal' => '20.00',
+        ])
+            ->assertCreated()
+            ->json('order.id');
+        $this->assertSame(2, (int) $product->fresh()->reserved_stock);
+
+        // Reject it, with the reason staff typed into the confirm prompt.
+        $this->postJson(
+            "/api/orders/$orderId/cancel",
+            ['reason' => 'Customer says they never placed it'],
+            $this->auth($cashier),
+        )->assertOk();
+
+        $order = Order::find($orderId);
+        $this->assertSame('Cancelled', $order->status);
+        $this->assertSame('Cancelled', $order->fulfillment_status);
+        $this->assertSame(10, (int) $product->fresh()->stock);
+        $this->assertSame(0, (int) $product->fresh()->reserved_stock);
+        // Gone from the pending panel.
+        $this->assertNotContains(
+            $orderId,
+            collect(
+                $this->getJson(
+                    '/api/orders/pending',
+                    $this->auth($cashier),
+                )->json(),
+            )->pluck('id'),
+        );
+        // Audit trail: who rejected it and why.
+        $audit = AuditEvent::where('action', 'order.cancelled')
+            ->where('order_id', $orderId)
+            ->first();
+        $this->assertNotNull($audit, 'reject audit event missing');
+        $this->assertSame($cashier->id, $audit->employee_id);
+        $this->assertSame(
+            'Customer says they never placed it',
+            $audit->details_json['reason'],
+        );
+        $this->assertSame(
+            'Customer says they never placed it',
+            OrderStatusEvent::where('order_id', $orderId)
+                ->where('to_status', 'Cancelled')
+                ->value('metadata->reason'),
+        );
+        // The customer was told (shop bot, sync queue -> inline send).
+        Http::assertSent(function ($request) {
+            return str_contains(
+                $request->url(),
+                'bot123:test-token/sendMessage',
+            ) &&
+                (string) $request['chat_id'] === '77' &&
+                str_contains((string) $request['text'], 'was cancelled');
+        });
+        // A rejected order is final: no second reject, no paying it either.
+        $this->postJson(
+            "/api/orders/$orderId/cancel",
+            [],
+            $this->auth($cashier),
+        )->assertStatus(409);
+        $this->openShiftIfNone($cashier);
+        $this->postJson(
+            "/api/orders/$orderId/pay",
+            ['method' => 'Cash', 'usdReceivedCents' => 2000],
+            $this->auth($cashier),
+        )->assertStatus(409);
+        // And the customer can straight away place a new order.
+        $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'requestedTotal' => '10.00',
+        ])->assertCreated();
+    }
+
+    /**
+     * The pending panel's "Message" action: staff send a quick manual note
+     * to the order's customer through the same shop bot that delivers the
+     * status notifications. Every send is audit-logged.
+     */
+    public function test_staff_can_message_a_customer_about_their_order_on_telegram(): void
+    {
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        config(['services.telegram.bot_token' => '123:test-token']);
+        $cashier = Employee::where('role', 'cashier')->first();
+        $product = Product::first();
+        $product->update(['price_cents' => 1200, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 88,
+            'first_name' => 'Vibol',
+            'username' => 'vibol',
+        ]);
+        Customer::where('telegram_user_id', '88')->update([
+            'phone' => '+855 92 333 444',
+        ]);
+        $orderId = $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'requestedTotal' => '12.00',
+        ])
+            ->assertCreated()
+            ->json('order.id');
+
+        $this->postJson(
+            "/api/orders/$orderId/message",
+            ['text' => 'Your order is ready — see you at 4pm!'],
+            $this->auth($cashier),
+        )
+            ->assertOk()
+            ->assertJsonPath('delivered', true);
+
+        Http::assertSent(function ($request) {
+            return str_contains(
+                $request->url(),
+                'bot123:test-token/sendMessage',
+            ) &&
+                (string) $request['chat_id'] === '88' &&
+                str_contains(
+                    (string) $request['text'],
+                    'Your order is ready — see you at 4pm!',
+                );
+        });
+        // The note is in the audit trail with the acting employee.
+        $audit = AuditEvent::where('action', 'customer_order.messaged')
+            ->where('order_id', $orderId)
+            ->first();
+        $this->assertNotNull($audit, 'message audit event missing');
+        $this->assertSame($cashier->id, $audit->employee_id);
+        $this->assertSame(
+            'Your order is ready — see you at 4pm!',
+            $audit->details_json['text'],
+        );
+        $this->assertTrue((bool) $audit->details_json['delivered']);
+        // The message does not touch the order itself.
+        $this->assertSame('Pending', Order::find($orderId)->status);
+
+        // A walk-in order has no customer to reach -> clean conflict.
+        $walkInId = $this->createPaidOrder($cashier, $product, 'Cash', 1);
+        $this->postJson(
+            "/api/orders/$walkInId/message",
+            ['text' => 'hello?'],
+            $this->auth($cashier),
+        )->assertStatus(409);
+        // Empty notes are rejected.
+        $this->postJson(
+            "/api/orders/$orderId/message",
+            ['text' => '   '],
+            $this->auth($cashier),
+        )->assertUnprocessable();
+    }
+
     public function test_sales_endpoints_cannot_create_anonymous_sales(): void
     {
         $product = Product::first();

@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\{
+    CancelOrderRequest,
     CreateOrderCorrectionRequest,
+    MessageCustomerRequest,
     StoreOrderRequest,
     UpdateTelegramOrderRequest,
     HoldOrderRequest,
@@ -14,7 +16,7 @@ use App\Services\PaymentService;
 use App\Http\Resources\OrderResource;
 use App\Models\Order;
 use App\Services\{OrderService, ReceiptService};
-use Illuminate\Http\{JsonResponse, Request};
+use Illuminate\Http\JsonResponse;
 
 class OrderController extends Controller
 {
@@ -51,12 +53,40 @@ class OrderController extends Controller
             OrderResource::make($order->fresh())->resolve(),
         );
     }
-    public function cancel(Request $request, Order $order): JsonResponse
-    {
-        $this->orders->cancel($order, $request->user());
+    /**
+     * Cancel an order: discard a walk-in hold, or REJECT a pending Telegram
+     * customer order (staff verified it was not real). Reserved stock is
+     * released; the customer is notified through the shop bot. The optional
+     * reason is recorded in the audit trail, not sent to the customer.
+     */
+    public function cancel(
+        CancelOrderRequest $request,
+        Order $order,
+    ): JsonResponse {
+        $this->orders->cancel(
+            $order,
+            $request->user(),
+            $request->validated('reason'),
+        );
         return response()->json(
             OrderResource::make($order->fresh())->resolve(),
         );
+    }
+    /**
+     * Staff's quick manual note to the customer who placed this order,
+     * delivered by the shop bot through the same sendMessage path as the
+     * order-status notifications.
+     */
+    public function message(
+        MessageCustomerRequest $request,
+        Order $order,
+    ): JsonResponse {
+        $delivered = $this->orders->messageCustomer(
+            $order,
+            (string) $request->validated('text'),
+            $request->user(),
+        );
+        return response()->json(['delivered' => $delivered]);
     }
     /**
      * Held ("parked") walk-in orders waiting for the customer to come back

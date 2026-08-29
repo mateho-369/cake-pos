@@ -5,6 +5,7 @@ import {
   LogOut,
   PauseCircle,
   Search,
+  Send,
   ShoppingBag,
   Store,
 } from 'lucide-react'
@@ -21,8 +22,10 @@ export default function TerminalHeader({
   onQuery,
   cartCount,
   heldCount,
+  pendingCount,
   onCart,
   onHeld,
+  onPending,
   onHistory,
   onCustomerDisplay,
   onAutoPlaceDisplay,
@@ -34,8 +37,10 @@ export default function TerminalHeader({
   onQuery: (value: string) => void
   cartCount: number
   heldCount: number
+  pendingCount: number
   onCart: () => void
   onHeld: () => void
+  onPending: () => void
   onHistory: () => void
   onCustomerDisplay: () => void
   onAutoPlaceDisplay?: () => void
@@ -95,13 +100,24 @@ export default function TerminalHeader({
           </button>
         )}
         <button
+          className="icon-button pending-orders-button"
+          onClick={onPending}
+          title={t('pending.title')}
+          aria-label={t('pending.title')}
+        >
+          <Send size={18} />
+          <span className={`count-badge ${pendingCount === 0 ? 'zero' : ''}`}>
+            {pendingCount}
+          </span>
+        </button>
+        <button
           className="icon-button held-orders-button"
           onClick={onHeld}
           title={t('hold.title')}
           aria-label={t('hold.title')}
         >
           <PauseCircle size={18} />
-          <span className={`held-count ${heldCount === 0 ? 'zero' : ''}`}>
+          <span className={`count-badge ${heldCount === 0 ? 'zero' : ''}`}>
             {heldCount}
           </span>
         </button>

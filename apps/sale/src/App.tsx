@@ -17,7 +17,12 @@ import SuccessOverlay from './components/SuccessOverlay'
 import OrderHistoryModal from './components/OrderHistoryModal'
 import PendingOrdersPanel from './components/PendingOrdersPanel'
 import HeldOrdersPanel from './components/HeldOrdersPanel'
-import { type CartItem, type HeldOrder, type Product } from './data'
+import {
+  type CartItem,
+  type HeldOrder,
+  type PendingOrder,
+  type Product,
+} from './data'
 import { useTranslation } from './lib/i18n'
 import { apiRequest } from './lib/api'
 import { useSaleData } from './lib/data'
@@ -97,6 +102,12 @@ function SaleTerminal() {
   const [heldBusy, setHeldBusy] = useState(false)
   // The header toolbar icon opens the held-orders queue even when it is empty.
   const [heldPanelOpen, setHeldPanelOpen] = useState(false)
+  // Open Telegram customer orders awaiting staff action, polled for the
+  // toolbar badge + pending panel — same pattern as the held queue.
+  const [pending, setPending] = useState<PendingOrder[]>([])
+  // The header toolbar icon opens the pending-orders queue even when it is
+  // empty, so the feature is discoverable before the first Telegram order.
+  const [pendingPanelOpen, setPendingPanelOpen] = useState(false)
   const promptOpenShift = (action: PendingSaleAction) => {
     setPendingAction(action)
     setShiftMode('open')
@@ -128,8 +139,44 @@ function SaleTerminal() {
           : { method: 'KHQR', confirmed: true },
       ),
     })
-    await refresh()
+    await Promise.all([refresh(), loadPending()])
   }
+  /**
+   * Reject a pending customer order: staff called to verify and it was not
+   * real (or a mistake). The server cancels the order, releases its
+   * reserved stock, audit-logs the rejection and tells the customer.
+   */
+  const rejectPendingOrder = async (orderId: string, reason?: string) => {
+    await apiRequest(`/api/orders/${orderId}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify(reason ? { reason } : {}),
+    })
+    await Promise.all([refresh(), loadPending()])
+  }
+  /**
+   * Send a quick Telegram note to the order's customer through the shop
+   * bot — they reached out on Telegram, so answer them there.
+   */
+  const messagePendingCustomer = async (orderId: string, text: string) => {
+    const result = await apiRequest<{ delivered: boolean }>(
+      `/api/orders/${orderId}/message`,
+      { method: 'POST', body: JSON.stringify({ text }) },
+    )
+    return result.delivered
+  }
+  const loadPending = useCallback(async () => {
+    try {
+      const next = await apiRequest<PendingOrder[]>('/api/orders/pending')
+      setPending(next)
+    } catch {
+      /* offline / logged out — the next poll picks it up */
+    }
+  }, [])
+  useEffect(() => {
+    void loadPending()
+    const timer = window.setInterval(() => void loadPending(), 15_000)
+    return () => window.clearInterval(timer)
+  }, [loadPending])
   const openCustomerDisplay = (autoPlace = false) => {
     const supported = supportsCustomerDisplay({
       hasGetScreenDetails: 'getScreenDetails' in window,
@@ -654,6 +701,16 @@ function SaleTerminal() {
         ?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
     })
   }
+  // Same pattern as the held-orders toolbar entry: the button always works,
+  // even before the first Telegram order ever arrives.
+  const openPendingOrders = () => {
+    if (!pending.length) setPendingPanelOpen(true)
+    window.requestAnimationFrame(() => {
+      document
+        .getElementById('pending-orders')
+        ?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+    })
+  }
   const addQuickProduct = async (product: Product) => {
     try {
       await createProduct({
@@ -684,8 +741,10 @@ function SaleTerminal() {
         onQuery={setQuery}
         cartCount={cartCount}
         heldCount={held.length}
+        pendingCount={pending.length}
         onCart={() => setMobileCart(true)}
         onHeld={openHeldOrders}
+        onPending={openPendingOrders}
         onHistory={() => setHistoryOpen(true)}
         onCustomerDisplay={() => openCustomerDisplay()}
         onAutoPlaceDisplay={() => openCustomerDisplay(true)}
@@ -703,8 +762,12 @@ function SaleTerminal() {
         </button>
       )}
       <PendingOrdersPanel
+        pending={pending}
+        open={pendingPanelOpen}
         shiftOpen={Boolean(shift)}
         onPay={payPendingOrder}
+        onReject={rejectPendingOrder}
+        onMessage={messagePendingCustomer}
         onNeedShift={requestShiftThen}
         onToast={setToast}
       />

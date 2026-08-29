@@ -33,9 +33,17 @@
   color: white;
 }
 
+/*
+ * Telegram fullscreen overlays its own back/close button at the top;
+ * @cake-pos/telegram publishes that as --tg-content-safe-top (absent ->
+ * 0px outside Telegram, so a plain browser renders exactly as before).
+ */
 .customer-header {
-  height: calc(70px + env(safe-area-inset-top));
-  padding: max(12px, env(safe-area-inset-top)) 18px 10px;
+  height: calc(
+    70px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
+  );
+  padding: max(12px, env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
+    18px 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -580,8 +588,10 @@
   animation: customer-pulse 1.3s ease infinite;
 }
 .customer-order-status {
-  padding: calc(10px + env(safe-area-inset-top)) 16px
-    calc(30px + env(safe-area-inset-bottom));
+  padding: calc(
+      10px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
+    )
+    16px calc(30px + env(safe-area-inset-bottom));
 }
 .customer-order-status > header {
   height: 50px;
@@ -1028,9 +1038,12 @@
    Fullscreen Mini App (Web App API 8.0+): with viewport-fit=cover
    the app extends under the notch / home indicator, so pad the
    scroll container and lift fixed docks by the safe-area insets.
+   The TOP insets also take --tg-content-safe-top (published by
+   @cake-pos/telegram), which additionally accounts for Telegram's
+   own overlaid back/close button — absent outside Telegram (0px).
    ============================================================ */
 .customer-app {
-  padding-top: env(safe-area-inset-top);
+  padding-top: max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px));
   padding-bottom: env(safe-area-inset-bottom);
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
@@ -1039,11 +1052,15 @@
   margin-bottom: calc(14px + env(safe-area-inset-bottom));
 }
 .customer-error {
-  top: calc(10px + env(safe-area-inset-top));
+  top: calc(
+    10px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
+  );
 }
 .customer-order-status,
 .customer-state {
-  padding-top: calc(18px + env(safe-area-inset-top));
+  padding-top: calc(
+    18px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
+  );
   padding-left: max(18px, env(safe-area-inset-left));
   padding-right: max(18px, env(safe-area-inset-right));
 }

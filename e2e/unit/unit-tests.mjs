@@ -191,13 +191,16 @@ const telegramEntry = `export * from '${join(
   root,
   'packages/telegram/src/index.ts',
 )}'\n`
-const { requestTelegramFullscreen, prepareTelegramChrome } = await bundle(
-  telegramEntry,
-  'telegram-chrome',
-)
+const {
+  requestTelegramFullscreen,
+  prepareTelegramChrome,
+  syncTelegramContentSafeArea,
+} = await bundle(telegramEntry, 'telegram-chrome')
 
-// Minimal document stub: the package registers a pointerdown retry listener.
+// Minimal document stub: the package registers a pointerdown retry listener
+// and writes the Telegram content safe area onto <html> as custom props.
 const listeners = []
+const rootStyleProps = {}
 const documentStub = {
   addEventListener: (type, handler) => listeners.push({ type, handler }),
   removeEventListener: (type, handler) => {
@@ -205,6 +208,16 @@ const documentStub = {
       (entry) => entry.type === type && entry.handler === handler,
     )
     if (index >= 0) listeners.splice(index, 1)
+  },
+  documentElement: {
+    style: {
+      setProperty: (name, value) => {
+        rootStyleProps[name] = value
+      },
+      removeProperty: (name) => {
+        delete rootStyleProps[name]
+      },
+    },
   },
 }
 const originalDocument = globalThis.document
@@ -332,6 +345,159 @@ check(
 )
 prepareTelegramChrome(undefined)
 check('telegram: outside Telegram every helper is a safe no-op', true)
+
+// 7. Content safe area: Telegram's OWN fullscreen chrome (back/close
+//    button) overlays the top of a fullscreen Mini App — env(safe-area-*)
+//    can't see it. The package must publish it as --tg-content-safe-*
+//    custom properties, immediately (first paint) and on every change.
+const insetVars = () => ({
+  top: rootStyleProps['--tg-content-safe-top'],
+  bottom: rootStyleProps['--tg-content-safe-bottom'],
+  left: rootStyleProps['--tg-content-safe-left'],
+  right: rootStyleProps['--tg-content-safe-right'],
+})
+
+// 7a. Written immediately from contentSafeAreaInset — no event needed, so
+//     the first paint already pads below Telegram's overlaid button.
+app = fakeWebApp({
+  contentSafeAreaInset: { top: 46, bottom: 0, left: 20, right: 20 },
+  safeAreaInset: { top: 24, bottom: 20, left: 0, right: 0 },
+})
+let areaCleanup = syncTelegramContentSafeArea(app)
+check(
+  'telegram: content safe area published immediately on all four sides',
+  JSON.stringify(insetVars()) ===
+    JSON.stringify({ top: '46px', bottom: '0px', left: '20px', right: '20px' }),
+  JSON.stringify(insetVars()),
+)
+check(
+  'telegram: contentSafeAreaInset wins over the plain device inset',
+  insetVars().top === '46px' && insetVars().bottom === '0px',
+  JSON.stringify(insetVars()),
+)
+
+// 7b. contentSafeAreaChanged re-reads live values (rotation / chrome
+//     appearing), and fullscreenChanged re-syncs as belt-and-braces.
+app.contentSafeAreaInset = { top: 59, bottom: 34, left: 0, right: 0 }
+app.fire('contentSafeAreaChanged')
+check(
+  'telegram: contentSafeAreaChanged re-publishes the new insets',
+  insetVars().top === '59px' && insetVars().bottom === '34px',
+  JSON.stringify(insetVars()),
+)
+app.contentSafeAreaInset = { top: 24, bottom: 0, left: 0, right: 0 }
+app.fire('fullscreenChanged')
+check(
+  'telegram: fullscreenChanged re-syncs the content safe area',
+  insetVars().top === '24px',
+  JSON.stringify(insetVars()),
+)
+
+// 7c. Older clients (Bot API < 8.0) only report the device safeAreaInset —
+//     the sync falls back to it (they cannot run fullscreen, so no
+//     Telegram chrome exists and the device inset alone is correct).
+app.contentSafeAreaInset = undefined
+app.safeAreaInset = { top: 24, bottom: 20, left: 0, right: 0 }
+app.fire('safeAreaChanged')
+check(
+  'telegram: pre-8.0 clients fall back to safeAreaInset on change',
+  insetVars().top === '24px' && insetVars().bottom === '20px',
+  JSON.stringify(insetVars()),
+)
+
+// 7d. Cleanup unsubscribes: later events must not rewrite the properties.
+const offBeforeCleanup = app.calls.offEvent
+areaCleanup()
+check(
+  'telegram: cleanup unsubscribes every safe-area listener',
+  app.calls.offEvent === offBeforeCleanup + 3,
+  `${offBeforeCleanup} -> ${app.calls.offEvent}`,
+)
+app.safeAreaInset = { top: 99, bottom: 99, left: 99, right: 99 }
+app.fire('safeAreaChanged')
+app.fire('contentSafeAreaChanged')
+check(
+  'telegram: no rewrites after cleanup (no leaked listeners)',
+  insetVars().top === '24px',
+  JSON.stringify(insetVars()),
+)
+
+// 7e. A client reporting neither inset still yields a usable 0px value.
+app = fakeWebApp()
+areaCleanup = syncTelegramContentSafeArea(app)
+check(
+  'telegram: client without insets publishes 0px on all sides',
+  JSON.stringify(insetVars()) ===
+    JSON.stringify({ top: '0px', bottom: '0px', left: '0px', right: '0px' }),
+  JSON.stringify(insetVars()),
+)
+areaCleanup()
+
+// 7f. The combined entry point wires the same publication (sale terminal,
+//     shop storefront and /customer all run through it) and still cleans
+//     up both halves.
+app = fakeWebApp({
+  contentSafeAreaInset: { top: 46, bottom: 0, left: 0, right: 0 },
+})
+const combinedCleanup = prepareTelegramChrome(app)
+check(
+  'telegram: prepareTelegramChrome publishes the content safe area too',
+  insetVars().top === '46px' && app.calls.ready === 1 && app.calls.expand === 1,
+  JSON.stringify(insetVars()),
+)
+combinedCleanup()
+app.contentSafeAreaInset = { top: 88, bottom: 0, left: 0, right: 0 }
+app.fire('contentSafeAreaChanged')
+check(
+  'telegram: prepareTelegramChrome cleanup stops the safe-area sync',
+  insetVars().top === '46px',
+  JSON.stringify(insetVars()),
+)
+syncTelegramContentSafeArea(undefined)
+check(
+  'telegram: safe-area sync outside Telegram is a safe no-op',
+  insetVars().top === '46px',
+)
+
+// 7g. Regression guard: every header-side rule that pads for the device
+//     inset must also take the Telegram content inset, on all three Mini
+//     App surfaces (sale terminal, sale /customer, shop storefront).
+{
+  const count = (file, needle) =>
+    readFileSync(join(root, file), 'utf8').split(needle).length - 1
+  const saleTerminal = count(
+    'apps/sale/src/index.css',
+    'var(--tg-content-safe-top, 0px)',
+  )
+  const saleCustomer = count(
+    'apps/sale/src/customer.css',
+    'var(--tg-content-safe-top, 0px)',
+  )
+  const shopCustomer = count(
+    'apps/shop/src/customer.css',
+    'var(--tg-content-safe-top, 0px)',
+  )
+  // Sale terminal: header padding + header height, cart panel top/height
+  // (desktop), mobile header height/padding, profile popover, shift-gate
+  // banner (mobile + desktop) = 9 call sites.
+  check(
+    'telegram: sale terminal header stack uses --tg-content-safe-top (>=9)',
+    saleTerminal >= 9,
+    `found ${saleTerminal}`,
+  )
+  check(
+    'telegram: sale /customer header uses --tg-content-safe-top (>=3)',
+    saleCustomer >= 3,
+    `found ${saleCustomer}`,
+  )
+  // Shop: header height/padding, order-status padding (x2), fullscreen
+  // block (app padding + error + status/state) = 6 call sites.
+  check(
+    'telegram: shop storefront header uses --tg-content-safe-top (>=6)',
+    shopCustomer >= 6,
+    `found ${shopCustomer}`,
+  )
+}
 
 globalThis.document = originalDocument
 

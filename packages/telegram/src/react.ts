@@ -7,8 +7,10 @@ import {
 
 /**
  * Runs the shared Telegram chrome on mount (ready + expand + brand colours
- * + true fullscreen with a single gesture retry) and cleans it up on
- * unmount, so React StrictMode's double-mount cannot leak listeners.
+ * + true fullscreen with a single gesture retry + publishing Telegram's
+ * content safe area as --tg-content-safe-* custom properties for the
+ * headers' padding) and cleans it up on unmount, so React StrictMode's
+ * double-mount cannot leak listeners.
  */
 export function useTelegramChrome(options: {
   headerColor?: string

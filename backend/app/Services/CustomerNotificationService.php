@@ -17,19 +17,39 @@ final class CustomerNotificationService
         if (!$customer?->telegram_user_id) {
             return false;
         }
-        $token = config('services.telegram.bot_token');
-        if (!$token) {
-            return false;
-        }
         $text = $this->messageFor($order);
         if ($text === null) {
+            return false;
+        }
+        return $this->sendToCustomer($customer->telegram_user_id, $text);
+    }
+
+    /**
+     * A quick manual note from staff to the customer who placed the order
+     * (the pending-orders panel's "Message" action). Same shop bot, same
+     * chat the customer is already talking to — no new integration.
+     */
+    public function sendNote(Order $order, string $text): bool
+    {
+        $order->loadMissing('customer');
+        $customer = $order->customer;
+        if (!$customer?->telegram_user_id) {
+            return false;
+        }
+        return $this->sendToCustomer($customer->telegram_user_id, $text);
+    }
+
+    private function sendToCustomer(string $chatId, string $text): bool
+    {
+        $token = config('services.telegram.bot_token');
+        if (!$token) {
             return false;
         }
         $base = rtrim((string) config('services.telegram.api_base'), '/');
         try {
             return Http::timeout(8)
                 ->post("{$base}/bot{$token}/sendMessage", [
-                    'chat_id' => $customer->telegram_user_id,
+                    'chat_id' => $chatId,
                     'text' => $text,
                 ])
                 ->successful();

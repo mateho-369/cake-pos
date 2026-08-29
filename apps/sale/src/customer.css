@@ -13,9 +13,17 @@
     linear-gradient(160deg, #fffafb, #fdf1f6 58%, #f9f4f6);
   color: var(--ink);
 }
+/*
+ * Telegram fullscreen overlays its own back/close button at the top;
+ * @cake-pos/telegram publishes that as --tg-content-safe-top (absent ->
+ * 0px outside Telegram, so a plain browser renders exactly as before).
+ */
 .customer-header {
-  height: calc(70px + env(safe-area-inset-top));
-  padding: max(12px, env(safe-area-inset-top)) 18px 10px;
+  height: calc(
+    70px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
+  );
+  padding: max(12px, env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
+    18px 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -549,8 +557,10 @@
   animation: customer-pulse 1.3s ease infinite;
 }
 .customer-order-status {
-  padding: calc(10px + env(safe-area-inset-top)) 16px
-    calc(30px + env(safe-area-inset-bottom));
+  padding: calc(
+      10px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
+    )
+    16px calc(30px + env(safe-area-inset-bottom));
 }
 .customer-order-status > header {
   height: 50px;
