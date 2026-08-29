@@ -1688,6 +1688,11 @@ label > small {
   border-color: rgba(217, 119, 6, 0.13);
   background: #fcf4e5;
 }
+.form-notice.success {
+  color: #14785a;
+  border-color: rgba(20, 120, 90, 0.15);
+  background: #eef8f2;
+}
 .form-notice svg {
   flex: 0 0 auto;
 }

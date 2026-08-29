@@ -525,6 +525,22 @@ class OrderService
         }
 
         $status = $input['status'] ?? $order->status;
+        // Paid and Completed are NEVER a status-only change: they require a
+        // real OrderPayment (method + cash tender) recorded through the
+        // /pay endpoint, so shift reconciliation, cash reports, and the order
+        // detail tenders/change block all see the money. This closes the
+        // manual-dropdown bypass where every order was stamped KHQR with no
+        // payment row at all. A total-only update on an already-existing Paid
+        // (legacy) row is still allowed so an admin can fix the amount, then
+        // recover the sale through Take Payment.
+        if (
+            array_key_exists('status', $input) &&
+            in_array($status, ['Paid', 'Completed'], true)
+        ) {
+            $this->conflict(
+                'Paid/Completed must be recorded through the Take Payment action, which creates a real OrderPayment with the method and tender',
+            );
+        }
         $total = array_key_exists('total', $input)
             ? Money::fromDecimal($input['total'], 'total')
             : $order->total_cents;
@@ -543,66 +559,19 @@ class OrderService
             }
             $fromStatus = $order->status;
             $beforeTotal = $order->total_cents;
-
-            if ($status === 'Completed') {
-                $lines = $order
-                    ->orderItems()
-                    ->with('product')
-                    ->lockForUpdate()
-                    ->get()
-                    ->map(fn($item) => [$item->product, $item->quantity])
-                    ->all();
-                foreach ($lines as [$product, $quantity]) {
-                    if ($product->stock < $quantity) {
-                        $this->stockConflict($product);
-                    }
-                    $product->decrement('stock', $quantity);
-                    if ($product->reserved_stock) {
-                        $product->decrement(
-                            'reserved_stock',
-                            min($product->reserved_stock, $quantity),
-                        );
-                    }
-                }
-                $this->recordNetProductRevenue(
-                    $lines,
-                    $order->subtotal_cents,
-                    $total,
-                );
-            }
-
             $discount = max(0, $order->subtotal_cents - $total);
+
+            // updateTelegram only adjusts price/status for an open customer
+            // order. It never claims payment, never decrements stock, and
+            // never changes `payment`/`payment_status`: payment is recorded
+            // exclusively by PaymentService::confirm*/settle via /pay.
             $order->update([
                 'status' => $status,
                 'total_cents' => $total,
                 'discount_type' => $discount ? 'fixed' : null,
                 'discount_value' => $discount ?: null,
                 'discount_amount_cents' => $discount,
-                'payment' => in_array(
-                    $status,
-                    ['Paid', 'Ready', 'Completed'],
-                    true,
-                )
-                    ? 'KHQR'
-                    : $order->payment,
-                'payment_status' =>
-                    $status === 'Completed' ? 'paid' : $order->payment_status,
-                // Order-to-employee integrity: a customer order that becomes a
-                // completed sale here is attributed to the employee handling
-                // it, so no completed sale ever lacks an owner.
-                ...$status === 'Completed' && $order->cashier_id === null
-                    ? ['cashier_id' => $employee->id]
-                    : [],
             ]);
-            if ($status === 'Completed' && $fromStatus !== 'Completed') {
-                $this->audit->log($employee, 'order.completed', $order->id, [
-                    'fromStatus' => $fromStatus,
-                    'totalCents' => $total,
-                    'paymentMethod' => 'KHQR',
-                    'claimedFromUnassigned' => $order->cashier_id === null,
-                    'source' => 'telegram',
-                ]);
-            }
 
             if ($fromStatus !== $status) {
                 $statusChanged = true;
@@ -638,11 +607,6 @@ class OrderService
 
         if ($statusChanged) {
             SendCustomerStatusNotification::dispatch($order->id);
-            if ($status === 'Completed') {
-                // Staff receipt (gcake_pos) for every completed sale,
-                // whichever flow completed it.
-                SendStaffOrderNotification::dispatch($order->id);
-            }
         }
         return $order->fresh();
     }

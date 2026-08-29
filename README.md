@@ -36,6 +36,29 @@ Holding is shift-gated like every other sale endpoint (`POST /api/orders/hold`,
 `GET /api/orders/held`). A released hold is never counted as revenue — only the
 paid order is (status `Completed` + `payment_status = paid`).
 
+## Telegram order payment integrity
+
+Telegram customer orders are completed ONLY through the real Take Payment flow
+(`POST /api/orders/{id}/pay`), which creates an `order_payments` row with the
+actual method, amount, and cash tender/change. The old admin "Order status"
+dropdown can no longer set `Paid` or `Completed` — those are status-only
+changes that previously stamped `KHQR` with no payment row and silently hid the
+sale from cash reports and shift reconciliation.
+
+To audit the legacy damage on a store, run:
+
+```bash
+php artisan audit:telegram-payments --list
+```
+
+It reports Completed/Paid Telegram orders that have no `OrderPayment` and
+their total value. It does NOT backfill anything — a real method/tender for
+each historical sale must come from the owner's own records. `Paid` legacy
+rows can still be recovered with a real Take Payment (no payment row exists
+and the old `Paid` branch never sold the stock), but `Completed` legacy rows
+are report-only because the old branch already decremented stock and counted
+product revenue — re-paying one would double-sell.
+
 ## Categories
 
 Category names are never hardcoded in any UI. Every picker (sale Quick Add,

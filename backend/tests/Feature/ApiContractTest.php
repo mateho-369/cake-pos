@@ -2477,6 +2477,295 @@ class ApiContractTest extends TestCase
     }
 
     /**
+     * The manual "Order status" dropdown used to set Paid/Ready/Completed
+     * with NO OrderPayment and a hardcoded KHQR method, silently excluding
+     * real cash pickups from shift reconciliation. Paid/Completed are no
+     * longer status-only changes: the API refuses them and points to the real
+     * Take Payment flow, which records method + tender.
+     */
+    public function test_telegram_status_update_cannot_mark_paid_or_completed_without_payment(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        $cashier = Employee::where('role', 'cashier')->first();
+        $admin = Employee::where('role', 'admin')->first();
+        $this->openShiftIfNone($cashier);
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 610,
+            'first_name' => 'Manual',
+            'username' => 'manual_bypass',
+        ]);
+        $this->postJson('/api/customer-products', ['initData' => $initData])
+            ->assertOk();
+        Customer::where('telegram_user_id', '610')->update([
+            'phone' => '+855 12 000 610',
+        ]);
+        $orderId = $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'requestedTotal' => '10.00',
+        ])
+            ->assertCreated()
+            ->json('order.id');
+
+        $this->patchJson(
+            "/api/orders/$orderId",
+            ['status' => 'Completed', 'total' => '10.00'],
+            $this->auth($admin),
+        )
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('status');
+        $this->patchJson(
+            "/api/orders/$orderId",
+            ['status' => 'Paid', 'total' => '10.00'],
+            $this->auth($admin),
+        )
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('status');
+
+        $order = Order::find($orderId);
+        $this->assertSame('Pending', $order->status);
+        $this->assertSame('unpaid', $order->payment_status);
+        $this->assertSame(null, $order->payment);
+        $this->assertDatabaseCount('order_payments', 0);
+        // No completion side effects: still reserved, not sold, not counted.
+        $this->assertSame(10, (int) $product->fresh()->stock);
+        $this->assertSame(1, (int) $product->fresh()->reserved_stock);
+        $this->assertSame(0, (int) $product->fresh()->sold);
+        $this->assertSame(0, (int) $product->fresh()->revenue_cents);
+    }
+
+    /**
+     * The correct flow: a Telegram order completed through /pay creates a real
+     * cash OrderPayment, so it shows in the open shift's expected drawer and
+     * in the close-shift reconciliation — exactly the path the manual
+     * dropdown bypass previously skipped.
+     */
+    public function test_completing_telegram_order_via_pay_records_payment_and_shift_cash(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        $cashier = Employee::where('role', 'cashier')->first();
+        $headers = $this->auth($cashier);
+        $this->postJson(
+            '/api/shifts/open',
+            ['openingCash' => '100.00', 'openingCashKhr' => 40000],
+            $headers,
+        )->assertCreated();
+
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 611,
+            'first_name' => 'PayFlow',
+            'username' => 'pay_flow',
+        ]);
+        $this->postJson('/api/customer-products', ['initData' => $initData])
+            ->assertOk();
+        Customer::where('telegram_user_id', '611')->update([
+            'phone' => '+855 12 000 611',
+        ]);
+        $orderId = $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'requestedTotal' => '10.00',
+        ])
+            ->assertCreated()
+            ->json('order.id');
+
+        $this->postJson(
+            "/api/orders/$orderId/pay",
+            ['method' => 'Cash', 'usdReceivedCents' => 1000],
+            $headers,
+        )
+            ->assertOk()
+            ->assertJsonPath('status', 'Completed')
+            ->assertJsonPath('payment', 'Cash')
+            ->assertJsonPath('paymentStatus', 'paid');
+
+        $payment = DB::table('order_payments')
+            ->where('order_id', $orderId)
+            ->first();
+        $this->assertNotNull($payment);
+        $this->assertSame('cash', $payment->method);
+        $this->assertSame(1000, (int) $payment->amount_usd_cents);
+        $this->assertSame(1000, (int) $payment->tendered_usd_cents);
+        $this->assertSame(0, (int) $payment->change_usd_cents);
+
+        $current = $this->getJson('/api/shifts/current', $headers)
+            ->assertOk()
+            ->json();
+        $this->assertSame(1000, $current['cashSalesUsdCents']);
+        $this->assertSame(11000, $current['expectedCashUsdCents']);
+        $this->assertSame(40000, $current['expectedCashKhr']);
+
+        $closed = $this->postJson(
+            '/api/shifts/close',
+            ['closingCash' => '110.00', 'closingCashKhr' => 40000],
+            $headers,
+        )
+            ->assertOk()
+            ->json();
+        $this->assertSame(0.0, $closed['variance']);
+        $shift = DB::table('shifts')->latest('id')->first();
+        $this->assertSame(11000, (int) $shift->expected_cash_usd_cents);
+        $this->assertSame(0, (int) $shift->variance_usd_cents);
+        // The real payment is also the revenue recognition point: the sale
+        // leaves reserved stock and counts product sold/revenue once, exactly
+        // like the walk-in checkout path.
+        $this->assertSame(9, (int) $product->fresh()->stock);
+        $this->assertSame(0, (int) $product->fresh()->reserved_stock);
+        $this->assertSame(1, (int) $product->fresh()->sold);
+        $this->assertSame(1000, (int) $product->fresh()->revenue_cents);
+    }
+
+    /**
+     * Legacy rows marked `Paid` by the old manual dropdown have no payment
+     * record. They are still recoverable: /pay accepts them (only when no
+     * confirmed payment exists) so the owner can record the real method and
+     * tender, and the order then lands in cash reports/shift reconciliation.
+     */
+    public function test_legacy_paid_telegram_order_can_be_recovered_with_real_payment(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        $cashier = Employee::where('role', 'cashier')->first();
+        $headers = $this->auth($cashier);
+        $this->postJson(
+            '/api/shifts/open',
+            ['openingCash' => '100.00'],
+            $headers,
+        )->assertCreated();
+
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 612,
+            'first_name' => 'Legacy',
+            'username' => 'legacy_paid',
+        ]);
+        $this->postJson('/api/customer-products', ['initData' => $initData])
+            ->assertOk();
+        Customer::where('telegram_user_id', '612')->update([
+            'phone' => '+855 12 000 612',
+        ]);
+        $orderId = $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'requestedTotal' => '10.00',
+        ])
+            ->assertCreated()
+            ->json('order.id');
+
+        // Simulate the exact damage the old dropdown produced: status Paid,
+        // no OrderPayment, no real method.
+        DB::table('orders')
+            ->where('id', $orderId)
+            ->update(['status' => 'Paid']);
+
+        $this->postJson(
+            "/api/orders/$orderId/pay",
+            ['method' => 'Cash', 'usdReceivedCents' => 1000],
+            $headers,
+        )
+            ->assertOk()
+            ->assertJsonPath('status', 'Completed')
+            ->assertJsonPath('payment', 'Cash');
+
+        $this->assertSame(
+            'cash',
+            DB::table('order_payments')
+                ->where('order_id', $orderId)
+                ->value('method'),
+        );
+        $current = $this->getJson('/api/shifts/current', $headers)
+            ->assertOk()
+            ->json();
+        $this->assertSame(1000, $current['cashSalesUsdCents']);
+        // Legacy `Paid` rows were never sold in the old dropdown (only
+        // `Completed` was). Recovering through /pay records the revenue once.
+        $this->assertSame(9, (int) $product->fresh()->stock);
+        $this->assertSame(0, (int) $product->fresh()->reserved_stock);
+        $this->assertSame(1, (int) $product->fresh()->sold);
+        $this->assertSame(1000, (int) $product->fresh()->revenue_cents);
+    }
+
+    /**
+     * Legacy `Completed` rows from the old dropdown already had stock
+     * decremented and revenue counted; they only lack an OrderPayment. They
+     * must NOT be re-payable through /pay (that would double-sell and
+     * double-count) — the audit command reports them instead, so the owner
+     * can reconcile them without inventing a backfill.
+     */
+    public function test_legacy_completed_telegram_order_without_payment_is_not_repayable(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        $cashier = Employee::where('role', 'cashier')->first();
+        $headers = $this->auth($cashier);
+        $this->postJson(
+            '/api/shifts/open',
+            ['openingCash' => '100.00'],
+            $headers,
+        )->assertCreated();
+
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 613,
+            'first_name' => 'LegacyComplete',
+            'username' => 'legacy_completed',
+        ]);
+        $this->postJson('/api/customer-products', ['initData' => $initData])
+            ->assertOk();
+        Customer::where('telegram_user_id', '613')->update([
+            'phone' => '+855 12 000 613',
+        ]);
+        $orderId = $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'requestedTotal' => '10.00',
+        ])
+            ->assertCreated()
+            ->json('order.id');
+
+        // Simulate the exact old dropdown output: Completed + paid stamp, and
+        // the stock/revenue side effects the old branch performed — but still
+        // no OrderPayment row and no real method.
+        DB::table('orders')
+            ->where('id', $orderId)
+            ->update([
+                'status' => 'Completed',
+                'payment_status' => 'paid',
+                'payment' => 'KHQR',
+            ]);
+        DB::table('products')
+            ->where('id', $product->id)
+            ->update([
+                'stock' => 9,
+                'reserved_stock' => 0,
+                'sold' => 1,
+                'revenue_cents' => 1000,
+            ]);
+
+        $this->postJson(
+            "/api/orders/$orderId/pay",
+            ['method' => 'Cash', 'usdReceivedCents' => 1000],
+            $headers,
+        )
+            ->assertStatus(409);
+
+        $this->assertSame(
+            null,
+            DB::table('order_payments')
+                ->where('order_id', $orderId)
+                ->value('id'),
+        );
+        $this->assertSame(9, (int) $product->fresh()->stock);
+        $this->assertSame(0, (int) $product->fresh()->reserved_stock);
+        $this->assertSame(1, (int) $product->fresh()->sold);
+        $this->assertSame(1000, (int) $product->fresh()->revenue_cents);
+    }
+
+    /**
      * The reported close-shift bug: $9 USD + ៛4,100 on a $10 sale must
      * count $9 of USD cash (not drop it) and ៛4,100 of riel independently.
      */

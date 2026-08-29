@@ -38,6 +38,31 @@ const khr = (value: number | null | undefined) =>
 const centsUsd = (cents: number | null | undefined) =>
   `$${(asNumber(cents) / 100).toFixed(2)}`
 const statusClass = (status: string) => `order-status-${status.toLowerCase()}`
+// Cash tender payload for the admin Take Payment modal. Mirrors the sale
+// terminal's `cashTenderPayload`: all change is returned in USD cents (KHR
+// change = 0), matching CashTender::validate on the server, so the admin
+// override cannot bypass the real payment-recording contract.
+function adminCashTender(
+  totalCents: number,
+  usdCents: number,
+  khr: number,
+  rate: number,
+) {
+  const safeRate = Math.trunc(rate) > 0 ? Math.trunc(rate) : 4100
+  const total = Math.max(0, Math.trunc(totalCents))
+  const usd = Math.max(0, Math.trunc(usdCents))
+  const riel = Math.max(0, Math.trunc(khr))
+  const dueCentRiel = total * safeRate
+  const tenderCentRiel = usd * safeRate + riel * 100
+  const changeCentRiel = Math.max(0, tenderCentRiel - dueCentRiel)
+  return {
+    usdReceivedCents: usd,
+    khrReceived: riel,
+    changeUsdCents: Math.round(changeCentRiel / safeRate),
+    changeKhr: 0,
+    exchangeRateKhrPerUsd: safeRate,
+  }
+}
 // A hold that was resumed and paid is closed as Cancelled solely so revenue
 // is not double-counted; it is NOT a rejection. The status event's reason
 // (`hold_paid`) is what lets the UI show "Converted → CS-4" instead of a
@@ -112,8 +137,10 @@ function OrderStatusBadge({
  */
 function PendingCustomerOrders({
   onToast,
+  rate,
 }: {
   onToast: (message: string) => void
+  rate: number
 }) {
   const { t } = useTranslation()
   const { refresh, updateOrder } = useAdminData()
@@ -145,16 +172,24 @@ function PendingCustomerOrders({
     order: Order,
     method: 'Cash' | 'KHQR',
     usdReceived: string,
+    khrReceived: string,
   ) => {
     setBusy(true)
     try {
+      const usdCents = Math.round(Number(usdReceived || 0) * 100)
+      const khr = Math.round(Number(khrReceived.replace(/[^0-9]/g, '') || 0))
       await apiRequest(`/api/orders/${order.id}/pay`, {
         method: 'POST',
         body: JSON.stringify(
           method === 'Cash'
             ? {
                 method: 'Cash',
-                usdReceivedCents: Math.round(Number(usdReceived || 0) * 100),
+                ...adminCashTender(
+                  Math.round(asNumber(order.total) * 100),
+                  usdCents,
+                  khr,
+                  rate,
+                ),
               }
             : { method: 'KHQR', confirmed: true },
         ),
@@ -266,6 +301,8 @@ function PendingCustomerOrders({
         <PayHeldOrderModal
           order={paying}
           busy={busy}
+          rate={rate}
+          withKhr
           onClose={() => setPaying(null)}
           onSubmit={submitPayment}
         />
@@ -279,15 +316,39 @@ function PayHeldOrderModal({
   busy,
   onClose,
   onSubmit,
+  rate,
+  withKhr = false,
 }: {
   order: Order
   busy: boolean
   onClose: () => void
-  onSubmit: (order: Order, method: 'Cash' | 'KHQR', usdReceived: string) => void
+  onSubmit: (
+    order: Order,
+    method: 'Cash' | 'KHQR',
+    usdReceived: string,
+    khrReceived: string,
+  ) => void
+  rate: number
+  withKhr?: boolean
 }) {
   const { t } = useTranslation()
   const [method, setMethod] = useState<'Cash' | 'KHQR'>('Cash')
   const [received, setReceived] = useState(asNumber(order.total).toFixed(2))
+  const [receivedKhr, setReceivedKhr] = useState('')
+  const usdCents = Math.round(Number(received || 0) * 100)
+  const khr = Math.round(Number(receivedKhr.replace(/[^0-9]/g, '') || 0))
+  const tender = method === 'Cash'
+    ? adminCashTender(
+        Math.round(asNumber(order.total) * 100),
+        usdCents,
+        khr,
+        rate,
+      )
+    : null
+  const changeUsd = tender ? tender.changeUsdCents / 100 : 0
+  const changeKhr = tender ? tender.changeKhr : 0
+  const canConfirm =
+    method === 'KHQR' || (usdCents > 0 || khr > 0)
   return (
     <div className="modal-layer" role="dialog" aria-modal="true">
       <button
@@ -331,19 +392,48 @@ function PayHeldOrderModal({
             </button>
           </div>
           {method === 'Cash' && (
-            <label>
-              <span>{t('shifts.countedCash')}</span>
-              <div className="currency-input">
-                <span>$</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={received}
-                  onChange={(event) => setReceived(event.target.value)}
-                />
-              </div>
-            </label>
+            <>
+              <label>
+                <span>{t('shifts.countedCash')}</span>
+                <div className="currency-input">
+                  <span>$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={received}
+                    onChange={(event) => setReceived(event.target.value)}
+                  />
+                </div>
+              </label>
+              {withKhr && (
+                <label>
+                  <span>{t('shifts.countedCashKhr')}</span>
+                  <div className="currency-input">
+                    <span>៛</span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      step="100"
+                      min="0"
+                      value={receivedKhr}
+                      onChange={(event) => setReceivedKhr(event.target.value)}
+                    />
+                  </div>
+                  <small>
+                    {t('shifts.countInstructionKhr')} · {rate} ៛ / $
+                  </small>
+                </label>
+              )}
+              {usdCents > 0 || khr > 0 ? (
+                <div className="form-notice success">
+                  <span>
+                    {t('shifts.change')}: {centsUsd(tender?.changeUsdCents ?? 0)}
+                    {changeKhr > 0 ? ` · ៛${changeKhr.toLocaleString()}` : ''}
+                  </span>
+                </div>
+              ) : null}
+            </>
           )}
           <div className="modal-actions">
             <button
@@ -357,8 +447,10 @@ function PayHeldOrderModal({
             <button
               type="button"
               className="primary-button"
-              disabled={busy || (method === 'Cash' && Number(received) <= 0)}
-              onClick={() => onSubmit(order, method, received)}
+              disabled={busy || !canConfirm}
+              onClick={() =>
+                onSubmit(order, method, received, receivedKhr)
+              }
             >
               {t('orders.paymentConfirmedShort')}
             </button>
@@ -378,9 +470,7 @@ const telegramStatuses: Order['status'][] = [
   'Pending',
   'Confirmed',
   'Held',
-  'Paid',
   'Ready',
-  'Completed',
 ]
 export default function OrdersPage({
   selectedId,
@@ -388,13 +478,37 @@ export default function OrdersPage({
   onToast,
 }: OrdersPageProps) {
   const { t } = useTranslation()
-  const { orders, updateOrder, correctOrder } = useAdminData()
+  const { orders, updateOrder, correctOrder, refresh } = useAdminData()
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('all')
   const today = new Date().toISOString().slice(0, 10)
   const [from, setFrom] = useState(today)
   const [to, setTo] = useState(today)
+  const [rate, setRate] = useState(4100)
+  const [takePayment, setTakePayment] = useState<Order | null>(null)
+  const [payBusy, setPayBusy] = useState(false)
+  useEffect(() => {
+    apiRequest<{ exchangeRateKhrPerUsd?: number }>('/api/settings/pos-rules')
+      .then((value) =>
+        setRate(
+          Number.isFinite(value?.exchangeRateKhrPerUsd as number)
+            ? (value?.exchangeRateKhrPerUsd as number)
+            : 4100,
+        ),
+      )
+      .catch(() => undefined)
+  }, [])
   const selected = orders.find((order) => order.id === selectedId) || null
+  const selectedHasConfirmedPayment =
+    (selected?.payments ?? []).some(
+      (payment) => payment.status === 'confirmed',
+    )
+  const selectedCanTakePayment =
+    selected !== null &&
+    (['Pending', 'Confirmed', 'Held', 'Ready'].includes(selected.status) ||
+      (selected.status === 'Paid' &&
+        selected.paymentStatus !== 'paid' &&
+        !selectedHasConfirmedPayment))
   const statuses = [
     'all',
     'Pending',
@@ -448,9 +562,44 @@ export default function OrdersPage({
       )
     }
   }
+  const payFromDetail = async (
+    order: Order,
+    method: 'Cash' | 'KHQR',
+    usdReceived: string,
+    khrReceived: string,
+  ) => {
+    setPayBusy(true)
+    try {
+      const usdCents = Math.round(Number(usdReceived || 0) * 100)
+      const khr = Math.round(Number(khrReceived.replace(/[^0-9]/g, '') || 0))
+      await apiRequest(`/api/orders/${order.id}/pay`, {
+        method: 'POST',
+        body: JSON.stringify(
+          method === 'Cash'
+            ? {
+                method: 'Cash',
+                ...adminCashTender(
+                  Math.round(asNumber(order.total) * 100),
+                  usdCents,
+                  khr,
+                  rate,
+                ),
+              }
+            : { method: 'KHQR', confirmed: true },
+        ),
+      })
+      setTakePayment(null)
+      onToast(t('orders.pendingPaid', { id: order.id }))
+      await refresh()
+    } catch (reason) {
+      onToast(reason instanceof Error ? reason.message : 'Payment failed')
+    } finally {
+      setPayBusy(false)
+    }
+  }
   return (
     <div className="page-content">
-      <PendingCustomerOrders onToast={onToast} />
+      <PendingCustomerOrders onToast={onToast} rate={rate} />
       <section className="kpi-grid compact-kpis">
         <article className="mini-kpi glass-panel">
           <span>{t('orders.telegramOrders')}</span>
@@ -824,6 +973,7 @@ export default function OrdersPage({
                       value={selected.status}
                       disabled={
                         selected.status === 'Completed' ||
+                        selected.status === 'Paid' ||
                         selected.status === 'Cancelled' ||
                         selected.status === 'Released'
                       }
@@ -836,12 +986,43 @@ export default function OrdersPage({
                       {telegramStatuses.map((item) => (
                         <option key={item}>{item}</option>
                       ))}
+                      {selected.status === 'Paid' && (
+                        <option value="Paid" disabled>
+                          Paid — no payment recorded; use Take Payment
+                        </option>
+                      )}
+                      {selected.status === 'Completed' && (
+                        <option value="Completed" disabled>
+                          Completed
+                        </option>
+                      )}
                     </select>
                   </label>
                   <p>
-                    Confirm the final price with the customer in Telegram. Mark
-                    Paid only after you verify their KHQR payment.
+                    Confirm the final price with the customer in Telegram.
+                    Payment is recorded only through Take Payment, which
+                    captures the real method and cash tender.
                   </p>
+                  {!selectedHasConfirmedPayment &&
+                    ['Paid', 'Completed'].includes(selected.status) && (
+                      <div className="form-notice warning">
+                        <AlertTriangle size={15} />
+                        <span>
+                          {selected.status === 'Paid'
+                            ? 'Paid without a payment record — use Take Payment to record the real method and tender.'
+                            : 'Legacy Completed without an OrderPayment — report-only; run the audit command and do not re-pay this order.'}
+                        </span>
+                      </div>
+                    )}
+                  {selectedCanTakePayment && (
+                    <button
+                      className="primary-button"
+                      disabled={payBusy}
+                      onClick={() => setTakePayment(selected)}
+                    >
+                      <Banknote size={15} /> {t('reports.takePayment')}
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="receipt-confirmation">
@@ -903,6 +1084,16 @@ export default function OrdersPage({
             </aside>
         )}
       </section>
+      {takePayment && (
+        <PayHeldOrderModal
+          order={takePayment}
+          busy={payBusy}
+          rate={rate}
+          withKhr
+          onClose={() => setTakePayment(null)}
+          onSubmit={payFromDetail}
+        />
+      )}
     </div>
   )
 }

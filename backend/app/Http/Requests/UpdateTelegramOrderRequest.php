@@ -19,12 +19,25 @@ class UpdateTelegramOrderRequest extends FormRequest
                 Rule::in([
                     'Pending',
                     'Confirmed',
-                    'Paid',
                     'Ready',
-                    'Completed',
+                    'Held',
                 ]),
             ],
             'total' => ['sometimes', 'required'],
         ];
+    }
+
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator) {
+            $status = $this->input('status');
+            if (!in_array($status, ['Paid', 'Completed'], true)) {
+                return;
+            }
+            $validator->errors()->add(
+                'status',
+                'Paid/Completed must be recorded through the Take Payment action, which creates a real OrderPayment with the method and tender. Status alone cannot mark an order paid.',
+            );
+        });
     }
 }
