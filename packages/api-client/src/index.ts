@@ -33,10 +33,15 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       if (token) headers.set('Authorization', `Bearer ${token}`)
 
       const requestPath = path.startsWith('/') ? path : `/${path}`
-      const response = await fetch(`${baseUrl}${requestPath}`, {
+      // Authenticated POS/admin responses are live state and must not be
+      // reused from a browser cache. The backend also emits `no-store` on
+      // shift responses; this is the client-side half of that guarantee.
+      const requestInit: RequestInit = {
+        ...(token ? { cache: 'no-store' as const } : {}),
         ...requestOptions,
         headers,
-      })
+      }
+      const response = await fetch(`${baseUrl}${requestPath}`, requestInit)
 
       if (!response.ok) {
         const payload = await response.json().catch(() => null)

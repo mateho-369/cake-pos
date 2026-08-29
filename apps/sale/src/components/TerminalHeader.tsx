@@ -3,6 +3,7 @@ import {
   Clock3,
   History,
   LogOut,
+  PauseCircle,
   Search,
   ShoppingBag,
   Store,
@@ -11,6 +12,7 @@ import { useState } from 'react'
 import { GCakeLogo } from '@cake-pos/brand'
 import { useStaffAuth } from '../auth/StaffAuthContext'
 import { LanguageToggle, useTranslation } from '../lib/i18n'
+import { supportsCustomerDisplay } from '../lib/device'
 export default function TerminalHeader({
   shiftOpen,
   shiftStartedAt,
@@ -18,7 +20,9 @@ export default function TerminalHeader({
   query,
   onQuery,
   cartCount,
+  heldCount,
   onCart,
+  onHeld,
   onHistory,
   onCustomerDisplay,
   onAutoPlaceDisplay,
@@ -29,7 +33,9 @@ export default function TerminalHeader({
   query: string
   onQuery: (value: string) => void
   cartCount: number
+  heldCount: number
   onCart: () => void
+  onHeld: () => void
   onHistory: () => void
   onCustomerDisplay: () => void
   onAutoPlaceDisplay?: () => void
@@ -37,6 +43,13 @@ export default function TerminalHeader({
   const { employee, signOut } = useStaffAuth()
   const { t } = useTranslation()
   const [profileOpen, setProfileOpen] = useState(false)
+  const customerDisplaySupported = supportsCustomerDisplay({
+    hasGetScreenDetails: 'getScreenDetails' in window,
+    isExtendedScreen:
+      (window.screen as { isExtended?: boolean }).isExtended === true,
+    finePointer: window.matchMedia?.('(pointer: fine)').matches ?? false,
+    coarsePointer: window.matchMedia?.('(pointer: coarse)').matches ?? false,
+  })
   const employeeName = employee?.name || ''
   const initials = employeeName
     .split(/\s+/)
@@ -63,14 +76,16 @@ export default function TerminalHeader({
         <kbd>⌘K</kbd>
       </label>
       <div className="terminal-header-actions">
-        <button
-          className="icon-button"
-          onClick={onCustomerDisplay}
-          title={t('sale.customerDisplay')}
-        >
-          <ShoppingBag size={18} />
-        </button>
-        {'getScreenDetails' in window && onAutoPlaceDisplay && (
+        {customerDisplaySupported && (
+          <button
+            className="icon-button"
+            onClick={onCustomerDisplay}
+            title={t('sale.customerDisplay')}
+          >
+            <ShoppingBag size={18} />
+          </button>
+        )}
+        {customerDisplaySupported && 'getScreenDetails' in window && onAutoPlaceDisplay && (
           <button
             className="icon-button"
             onClick={onAutoPlaceDisplay}
@@ -79,6 +94,17 @@ export default function TerminalHeader({
             ⌗
           </button>
         )}
+        <button
+          className="icon-button held-orders-button"
+          onClick={onHeld}
+          title={t('hold.title')}
+          aria-label={t('hold.title')}
+        >
+          <PauseCircle size={18} />
+          <span className={`held-count ${heldCount === 0 ? 'zero' : ''}`}>
+            {heldCount}
+          </span>
+        </button>
         <button
           className="icon-button terminal-history-button"
           onClick={onHistory}
@@ -98,7 +124,9 @@ export default function TerminalHeader({
             <strong>{shiftOpen ? t('shift.open') : t('shift.closed')}</strong>
             <small>
               {shiftOpen
-                ? t('shift.started', { time: shiftStartedAt || '' })
+                ? shiftStartedAt
+                  ? t('shift.started', { time: shiftStartedAt })
+                  : t('shift.startTimeUnavailable')
                 : t('shift.tapToOpen')}
             </small>
           </div>

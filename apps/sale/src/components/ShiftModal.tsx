@@ -98,7 +98,7 @@ export default function ShiftModal({
                     name: employeeName,
                   })
                 : t('shiftModal.openedToday', {
-                    time: shiftStartedAt || '—',
+                    time: shiftStartedAt || t('shift.startTimeUnavailable'),
                   })}
             </small>
           </div>

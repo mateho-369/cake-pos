@@ -11,6 +11,8 @@ API="${API_URL:-http://127.0.0.1:8080}"
 OUT="$(mktemp -d)"
 PASS=0
 FAIL=0
+FIRST_BAD_REQUEST_NOTE=""
+FAILURES=()
 
 note() { echo; echo "===== $* ====="; }
 step() { echo; echo "----- $* -----"; }
@@ -22,6 +24,17 @@ step() { echo; echo "----- $* -----"; }
 # $1; the money labels are single-quoted now. A short-called helper would
 # fail the same way.) A buggy call now degrades to a loud FAIL line and the
 # run keeps going and reports everything.
+
+# Surface failures as GitHub check-run annotations — the only output visible
+# in the Actions UI / API without downloading job logs (the Azure log store is
+# unreachable from the sandbox). No-op on local runs (GITHUB_ACTIONS unset).
+annotate() { # level title message
+  if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
+    printf '::%s title=%s::%s\n' "$1" \
+      "$(printf '%s' "$2" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g' -e 's/:/%3A/g' -e 's/,/%2C/g')" \
+      "$(printf '%s' "$3" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')"
+  fi
+}
 
 # req <label> <method> <path> [json-body] [auth-token]
 req() {
@@ -44,6 +57,12 @@ req() {
   if [ -s "$OUT/last.body" ]; then
     echo "  body: $(head -c 600 "$OUT/last.body")"
   fi
+  # Surface the FIRST non-2xx response body as a check-run annotation so the
+  # concrete validation/server error is visible without job logs.
+  if [ "$code" -ge 400 ] 2>/dev/null && [ -z "${FIRST_BAD_REQUEST_NOTE:-}" ]; then
+    FIRST_BAD_REQUEST_NOTE="[$label] $method $path -> HTTP $code: $(head -c 240 "$OUT/last.body" | tr '\n' ' ')"
+    annotate error 'first-bad-request' "$FIRST_BAD_REQUEST_NOTE"
+  fi
   echo "$code" >"$OUT/last.code"
 }
 
@@ -54,7 +73,10 @@ assert() { # label condition
     label="$label — TEST BUG: assert() wants 2 args, got $#"
   fi
   if [ "$cond" = "true" ]; then PASS=$((PASS + 1)); echo "  PASS  $label";
-  else FAIL=$((FAIL + 1)); echo "  FAIL  $label"; fi
+  else
+    FAIL=$((FAIL + 1)); echo "  FAIL  $label"
+    FAILURES+=("$label")
+  fi
 }
 
 jqget() { # file jsonpath -> prints value or NULL (__MISSING__ if short-called)
@@ -76,7 +98,12 @@ for part in sys.argv[2].split('.'):
             print("__MISSING__"); sys.exit(0)
     else:
         print("__MISSING__"); sys.exit(0)
-print(cur)
+if isinstance(cur, bool):
+    # JSON booleans must round-trip to the literal 'true'/'false'; Python's
+    # print(True) gives 'True', which broke every boolean assertion.
+    print("true" if cur else "false")
+else:
+    print(cur)
 PY
 }
 
@@ -88,6 +115,16 @@ expect_code() { # label expected_code
     return 0
   fi
   assert "$1 (expected $2, got $actual)" "$([ "$actual" = "$2" ] && echo true || echo false)"
+}
+
+# Compare money/numeric JSON values without depending on whether PHP encoded
+# a whole dollar amount as 20 or 20.0 (both are the same amount).
+norm_money() {
+  python3 -c "import sys; print(f'{float(sys.argv[1]):.2f}')" "$1" 2>/dev/null \
+    || echo "$1"
+}
+money_eq() { # actual expected -> true|false
+  [ "$(norm_money "$1")" = "$(norm_money "$2")" ] && echo true || echo false
 }
 
 echo "############################################################"
@@ -123,7 +160,7 @@ expect_code "GET /api/shifts/current returns 200" 200
 assert "reports no open shift (null)" "$([ "$(cat "$OUT/last.body")" = "null" ] && echo true || echo false)"
 
 step "3a-2. Sale endpoints are blocked while no shift is open"
-req "order without shift" POST /api/orders '{"payment":"Cash","items":[{"productId":1,"quantity":1}],"idempotencyKey":"smoke-no-shift"}' "$TOKEN_CASHIER"
+req "order without shift" POST /api/orders '{"payment":"Cash","items":[{"productId":1,"quantity":1}],"idempotencyKey":"00000000-0000-4000-8000-000000000001"}' "$TOKEN_CASHIER"
 expect_code "POST /api/orders without shift returns 409" 409
 assert "refusal carries requires_open_shift flag" "$([ "$(jqget "$OUT/last.body" requires_open_shift)" = "true" ] && echo true || echo false)"
 req "hold without shift" POST /api/orders/hold '{"items":[{"productId":1,"quantity":1}]}' "$TOKEN_CASHIER"
@@ -167,16 +204,16 @@ assert "product id returned" "$([ -n "$PRODUCT_ID" ] && [ "$PRODUCT_ID" != "__MI
 assert "product stock = 5" "$([ "$(jqget "$OUT/last.body" stock)" = "5" ] && echo true || echo false)"
 
 step '4b. Cashier sells 2 x $10.00 by cash (total $20.00)'
-req "create order" POST /api/orders "{\"payment\":\"Cash\",\"items\":[{\"productId\":$PRODUCT_ID,\"quantity\":2}],\"idempotencyKey\":\"smoke-order-001\"}" "$TOKEN_CASHIER"
+req "create order" POST /api/orders "{\"payment\":\"Cash\",\"items\":[{\"productId\":$PRODUCT_ID,\"quantity\":2}],\"idempotencyKey\":\"00000000-0000-4000-8000-000000000002\"}" "$TOKEN_CASHIER"
 expect_code "create order returns 201" 201
 ORDER_ID="$(jqget "$OUT/last.body" id)"
 assert "order id returned" "$([ -n "$ORDER_ID" ] && [ "$ORDER_ID" != "__MISSING__" ] && echo true || echo false)"
-assert "order total = 20.0" "$([ "$(jqget "$OUT/last.body" total)" = "20.0" ] && echo true || echo false)"
+assert "order total = 20.0" "$(money_eq "$(jqget "$OUT/last.body" total)" "20.0")"
 assert "order status = Completed" "$([ "$(jqget "$OUT/last.body" status)" = "Completed" ] && echo true || echo false)"
 assert "order paymentStatus = paid" "$([ "$(jqget "$OUT/last.body" paymentStatus)" = "paid" ] && echo true || echo false)"
 
 step "4c. Same idempotency key does not create a second order"
-req "duplicate order (same key)" POST /api/orders "{\"payment\":\"Cash\",\"items\":[{\"productId\":$PRODUCT_ID,\"quantity\":2}],\"idempotencyKey\":\"smoke-order-001\"}" "$TOKEN_CASHIER"
+req "duplicate order (same key)" POST /api/orders "{\"payment\":\"Cash\",\"items\":[{\"productId\":$PRODUCT_ID,\"quantity\":2}],\"idempotencyKey\":\"00000000-0000-4000-8000-000000000002\"}" "$TOKEN_CASHIER"
 expect_code "duplicate returns 200 (idempotent)" 200
 assert "duplicate returns the SAME order id" "$([ "$(jqget "$OUT/last.body" id)" = "$ORDER_ID" ] && echo true || echo false)"
 req "product after 2x order" GET /api/products "" "$TOKEN_ADMIN"
@@ -185,18 +222,18 @@ assert "product stock = 3 after one sale of 2" "$([ "$(jqget "$OUT/last.body" 0.
 step "4d. Reports summary reflects the REAL sale"
 req "reports summary" GET /api/reports/summary "" "$TOKEN_ADMIN"
 expect_code "GET /api/reports/summary returns 200" 200
-assert "todaySalesTotal = 20.0" "$([ "$(jqget "$OUT/last.body" todaySalesTotal)" = "20.0" ] && echo true || echo false)"
+assert "todaySalesTotal = 20.0" "$(money_eq "$(jqget "$OUT/last.body" todaySalesTotal)" "20.0")"
 assert "todayOrdersCount = 1" "$([ "$(jqget "$OUT/last.body" todayOrdersCount)" = "1" ] && echo true || echo false)"
 assert "itemsSold = 2" "$([ "$(jqget "$OUT/last.body" itemsSold)" = "2" ] && echo true || echo false)"
 assert "qrPaymentCount = 0" "$([ "$(jqget "$OUT/last.body" qrPaymentCount)" = "0" ] && echo true || echo false)"
-assert "yesterdaySalesTotal = 0.0" "$([ "$(jqget "$OUT/last.body" yesterdaySalesTotal)" = "0.0" ] && echo true || echo false)"
+assert "yesterdaySalesTotal = 0.0" "$(money_eq "$(jqget "$OUT/last.body" yesterdaySalesTotal)" "0.0")"
 LAST_DAY="$(jqget "$OUT/last.body" ordersData.-1.day)"
 LAST_VAL="$(jqget "$OUT/last.body" ordersData.-1.value)"
 TODAY="$(TZ=Asia/Phnom_Penh date +%F)"
 assert "ordersData last day = today ($TODAY)" "$([ "$LAST_DAY" = "$TODAY" ] && echo true || echo false)"
 assert "ordersData last day value = 1" "$([ "$LAST_VAL" = "1" ] && echo true || echo false)"
 REV_LAST="$(jqget "$OUT/last.body" revenueData.-1.value)"
-assert "revenueData last day = 20.0" "$([ "$REV_LAST" = "20.0" ] && echo true || echo false)"
+assert "revenueData last day = 20.0" "$(money_eq "$REV_LAST" "20.0")"
 
 step "4e. Reports trend / dashboard / products / payments endpoints"
 req "revenue trend" GET /api/reports/revenue-trend "" "$TOKEN_ADMIN"
@@ -227,8 +264,9 @@ note "5. Close the shift"
 step "5a. Expected drawer = 100 opening + 20 cash sales; close with 120 => zero variance"
 req "close shift" POST /api/shifts/close '{"closingCash":120.00}' "$TOKEN_CASHIER"
 expect_code "POST /api/shifts/close returns 200" 200
-assert "close returns variance 0" "$([ "$(jqget "$OUT/last.body" variance)" = "0" ] && echo true || echo false)"
-assert "close returns cashSales 20" "$([ "$(jqget "$OUT/last.body" cashSales)" = "20" ] && echo true || echo false)"
+annotate notice 'close-response' "$(head -c 400 "$OUT/last.body" | tr '\n' ' ')"
+assert "close returns variance 0" "$(money_eq "$(jqget "$OUT/last.body" variance)" "0")"
+assert "close returns cashSales 20" "$(money_eq "$(jqget "$OUT/last.body" cashSales)" "20")"
 assert "shift status = Closed" "$([ "$(jqget "$OUT/last.body" status)" = "Closed" ] && echo true || echo false)"
 
 step "5b. Current shift now reports none"
@@ -259,7 +297,7 @@ req "cleanup: close shift #2" POST /api/shifts/close '{"closingCash":50.00}' "$T
 expect_code "cleanup close returns 200" 200
 
 step "5e. With every shift closed, sale endpoints are blocked again"
-req "order after close" POST /api/orders '{"payment":"Cash","items":[{"productId":1,"quantity":1}],"idempotencyKey":"smoke-no-shift-2"}' "$TOKEN_CASHIER"
+req "order after close" POST /api/orders '{"payment":"Cash","items":[{"productId":1,"quantity":1}],"idempotencyKey":"00000000-0000-4000-8000-000000000003"}' "$TOKEN_CASHIER"
 expect_code "POST /api/orders after close returns 409" 409
 assert "refusal carries requires_open_shift flag" "$([ "$(jqget "$OUT/last.body" requires_open_shift)" = "true" ] && echo true || echo false)"
 
@@ -283,7 +321,7 @@ req "freshness after waste" GET /api/reports/freshness "" "$TOKEN_ADMIN"
 assert "totalUnits = 2 after waste" "$([ "$(jqget "$OUT/last.body" totalUnits)" = "2" ] && echo true || echo false)"
 assert "wasteThisWeekCents = 1000" "$([ "$(jqget "$OUT/last.body" wasteThisWeekCents)" = "1000" ] && echo true || echo false)"
 assert "events has 1 row" "$([ "$(jqget "$OUT/last.body" events.0.productName)" = "Smoke Test Cake" ] && echo true || echo false)"
-assert "event retailValue = 10.0" "$([ "$(jqget "$OUT/last.body" events.0.retailValue)" = "10.0" ] && echo true || echo false)"
+assert "event retailValue = 10.0" "$(money_eq "$(jqget "$OUT/last.body" events.0.retailValue)" "10.0")"
 req "waste more than on hand" POST /api/inventory/waste "{\"productId\":$PRODUCT_ID,\"quantity\":99,\"reason\":\"expired\"}" "$TOKEN_ADMIN"
 expect_code "over-write rejected with 422" 422
 req "product stock after waste" GET /api/products "" "$TOKEN_ADMIN"
@@ -365,4 +403,10 @@ echo
 echo "############################################################"
 echo "RESULT: $PASS passed, $FAIL failed"
 echo "############################################################"
+if [ "$FAIL" -ne 0 ]; then
+  # One collated annotation (GitHub caps at 10 per step, so per-assertion
+  # annotations were dropping the earliest failures).
+  annotate error 'smoke-suite-failures' \
+    "failed: $(IFS=' | '; echo "${FAILURES[*]}")"
+fi
 [ "$FAIL" -eq 0 ] || exit 1

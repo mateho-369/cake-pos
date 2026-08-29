@@ -6,6 +6,8 @@ import type { HeldOrder } from '../data'
 type Props = {
   held: HeldOrder[]
   busy: boolean
+  /** Opened from the header toolbar even when there are no held orders yet. */
+  open?: boolean
   /** Put a held order's lines back into the cart (the hold stays until paid). */
   onResume: (order: HeldOrder) => void
   onPay: (order: HeldOrder, method: 'Cash' | 'KHQR', usdCents: number) => void
@@ -21,6 +23,7 @@ type Props = {
 export default function HeldOrdersPanel({
   held,
   busy,
+  open = false,
   onResume,
   onPay,
   onVoid,
@@ -37,18 +40,23 @@ export default function HeldOrdersPanel({
   }
   const closePay = useCallback(() => setPaying(null), [])
 
-  if (!held.length && !paying) return null
+  if (!held.length && !paying && !open) return null
   return (
-    <section className="held-panel">
+    <section className="held-panel" id="held-orders">
       <div className="held-panel-head">
         <span>
           <PauseCircle size={13} /> {t('hold.title')}
         </span>
         <em>{held.length}</em>
       </div>
-      {held.length > 1 && <p className="held-panel-hint">{t('hold.manyHeld')}</p>}
-      <div className="held-panel-list">
-        {held.map((order) => (
+      {held.length === 0 ? (
+        <p className="held-panel-empty">{t('hold.empty')}</p>
+      ) : held.length > 1 ? (
+        <p className="held-panel-hint">{t('hold.manyHeld')}</p>
+      ) : null}
+      {held.length > 0 && (
+        <div className="held-panel-list">
+          {held.map((order) => (
           <article className="held-card" key={order.id}>
             <div className="held-card-top">
               <strong className="held-code">
@@ -88,8 +96,9 @@ export default function HeldOrdersPanel({
               </button>
             </div>
           </article>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
       {paying && (
         <div className="held-pay-sheet">
           <div className="held-pay-card">

@@ -21,7 +21,9 @@ class ShiftController extends Controller
         $data['expectedCash'] = $data['openingCash'];
         $data['variance'] = 0;
         $data['startedAt'] = $shift->opened_at->format('g:i A');
-        return response()->json($data, 201);
+        return response()
+            ->json($data, 201)
+            ->header('Cache-Control', 'no-store, private, max-age=0');
     }
     public function close(CloseShiftRequest $request): JsonResponse
     {
@@ -34,7 +36,9 @@ class ShiftController extends Controller
         $data = ShiftResource::make($shift)->resolve();
         $data['cashSales'] = Money::toDecimal($cashSales[0]);
         $data['cashSalesKhr'] = $cashSales[1];
-        return response()->json($data);
+        return response()
+            ->json($data)
+            ->header('Cache-Control', 'no-store, private, max-age=0');
     }
     public function current(): JsonResponse
     {
@@ -47,8 +51,10 @@ class ShiftController extends Controller
             // string "null". Anything object-shaped is truthy in JavaScript,
             // so every badge/panel read "no open shift" as OPEN — the
             // ghost-Open bug. Emit the literal null the API contract tests
-            // (and the clients) expect.
-            return JsonResponse::fromJsonString('null');
+            // (and the clients) expect, and keep it non-cacheable too.
+            return JsonResponse::fromJsonString('null')
+                ->header('Cache-Control', 'no-store, private, max-age=0')
+                ->header('Pragma', 'no-cache');
         }
         $data = ShiftResource::make($shift)->resolve();
         if ($shift->status === 'Open') {
@@ -60,14 +66,18 @@ class ShiftController extends Controller
             $data['expectedCashKhr'] = $shift->opening_cash_khr + $cash[1];
         }
         $data['startedAt'] = $shift->opened_at->format('g:i A');
-        return response()->json($data);
+        return response()
+            ->json($data)
+            ->header('Cache-Control', 'no-store, private, max-age=0');
     }
     public function index(): JsonResponse
     {
-        return response()->json(
-            ShiftResource::collection(
-                Shift::latest('opened_at')->limit(50)->get(),
-            )->resolve(),
-        );
+        return response()
+            ->json(
+                ShiftResource::collection(
+                    Shift::latest('opened_at')->limit(50)->get(),
+                )->resolve(),
+            )
+            ->header('Cache-Control', 'no-store, private, max-age=0');
     }
 }

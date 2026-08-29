@@ -21,12 +21,14 @@ import { type CartItem, type HeldOrder, type Product } from './data'
 import { useTranslation } from './lib/i18n'
 import { apiRequest } from './lib/api'
 import { useSaleData } from './lib/data'
+import { formatShiftStartedAt } from './lib/shift'
+import { supportsCustomerDisplay } from './lib/device'
 import { useTelegramChrome } from '@cake-pos/telegram/react'
 import CustomerApp from './CustomerApp'
 import CustomerDisplay from './components/CustomerDisplay'
 
 type Shift = {
-  startedAt: string
+  startedAt?: string
   openingCash: number
   openingCashKhr?: number
   expectedCashKhr?: number
@@ -93,6 +95,8 @@ function SaleTerminal() {
   // Held ("parked") orders and the holds the current cart was resumed from.
   const [held, setHeld] = useState<HeldOrder[]>([])
   const [heldBusy, setHeldBusy] = useState(false)
+  // The header toolbar icon opens the held-orders queue even when it is empty.
+  const [heldPanelOpen, setHeldPanelOpen] = useState(false)
   const promptOpenShift = (action: PendingSaleAction) => {
     setPendingAction(action)
     setShiftMode('open')
@@ -127,7 +131,16 @@ function SaleTerminal() {
     await refresh()
   }
   const openCustomerDisplay = (autoPlace = false) => {
-    const features = autoPlace ? undefined : 'popup,width=700,height=900'
+    const supported = supportsCustomerDisplay({
+      hasGetScreenDetails: 'getScreenDetails' in window,
+      isExtendedScreen:
+        (window.screen as { isExtended?: boolean }).isExtended === true,
+      finePointer: window.matchMedia?.('(pointer: fine)').matches ?? false,
+      coarsePointer: window.matchMedia?.('(pointer: coarse)').matches ?? false,
+    })
+    // Never call window.open from a phone/iPad-style coarse-touch device:
+    // popup features can navigate the whole browser away with no way back.
+    if (!supported) return
     if (autoPlace && 'getScreenDetails' in window) {
       void (
         window as Window & {
@@ -162,7 +175,7 @@ function SaleTerminal() {
           )
           const options = screen
             ? `popup,width=${Math.min(800, screen.availWidth)},height=${screen.availHeight},left=${screen.availLeft},top=${screen.availTop}`
-            : features
+            : undefined
           window.open(
             '/customer-display',
             'cake-pos-customer-display',
@@ -170,15 +183,14 @@ function SaleTerminal() {
           )
         })
         .catch(() =>
-          window.open(
-            '/customer-display',
-            'cake-pos-customer-display',
-            'popup,width=700,height=900',
-          ),
+          window.open('/customer-display', 'cake-pos-customer-display'),
         )
       return
     }
-    window.open('/customer-display', 'cake-pos-customer-display', features)
+    // Regular desktop Chrome: use a real tab (no popup features) so the
+    // cashier has a normal browser tab to close, and the customer display
+    // shows its own "close to return to POS" affordance.
+    window.open('/customer-display', '_blank')
   }
   const subtotal = useMemo(
     () =>
@@ -213,16 +225,25 @@ function SaleTerminal() {
     const previous = hydratedShiftState.current
     hydratedShiftState.current = nowOpen
     if (liveShift) {
+      const startedAt = formatShiftStartedAt(
+        liveShift.startedAt,
+        liveShift.openedAt,
+      )
+      if (!startedAt) {
+        // A shift the API says is open must carry startedAt and/or openedAt.
+        // If both are absent (stale/malformed cache body, old deploy) do NOT
+        // substitute the current time — that is exactly what made a long-open
+        // shift look freshly opened on every poll.
+        console.warn(
+          '[sale] /api/shifts/current returned an open shift with neither startedAt nor openedAt; showing "start time unavailable" instead of a fake current time.',
+          liveShift,
+        )
+      }
       setShift({
         openingCash: liveShift.openingCash,
         openingCashKhr: liveShift.openingCashKhr ?? 0,
         expectedCashKhr: liveShift.expectedCashKhr ?? 0,
-        startedAt:
-          liveShift.startedAt ||
-          new Intl.DateTimeFormat('en', {
-            hour: 'numeric',
-            minute: '2-digit',
-          }).format(new Date(liveShift.openedAt || Date.now())),
+        ...(startedAt ? { startedAt } : {}),
       })
     } else {
       setShift(null)
@@ -558,16 +579,21 @@ function SaleTerminal() {
     try {
       if (shiftMode === 'open') {
         const result = await openShift(amount, amountKhr)
+        const startedAt = formatShiftStartedAt(
+          result.startedAt,
+          result.openedAt,
+        )
+        if (!startedAt) {
+          console.warn(
+            '[sale] /api/shifts/open returned an open shift with neither startedAt nor openedAt; showing "start time unavailable" instead of a fake current time.',
+            result,
+          )
+        }
         setShift({
           openingCash: result.openingCash,
           openingCashKhr: result.openingCashKhr ?? 0,
           expectedCashKhr: result.expectedCashKhr ?? 0,
-          startedAt:
-            result.startedAt ||
-            new Intl.DateTimeFormat('en', {
-              hour: 'numeric',
-              minute: '2-digit',
-            }).format(new Date()),
+          ...(startedAt ? { startedAt } : {}),
         })
         setToast(
           t('sale.shiftOpenedWith', { amount: amount.toFixed(2) }) +
@@ -620,6 +646,14 @@ function SaleTerminal() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shift, pendingAction])
+  const openHeldOrders = () => {
+    if (!held.length) setHeldPanelOpen(true)
+    window.requestAnimationFrame(() => {
+      document
+        .getElementById('held-orders')
+        ?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+    })
+  }
   const addQuickProduct = async (product: Product) => {
     try {
       await createProduct({
@@ -649,7 +683,9 @@ function SaleTerminal() {
         query={query}
         onQuery={setQuery}
         cartCount={cartCount}
+        heldCount={held.length}
         onCart={() => setMobileCart(true)}
+        onHeld={openHeldOrders}
         onHistory={() => setHistoryOpen(true)}
         onCustomerDisplay={() => openCustomerDisplay()}
         onAutoPlaceDisplay={() => openCustomerDisplay(true)}
@@ -675,6 +711,7 @@ function SaleTerminal() {
       <HeldOrdersPanel
         held={held}
         busy={heldBusy}
+        open={heldPanelOpen}
         onResume={resumeHold}
         onPay={payHold}
         onVoid={voidHold}

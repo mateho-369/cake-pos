@@ -61,7 +61,7 @@ echo "== pick a product and pay it exactly in USD =="
 read -r PRODUCT_ID PRICE_CENTS <<<"$(curl -sS "$API_URL/api/products" -H "$AUTH" |
   python3 -c 'import json,sys; p=json.load(sys.stdin)[0]; print(p["id"], round(p["price"]*100))')"
 
-IDEMPOTENCY="ci-queue-verify-$(date +%s)"
+IDEMPOTENCY="$(python3 -c 'import uuid;print(uuid.uuid4())')"
 ORDER=$(curl -sS -X POST "$API_URL/api/orders" \
   -H "$AUTH" -H 'Content-Type: application/json' \
   -d "{\"payment\":\"Cash\",\"items\":[{\"productId\":$PRODUCT_ID,\"quantity\":1}],\"idempotencyKey\":\"$IDEMPOTENCY\",\"usdReceivedCents\":$PRICE_CENTS,\"khrReceived\":0,\"changeUsdCents\":0,\"changeKhr\":0,\"exchangeRateKhrPerUsd\":4100}")

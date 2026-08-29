@@ -717,6 +717,7 @@
     "open": "Shift open",
     "closed": "Shift closed",
     "started": "Started {{time}}",
+    "startTimeUnavailable": "Start time unavailable",
     "tapToOpen": "Tap to open"
   },
   "payment": {
@@ -756,6 +757,7 @@
     "customerDisplay": "Open Customer Display",
     "autoPlace": "Auto-place on second screen",
     "customerView": "CUSTOMER DISPLAY",
+    "closeAndReturn": "Close to return to the POS",
     "welcome": "Welcome",
     "waiting": "Your order will appear here",
     "yourOrder": "Your order",
@@ -780,6 +782,7 @@
   },
   "hold": {
     "title": "Held orders",
+    "empty": "No orders are held yet. Add items to a cart and tap \u201cHold order\u201d to park one here.",
     "manyHeld": "Several orders are held — resume the right one, then take payment.",
     "holdOrder": "Hold order",
     "confirm": "Hold it",

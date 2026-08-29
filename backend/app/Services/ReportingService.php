@@ -11,7 +11,6 @@ use App\Models\{
     Product,
     Shift,
 };
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Carbon\CarbonImmutable;
 final class ReportingService
@@ -30,83 +29,77 @@ final class ReportingService
     public function summary(array $input): array
     {
         $r = DateRange::from($input);
-        return Cache::remember(
-            'report:summary:' . $r->from . $r->to,
-            45,
-            function () use ($r) {
-                $q = $this->paid($r);
-                $x = $q
-                    ->selectRaw(
-                        'COALESCE(SUM(subtotal_cents),0) gross,COALESCE(SUM(discount_amount_cents),0) discounts,COALESCE(SUM(total_cents),0) net,COUNT(*) count',
-                    )
-                    ->first();
-                $corr = Order::whereIn('status', ['Refunded', 'Voided'])
-                    ->whereBetween('created_at', [$r->from, $r->to])
-                    ->selectRaw('COALESCE(SUM(-total_cents),0) amount')
-                    ->value('amount');
-                $gross = (int) $x->gross;
-                $discount = (int) $x->discounts;
-                $net = (int) $x->net;
-                $yesterday = DateRange::from(['preset' => 'yesterday']);
-                $y = $this->paid($yesterday)
-                    ->selectRaw(
-                        'COALESCE(SUM(total_cents),0) net,COUNT(*) count',
-                    )
-                    ->first();
-                $itemsSold = OrderItem::join(
-                    'orders',
-                    'orders.id',
-                    '=',
-                    'order_items.order_id',
-                )
-                    ->where('orders.status', 'Completed')
-                    ->where('orders.payment_status', 'paid')
-                    ->whereBetween('orders.created_at', [$r->from, $r->to])
-                    ->sum('order_items.quantity');
-                // For a single-day window (the "today" dashboard preset) the
-                // per-day order series still spans the last 7 days so the UI
-                // can compare today's pace against the previous six days.
-                $paceRange = $r->from->eq($r->to)
-                    ? new DateRange($r->to->subDays(6), $r->to)
-                    : $r;
-                return [
-                    'grossSalesCents' => $gross,
-                    'totalDiscountsCents' => $discount,
-                    'netSalesBeforeCorrectionsCents' => $gross - $discount,
-                    'refundsCents' => Order::where('status', 'Refunded')
-                        ->whereBetween('created_at', [$r->from, $r->to])
-                        ->sum(DB::raw('-total_cents')),
-                    'voidsCents' => Order::where('status', 'Voided')
-                        ->whereBetween('created_at', [$r->from, $r->to])
-                        ->sum(DB::raw('-total_cents')),
-                    'netRevenueCents' => $net - (int) $corr,
-                    'completedOrderCount' => (int) $x->count,
-                    'heldOrderCount' => Order::where('status', 'Held')
-                        ->whereBetween('created_at', [$r->from, $r->to])
-                        ->count(),
-                    'averageOrderValueCents' => $x->count
-                        ? (int) intdiv($net - (int) $corr, $x->count)
-                        : 0,
-                    'cashRevenueCents' => $this->paid($r)
-                        ->where('payment', 'Cash')
-                        ->sum('total_cents'),
-                    'qrRevenueCents' => $this->paid($r)
-                        ->where('payment', 'KHQR')
-                        ->sum('total_cents'),
-                    'yesterdaySalesTotal' => (int) ($y->net ?? 0) / 100,
-                    'yesterdayOrdersCount' => (int) ($y->count ?? 0),
-                    'itemsSold' => (int) $itemsSold,
-                    'qrPaymentCount' => OrderPayment::where(
-                        'method',
-                        'qr_manual',
-                    )
-                        ->where('status', 'confirmed')
-                        ->whereBetween('confirmed_at', [$r->from, $r->to])
-                        ->count(),
-                    'ordersData' => $this->ordersTrend($paceRange),
-                ];
-            },
-        );
+        $q = $this->paid($r);
+        $x = $q
+            ->selectRaw(
+                'COALESCE(SUM(subtotal_cents),0) gross,COALESCE(SUM(discount_amount_cents),0) discounts,COALESCE(SUM(total_cents),0) net,COUNT(*) count',
+            )
+            ->first();
+        $corr = Order::whereIn('status', ['Refunded', 'Voided'])
+            ->whereBetween('created_at', [$r->from, $r->to])
+            ->selectRaw('COALESCE(SUM(-total_cents),0) amount')
+            ->value('amount');
+        $gross = (int) $x->gross;
+        $discount = (int) $x->discounts;
+        $net = (int) $x->net;
+        $yesterday = DateRange::from(['preset' => 'yesterday']);
+        $y = $this->paid($yesterday)
+            ->selectRaw(
+                'COALESCE(SUM(total_cents),0) net,COUNT(*) count',
+            )
+            ->first();
+        $itemsSold = OrderItem::join(
+            'orders',
+            'orders.id',
+            '=',
+            'order_items.order_id',
+        )
+            ->where('orders.status', 'Completed')
+            ->where('orders.payment_status', 'paid')
+            ->whereBetween('orders.created_at', [$r->from, $r->to])
+            ->sum('order_items.quantity');
+        // For a single-day window (the "today" dashboard preset) the
+        // per-day order series still spans the last 7 days so the UI
+        // can compare today's pace against the previous six days.
+        $paceRange = $r->from->eq($r->to)
+            ? new DateRange($r->to->subDays(6), $r->to)
+            : $r;
+        return [
+            'grossSalesCents' => $gross,
+            'totalDiscountsCents' => $discount,
+            'netSalesBeforeCorrectionsCents' => $gross - $discount,
+            'refundsCents' => Order::where('status', 'Refunded')
+                ->whereBetween('created_at', [$r->from, $r->to])
+                ->sum(DB::raw('-total_cents')),
+            'voidsCents' => Order::where('status', 'Voided')
+                ->whereBetween('created_at', [$r->from, $r->to])
+                ->sum(DB::raw('-total_cents')),
+            'netRevenueCents' => $net - (int) $corr,
+            'completedOrderCount' => (int) $x->count,
+            'heldOrderCount' => Order::where('status', 'Held')
+                ->whereBetween('created_at', [$r->from, $r->to])
+                ->count(),
+            'averageOrderValueCents' => $x->count
+                ? (int) intdiv($net - (int) $corr, $x->count)
+                : 0,
+            'cashRevenueCents' => $this->paid($r)
+                ->where('payment', 'Cash')
+                ->sum('total_cents'),
+            'qrRevenueCents' => $this->paid($r)
+                ->where('payment', 'KHQR')
+                ->sum('total_cents'),
+            'yesterdaySalesTotal' => (int) ($y->net ?? 0) / 100,
+            'yesterdayOrdersCount' => (int) ($y->count ?? 0),
+            'itemsSold' => (int) $itemsSold,
+            'qrPaymentCount' => OrderPayment::where(
+                'method',
+                'qr_manual',
+            )
+                ->where('status', 'confirmed')
+                ->whereBetween('confirmed_at', [$r->from, $r->to])
+                ->count(),
+            'ordersData' => $this->ordersTrend($paceRange),
+        ];
     }
     private function ordersTrend(DateRange $r): array
     {
@@ -117,8 +110,13 @@ final class ReportingService
             ->groupBy('bucket')
             ->pluck('count', 'bucket');
         $out = [];
-        $cursor = $r->from;
-        while ($cursor <= $r->to) {
+        // DateRange returns UTC bounds; the SQL above buckets by the shop
+        // timezone, so iterate in the same timezone or the last bucket before
+        // midnight local is labelled with yesterday's UTC date (and the order
+        // looks like it landed on the wrong day).
+        $cursor = $r->from->copy()->tz('Asia/Phnom_Penh');
+        $to = $r->to->copy()->tz('Asia/Phnom_Penh');
+        while ($cursor <= $to) {
             $key = $cursor->format('Y-m-d');
             $out[] = [
                 'day' => $key,
@@ -141,8 +139,10 @@ final class ReportingService
             ->groupBy('bucket')
             ->pluck('net', 'bucket');
         $out = [];
-        $cursor = $r->from;
-        while ($cursor <= $r->to) {
+        // Same timezone alignment as ordersTrend().
+        $cursor = $r->from->copy()->tz('Asia/Phnom_Penh');
+        $to = $r->to->copy()->tz('Asia/Phnom_Penh');
+        while ($cursor <= $to) {
             $key = $cursor->format($format === '%Y-%m' ? 'Y-m' : 'Y-m-d');
             $out[] = [
                 'period' => $key,
