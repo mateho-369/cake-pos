@@ -92,10 +92,11 @@ button:disabled {
   color: #695a64;
   cursor: pointer;
 }
-.held-orders-button {
+.held-orders-button,
+.pending-orders-button {
   position: relative;
 }
-.held-count {
+.count-badge {
   position: absolute;
   right: -3px;
   top: -3px;
@@ -112,7 +113,13 @@ button:disabled {
   font-weight: 800;
   line-height: 1;
 }
-.held-count.zero {
+/* Telegram customer orders are a different queue from manual holds — the
+   paper-plane button's badge is Telegram blue, and always shows a count
+   (even "0") so the panel is discoverable before the first order. */
+.pending-orders-button .count-badge {
+  background: #2563eb;
+}
+.count-badge.zero {
   background: #a8a0a4;
   color: #fff;
 }
@@ -3258,6 +3265,12 @@ button:disabled {
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(18px);
+  scroll-margin-top: 72px;
+}
+.pending-panel-empty {
+  margin: 6px 0 2px;
+  color: var(--muted);
+  font-size: calc(10px * var(--font-scale));
 }
 .pending-panel-head {
   display: flex;
@@ -3357,6 +3370,139 @@ button:disabled {
   color: var(--blue, #3b82f6);
   text-decoration: none;
   font-size: calc(8.5px * var(--font-scale));
+}
+/* Contact row: phone dialer + Telegram message sit side by side — the
+   customer reached out on Telegram, so answer them there. */
+.pending-contact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pending-message-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid rgba(37, 99, 235, 0.35);
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+  font-size: calc(8px * var(--font-scale));
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+.pending-message-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.pending-card-actions {
+  display: flex;
+  gap: 6px;
+}
+.pending-card-actions .pending-pay-button {
+  flex: 1;
+}
+.pending-reject-button {
+  width: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0;
+  border: 1px solid rgba(169, 44, 54, 0.4);
+  border-radius: 10px;
+  background: #fff;
+  color: #b91c1c;
+  cursor: pointer;
+}
+.pending-reject-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.pending-reject-note {
+  margin: 0;
+  color: #9a3434;
+  font-size: calc(9px * var(--font-scale));
+  line-height: 1.5;
+}
+.pending-reject-reason {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: calc(9px * var(--font-scale));
+}
+.pending-reject-reason input {
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: calc(11px * var(--font-scale));
+}
+.pending-reject-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+.pending-reject-cancel,
+.pending-reject-confirm {
+  padding: 11px 12px;
+  border-radius: 12px;
+  font-size: calc(10px * var(--font-scale));
+  font-weight: 800;
+  font-family: inherit;
+  cursor: pointer;
+}
+.pending-reject-cancel {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink, #2c2128);
+}
+.pending-reject-confirm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  background: linear-gradient(145deg, #dc2626, #991b1b);
+  color: #fff;
+}
+.pending-reject-cancel:disabled,
+.pending-reject-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.pending-message-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: calc(9px * var(--font-scale));
+}
+.pending-message-text textarea {
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: calc(11px * var(--font-scale));
+  font-family: inherit;
+  resize: vertical;
+}
+.pending-message-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #3b82f6, #1d4ed8);
+  color: #fff;
+  font-size: calc(10px * var(--font-scale));
+  font-weight: 800;
+  font-family: inherit;
+  cursor: pointer;
+}
+.pending-message-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .pending-pay-button {
   display: inline-flex;

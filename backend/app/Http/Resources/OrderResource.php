@@ -37,6 +37,10 @@ class OrderResource extends JsonResource
                     'name' => $this->customer->name,
                     'phone' => $this->customer->phone,
                     'telegram_username' => $this->customer->telegram_username,
+                    // The customer's Telegram chat id — present for everyone
+                    // who ordered through the Mini App, so the pending
+                    // panel can offer the "Message" action.
+                    'telegramUserId' => $this->customer->telegram_user_id,
                 ]
                 : null,
             'customerId' => $this->customer_id,

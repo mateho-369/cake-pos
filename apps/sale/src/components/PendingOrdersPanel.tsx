@@ -1,27 +1,38 @@
-import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Banknote, Phone, ScanLine, X } from 'lucide-react'
-import { apiRequest } from '../lib/api'
+import { useState } from 'react'
+import {
+  AlertTriangle,
+  Ban,
+  Banknote,
+  MessageCircle,
+  Phone,
+  ScanLine,
+  Send,
+  X,
+} from 'lucide-react'
 import { useTranslation } from '../lib/i18n'
-
-type PendingOrder = {
-  id: string
-  pickupCode?: string | null
-  isStale?: boolean
-  createdAt: string
-  status: string
-  total: number
-  detail: string[]
-  customer?: { name: string; phone?: string } | null
-}
+import type { PendingOrder } from '../data'
 
 type Props = {
+  pending: PendingOrder[]
   shiftOpen: boolean
+  /** Opened from the header toolbar even when there are no pending orders. */
+  open?: boolean
   /** Perform the actual payment POST. */
   onPay: (
     orderId: string,
     method: 'Cash' | 'KHQR',
     usdReceivedCents: number,
   ) => Promise<void>
+  /**
+   * Reject the order: cancel it, release its reserved stock and notify the
+   * customer. Resolves on success; rejects with an Error on failure.
+   */
+  onReject: (orderId: string, reason?: string) => Promise<void>
+  /**
+   * Send a quick Telegram note to the order's customer through the shop
+   * bot. Resolves with whether Telegram actually accepted the message.
+   */
+  onMessage: (orderId: string, text: string) => Promise<boolean>
   /**
    * If a shift is open, run `resume` immediately; otherwise prompt to open a
    * shift and run `resume` once it is open.
@@ -30,34 +41,47 @@ type Props = {
   onToast: (message: string) => void
 }
 
+/**
+ * Telegram customer orders awaiting staff action. The customer placed the
+ * order in the Mini App; staff verify it (phone call or Telegram message),
+ * then take payment on arrival — or reject it if it was not real. Several
+ * can be pending at once; the panel is a queue, oldest first. An order
+ * leaves the list the moment it is paid or rejected.
+ */
 export default function PendingOrdersPanel({
+  pending,
   shiftOpen,
+  open = false,
   onPay,
+  onReject,
+  onMessage,
   onNeedShift,
   onToast,
 }: Props) {
   const { t } = useTranslation()
-  const [pending, setPending] = useState<PendingOrder[]>([])
   const [paying, setPaying] = useState<PendingOrder | null>(null)
   const [method, setMethod] = useState<'Cash' | 'KHQR'>('Cash')
   const [received, setReceived] = useState('')
   const [busy, setBusy] = useState(false)
-
-  const load = useCallback(() => {
-    apiRequest<PendingOrder[]>('/api/orders/pending')
-      .then(setPending)
-      .catch(() => undefined)
-  }, [])
-  useEffect(() => {
-    load()
-    const timer = window.setInterval(load, 15000)
-    return () => window.clearInterval(timer)
-  }, [load])
+  const [rejecting, setRejecting] = useState<PendingOrder | null>(null)
+  const [reason, setReason] = useState('')
+  const [messaging, setMessaging] = useState<PendingOrder | null>(null)
+  const [note, setNote] = useState('')
 
   const openPay = (order: PendingOrder) => {
     setPaying(order)
     setMethod('Cash')
     setReceived(order.total.toFixed(2))
+  }
+
+  const openReject = (order: PendingOrder) => {
+    setRejecting(order)
+    setReason('')
+  }
+
+  const openMessage = (order: PendingOrder) => {
+    setMessaging(order)
+    setNote('')
   }
 
   const doPay = (order: PendingOrder, m: 'Cash' | 'KHQR', usdCents: number) => {
@@ -66,10 +90,9 @@ export default function PendingOrdersPanel({
       .then(() => {
         setPaying(null)
         onToast(t('pending.paid', { id: order.pickupCode || order.id }))
-        load()
       })
-      .catch((reason) =>
-        onToast(reason instanceof Error ? reason.message : 'Payment failed'),
+      .catch((err) =>
+        onToast(err instanceof Error ? err.message : 'Payment failed'),
       )
       .finally(() => setBusy(false))
   }
@@ -83,52 +106,126 @@ export default function PendingOrdersPanel({
     onNeedShift(() => doPay(order, method, usdCents))
   }
 
-  if (!pending.length) return null
+  const confirmReject = () => {
+    if (!rejecting) return
+    const order = rejecting
+    const why = reason.trim() || undefined
+    setBusy(true)
+    onReject(order.id, why)
+      .then(() => {
+        setRejecting(null)
+        onToast(t('pending.rejected', { id: order.pickupCode || order.id }))
+      })
+      .catch((err) =>
+        onToast(err instanceof Error ? err.message : 'Reject failed'),
+      )
+      .finally(() => setBusy(false))
+  }
+
+  const confirmMessage = () => {
+    if (!messaging || !note.trim()) return
+    const order = messaging
+    const text = note.trim()
+    setBusy(true)
+    onMessage(order.id, text)
+      .then((delivered) => {
+        setMessaging(null)
+        onToast(
+          delivered
+            ? t('pending.messageSent', {
+                name: order.customer?.name || t('pending.customer'),
+              })
+            : t('pending.messageFailed'),
+        )
+      })
+      .catch((err) =>
+        onToast(
+          err instanceof Error ? err.message : t('pending.messageFailed'),
+        ),
+      )
+      .finally(() => setBusy(false))
+  }
+
+  if (!pending.length && !paying && !rejecting && !messaging && !open) {
+    return null
+  }
   return (
-    <section className="pending-panel">
+    <section className="pending-panel" id="pending-orders">
       <div className="pending-panel-head">
         <span>{t('pending.title')}</span>
         <em>{pending.length}</em>
       </div>
-      <div className="pending-panel-list">
-        {pending.map((order) => (
-          <article
-            key={order.id}
-            className={`pending-card ${order.isStale ? 'stale' : ''}`}
-          >
-            <div className="pending-card-top">
-              <strong className="pending-code">
-                {order.pickupCode || order.id}
-              </strong>
-              {order.isStale && (
-                <span className="pending-stale">
-                  <AlertTriangle size={11} /> {t('pending.stale')}
-                </span>
-              )}
-              <b>${order.total.toFixed(2)}</b>
-            </div>
-            <div className="pending-card-body">
-              <strong>{order.customer?.name || t('pending.customer')}</strong>
-              {order.customer?.phone && (
-                <a
-                  className="pending-phone"
-                  href={`tel:${order.customer.phone}`}
-                >
-                  <Phone size={11} /> {order.customer.phone}
-                </a>
-              )}
-              <small>{order.detail.join('; ')}</small>
-            </div>
-            <button
-              className="pending-pay-button"
-              disabled={busy}
-              onClick={() => openPay(order)}
+      {!pending.length ? (
+        <p className="pending-panel-empty">{t('pending.empty')}</p>
+      ) : (
+        <div className="pending-panel-list">
+          {pending.map((order) => (
+            <article
+              key={order.id}
+              className={`pending-card ${order.isStale ? 'stale' : ''}`}
             >
-              <Banknote size={15} /> {t('pending.takePayment')}
-            </button>
-          </article>
-        ))}
-      </div>
+              <div className="pending-card-top">
+                <strong className="pending-code">
+                  {order.pickupCode || order.id}
+                </strong>
+                {order.isStale && (
+                  <span className="pending-stale">
+                    <AlertTriangle size={11} /> {t('pending.stale')}
+                  </span>
+                )}
+                <b>${order.total.toFixed(2)}</b>
+              </div>
+              <div className="pending-card-body">
+                <strong>{order.customer?.name || t('pending.customer')}</strong>
+                {(order.customer?.phone ||
+                  order.customer?.telegramUserId != null) && (
+                  <div className="pending-contact">
+                    {order.customer?.phone && (
+                      <a
+                        className="pending-phone"
+                        href={`tel:${order.customer.phone}`}
+                      >
+                        <Phone size={11} /> {order.customer.phone}
+                      </a>
+                    )}
+                    {order.customer?.telegramUserId != null && (
+                      <button
+                        className="pending-message-button"
+                        disabled={busy}
+                        onClick={() => openMessage(order)}
+                        title={t('pending.message')}
+                      >
+                        <MessageCircle size={11} /> {t('pending.message')}
+                      </button>
+                    )}
+                  </div>
+                )}
+                <small>{order.detail.join('; ')}</small>
+              </div>
+              <div className="pending-card-actions">
+                <button
+                  className="pending-pay-button"
+                  disabled={busy}
+                  onClick={() => openPay(order)}
+                >
+                  <Banknote size={15} /> {t('pending.takePayment')}
+                </button>
+                <button
+                  className="pending-reject-button"
+                  disabled={busy}
+                  onClick={() => openReject(order)}
+                  title={t('pending.reject')}
+                  aria-label={t('pending.reject', {
+                    id: order.pickupCode || order.id,
+                  })}
+                >
+                  <Ban size={15} />
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
       {paying && (
         <div className="pending-pay-sheet">
           <div className="pending-pay-card">
@@ -177,6 +274,83 @@ export default function PendingOrdersPanel({
               onClick={confirmPay}
             >
               {t('pending.confirmPayment')}
+            </button>
+          </div>
+        </div>
+      )}
+      {rejecting && (
+        <div className="pending-pay-sheet">
+          <div className="pending-pay-card">
+            <header>
+              <strong>
+                {t('pending.rejectTitle', {
+                  id: rejecting.pickupCode || rejecting.id,
+                })}
+              </strong>
+              <button onClick={() => setRejecting(null)} aria-label="Close">
+                <X size={16} />
+              </button>
+            </header>
+            <p className="pending-reject-note">{t('pending.rejectNote')}</p>
+            <label className="pending-reject-reason">
+              <span>{t('pending.rejectReasonLabel')}</span>
+              <input
+                type="text"
+                maxLength={280}
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                placeholder={t('pending.rejectReasonPlaceholder')}
+              />
+            </label>
+            <div className="pending-reject-actions">
+              <button
+                className="pending-reject-cancel"
+                disabled={busy}
+                onClick={() => setRejecting(null)}
+              >
+                {t('pending.keepOrder')}
+              </button>
+              <button
+                className="pending-reject-confirm"
+                disabled={busy}
+                onClick={confirmReject}
+              >
+                <Ban size={14} /> {t('pending.rejectConfirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {messaging && (
+        <div className="pending-pay-sheet">
+          <div className="pending-pay-card">
+            <header>
+              <strong>
+                <Send size={14} />{' '}
+                {t('pending.messageTitle', {
+                  name: messaging.customer?.name || t('pending.customer'),
+                })}
+              </strong>
+              <button onClick={() => setMessaging(null)} aria-label="Close">
+                <X size={16} />
+              </button>
+            </header>
+            <label className="pending-message-text">
+              <span>{t('pending.messageLabel')}</span>
+              <textarea
+                rows={3}
+                maxLength={1000}
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder={t('pending.messagePlaceholder')}
+              />
+            </label>
+            <button
+              className="pending-message-send"
+              disabled={busy || !note.trim()}
+              onClick={confirmMessage}
+            >
+              <Send size={14} /> {t('pending.messageSend')}
             </button>
           </div>
         </div>

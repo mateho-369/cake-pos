@@ -23,7 +23,10 @@ use Illuminate\Validation\ValidationException;
 
 class OrderService
 {
-    public function __construct(private readonly AuditService $audit) {}
+    public function __construct(
+        private readonly AuditService $audit,
+        private readonly CustomerNotificationService $notifications,
+    ) {}
 
     public function createWalkIn(array $input, Employee $employee): CreatedOrder
     {
@@ -351,9 +354,21 @@ class OrderService
             return $order;
         });
     }
-    public function cancel(Order $order, Employee $employee): void
-    {
-        DB::transaction(function () use ($order, $employee) {
+    /**
+     * Cancel an order and give its reserved stock back. Used both for
+     * discarding a walk-in hold and for REJECTING a pending Telegram
+     * customer order (staff called to verify and it was not real). The
+     * optional reason travels into the audit trail and the status event —
+     * never into the customer notification, where it has no business
+     * being (a "prank order" reason is internal information).
+     */
+    public function cancel(
+        Order $order,
+        Employee $employee,
+        ?string $reason = null,
+    ): void {
+        $reason = $reason !== null ? (trim($reason) ?: null) : null;
+        DB::transaction(function () use ($order, $employee, $reason) {
             $order = Order::whereKey($order->id)
                 ->lockForUpdate()
                 ->firstOrFail();
@@ -373,10 +388,21 @@ class OrderService
             }
             foreach ($order->orderItems()->lockForUpdate()->get() as $item) {
                 if ($item->product_id) {
-                    Product::whereKey($item->product_id)
+                    $product = Product::whereKey($item->product_id)
                         ->lockForUpdate()
-                        ->first()
-                        ?->decrement('reserved_stock', $item->quantity);
+                        ->first();
+                    // Release the reservation, but never drive another
+                    // order's reservation negative (stock may have been
+                    // edited while the order was pending).
+                    if ($product && $product->reserved_stock > 0) {
+                        $product->decrement(
+                            'reserved_stock',
+                            min(
+                                $product->reserved_stock,
+                                (int) $item->quantity,
+                            ),
+                        );
+                    }
                 }
             }
             $from = $order->status;
@@ -389,16 +415,45 @@ class OrderService
                 'from_status' => $from,
                 'to_status' => 'Cancelled',
                 'employee_id' => $employee->id,
+                'metadata' => $reason ? ['reason' => $reason] : null,
             ]);
             $this->audit->log($employee, 'order.cancelled', $order->id, [
                 'fromStatus' => $from,
                 'totalCents' => $order->total_cents,
                 'source' => $order->source,
+                ...$reason ? ['reason' => $reason] : [],
             ]);
         });
         if ($order->source === 'telegram') {
             SendCustomerStatusNotification::dispatch($order->id);
         }
+    }
+
+    /**
+     * Staff's quick manual note to the customer who placed this order
+     * ("your order is ready — see you at 4pm"), delivered through the shop
+     * bot the customer is already chatting with. Sent synchronously (unlike
+     * the queued status notifications) so the terminal can report whether
+     * Telegram actually took it; every send is audit-logged because it is
+     * customer-facing communication from the store.
+     */
+    public function messageCustomer(
+        Order $order,
+        string $text,
+        Employee $employee,
+    ): bool {
+        $order->loadMissing('customer');
+        if (!$order->customer?->telegram_user_id) {
+            $this->conflict('This customer cannot be reached on Telegram');
+        }
+        $delivered = $this->notifications->sendNote($order, $text);
+        $this->audit->log($employee, 'customer_order.messaged', $order->id, [
+            'customerId' => $order->customer->id,
+            'customerName' => $order->customer->name,
+            'delivered' => $delivered,
+            'text' => mb_substr($text, 0, 280),
+        ]);
+        return $delivered;
     }
 
     public function updateTelegram(
