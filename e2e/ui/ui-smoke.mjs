@@ -496,8 +496,11 @@ check(
 )
 const summaryAfter = await api('/api/reports/summary', { token: adminToken })
 check(
-  'summary API reports the $20 sale after order',
-  summaryAfter.status === 200 && summaryAfter.json.todaySalesTotal === 20,
+  'summary API reports the $30 aggregate after both orders',
+  summaryAfter.status === 200 &&
+    summaryAfter.json.todaySalesTotal === 30 &&
+    summaryAfter.json.completedOrderCount === 2 &&
+    summaryAfter.json.itemsSold === 3,
   `${summaryAfter.status} ${JSON.stringify(summaryAfter.json).slice(0, 400)}`,
 )
 
@@ -521,13 +524,13 @@ try {
   await page.waitForFunction(
     () =>
       document.querySelector('.live-card strong')?.textContent?.trim() ===
-      '$20.00',
+      '$30.00',
     { timeout: 30000 },
   )
 } catch {
   const seededText = await page.locator('.page-content').innerText().catch(() => '')
   fail(
-    'sidebar live sales $20.00 after real sale',
+    'sidebar live sales $30.00 after both real sales',
     `text=${seededText.replace(/\n/g, ' | ').slice(0, 300)}`,
   )
 }
@@ -536,26 +539,26 @@ await shot('admin-overview-seeded')
 
 const sidebarLive2 = await page.locator('.live-card strong').innerText()
 check(
-  'sidebar live sales $20.00 after real sale',
-  sidebarLive2.trim() === '$20.00',
+  'sidebar live sales $30.00 after both real sales',
+  sidebarLive2.trim() === '$30.00',
   sidebarLive2,
 )
 const overview2 = await page.locator('.page-content').innerText()
-check('dashboard net sales $20.00', overview2.includes('$20.00'))
-check('dashboard order count 1', overview2.includes('1'))
+check('dashboard net sales $30.00', overview2.includes('$30.00'))
+check('dashboard order count 2', overview2.includes('2'))
 check(
   'dashboard KHQR count text (0 today)',
   overview2.includes('No KHQR payments today'),
 )
 
-// Freshness after sale: 3 units remain
+// Freshness after sale: 2 units remain (5 on shelf minus 3 sold)
 await page
   .locator('.sidebar-nav .nav-item', { hasText: 'Freshness & waste' })
   .first()
   .click()
 await page.waitForSelector('text=freshness score', { timeout: 15000 })
 const freshness2 = await page.locator('.page-content').innerText()
-check('freshness 3 units total after sale', freshness2.includes('3 units'))
+check('freshness 2 units total after sales', freshness2.includes('2 units'))
 check('freshness score 100%', freshness2.includes('100%'))
 
 // Shifts: open shift with real float
@@ -566,7 +569,7 @@ await page
 await page.waitForTimeout(600)
 const shifts2 = await page.locator('.page-content').innerText()
 check('shifts shows open shift', shifts2.includes('Open'))
-check('shifts expected drawer $120.00', shifts2.includes('$120.00'))
+check('shifts expected drawer $130.00', shifts2.includes('$130.00'))
 
 // Orders page shows the real order
 await page
@@ -583,12 +586,16 @@ const [xlsxDl2] = await Promise.all([
   page.waitForEvent('download'),
   page.getByRole('button', { name: 'Excel' }).click(),
 ])
-const xlsx2 = execSync(
+const xlsxShared2 = execSync(
+  `unzip -p "${await xlsxDl2.path()}" xl/sharedStrings.xml`,
+  { encoding: 'utf8' },
+)
+check('seeded xlsx contains order row', xlsxShared2.includes(order.json.id))
+const xlsxSheet2 = execSync(
   `unzip -p "${await xlsxDl2.path()}" xl/worksheets/sheet1.xml`,
   { encoding: 'utf8' },
 )
-check('seeded xlsx contains order row', xlsx2.includes(order.json.id))
-check('seeded xlsx contains total 20', /<v>20<\/v>/.test(xlsx2))
+check('seeded xlsx contains total 20', /<v>20<\/v>/.test(xlsxSheet2))
 const [docxDl2] = await Promise.all([
   page.waitForEvent('download'),
   page.getByRole('button', { name: 'Word' }).click(),
@@ -598,8 +605,8 @@ const docXml2 = execSync(
   { encoding: 'utf8' },
 )
 check(
-  'seeded docx revenue $20.00 in Khmer',
-  docXml2.includes('ចំណូលសរុប៖ $20.00'),
+  'seeded docx revenue $30.00 in Khmer',
+  docXml2.includes('ចំណូលសរុប៖ $30.00'),
 )
 check('seeded docx contains product name', docXml2.includes('Smoke Cake'))
 
@@ -615,7 +622,7 @@ await page.waitForSelector('text=What are we serving?', { timeout: 30000 })
 await shot('sale-menu')
 const menuText = await page.locator('.product-workspace').innerText()
 check('sale menu shows the real product', menuText.includes('Smoke Cake'))
-check('sale menu shows real stock (3 left)', menuText.includes('3 left'))
+check('sale menu shows real stock (2 left)', menuText.includes('2 left'))
 check(
   'sale menu near-expiry count is real',
   menuText.includes('Everything is fresh'),
@@ -689,7 +696,7 @@ await page.waitForSelector('.success-layer', {
   await page.waitForTimeout(300)
   await page.getByLabel('Email address').fill(CASHIER_EMAIL)
   await page.getByLabel('Password', { exact: true }).fill(CASHIER_PASS)
-  await page.getByRole('button', { name: 'Continue' }).click()
+  await page.getByRole('button', { name: 'Sign in securely' }).click()
   await page.waitForSelector('text=What are we serving?', { timeout: 30000 })
   check(
     'shift badge still Open after logout/login (shift survives)',
@@ -830,7 +837,7 @@ console.log('\n########## PHASE F — HOLD / PARK AN ORDER, THEN PAY IT ########
     await page.waitForTimeout(300)
     await page.getByLabel('Email address').fill(CASHIER_EMAIL)
     await page.getByLabel('Password', { exact: true }).fill(CASHIER_PASS)
-    await page.getByRole('button', { name: 'Continue' }).click()
+    await page.getByRole('button', { name: 'Sign in securely' }).click()
     await page.waitForSelector('.product-workspace', { timeout: 30000 })
   }
 
