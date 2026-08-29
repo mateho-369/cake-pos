@@ -624,7 +624,21 @@
     "repeatRate": "អត្រាត្រឡប់មកវិញ",
     "customersWithOrders": "អតិថិជនដែលបញ្ជាទិញ",
     "thisMonth": "ខែនេះ",
-    "productEvents": "ព្រឹត្តិការណ៍ផលិតផល"
+    "productEvents": "ព្រឹត្តិការណ៍ផលិតផល",
+    "today": "ថ្ងៃនេះ",
+    "yesterday": "ម្សិលមិញ",
+    "thisWeek": "សប្តាហ៍នេះ",
+    "lastMonth": "ខែមុន",
+    "thisYear": "ឆ្នាំនេះ",
+    "losses": "ការខាតបង់",
+    "lossesTitle": "ប្រាក់ដែលបាត់បង់",
+    "cashShortages": "ខ្វះសាច់ប្រាក់",
+    "totalLost": "ខាតសរុប",
+    "voids": "លុបចោល",
+    "refunds": "សងប្រាក់",
+    "discounts": "បញ្ចុះតម្លៃ",
+    "from": "ពី",
+    "to": "ដល់"
   },
   "settings": {
     "configuration": "ការកំណត់រចនា",

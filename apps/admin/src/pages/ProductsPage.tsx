@@ -169,7 +169,7 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
         at: string
       }>
     >(
-      `/api/reports/audit?productId=${product.id}&from=2000-01-01&to=2099-12-31`,
+      `/api/reports/audit?productId=${product.id}`,
     )
       .then((rows) => {
         const latest = rows[0]

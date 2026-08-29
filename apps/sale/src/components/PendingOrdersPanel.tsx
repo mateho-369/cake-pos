@@ -4,6 +4,7 @@ import {
   Ban,
   Banknote,
   MessageCircle,
+  PauseCircle,
   Phone,
   ScanLine,
   Send,
@@ -12,17 +13,26 @@ import {
 import { useTranslation } from '../lib/i18n'
 import type { PendingOrder } from '../data'
 
+type CashTender = {
+  usdReceivedCents: number
+  khrReceived: number
+  totalCents: number
+}
+
 type Props = {
   pending: PendingOrder[]
   shiftOpen: boolean
   /** Opened from the header toolbar even when there are no pending orders. */
   open?: boolean
+  rate: number
   /** Perform the actual payment POST. */
   onPay: (
     orderId: string,
     method: 'Cash' | 'KHQR',
-    usdReceivedCents: number,
+    tender: CashTender,
   ) => Promise<void>
+  /** Park into the held queue without charging. */
+  onAccept: (orderId: string) => Promise<void>
   /**
    * Reject the order: cancel it, release its reserved stock and notify the
    * customer. Resolves on success; rejects with an Error on failure.
@@ -44,15 +54,17 @@ type Props = {
 /**
  * Telegram customer orders awaiting staff action. The customer placed the
  * order in the Mini App; staff verify it (phone call or Telegram message),
- * then take payment on arrival — or reject it if it was not real. Several
- * can be pending at once; the panel is a queue, oldest first. An order
- * leaves the list the moment it is paid or rejected.
+ * then Accept (park as held, unpaid) or take payment on arrival — or reject
+ * it if it was not real. Several can be pending at once; the panel is a
+ * queue, oldest first. An order leaves the list the moment it is paid,
+ * accepted, or rejected.
  */
 export default function PendingOrdersPanel({
   pending,
   shiftOpen,
   open = false,
   onPay,
+  onAccept,
   onReject,
   onMessage,
   onNeedShift,
@@ -62,6 +74,7 @@ export default function PendingOrdersPanel({
   const [paying, setPaying] = useState<PendingOrder | null>(null)
   const [method, setMethod] = useState<'Cash' | 'KHQR'>('Cash')
   const [received, setReceived] = useState('')
+  const [receivedKhr, setReceivedKhr] = useState('')
   const [busy, setBusy] = useState(false)
   const [rejecting, setRejecting] = useState<PendingOrder | null>(null)
   const [reason, setReason] = useState('')
@@ -72,6 +85,7 @@ export default function PendingOrdersPanel({
     setPaying(order)
     setMethod('Cash')
     setReceived(order.total.toFixed(2))
+    setReceivedKhr('')
   }
 
   const openReject = (order: PendingOrder) => {
@@ -84,9 +98,18 @@ export default function PendingOrdersPanel({
     setNote('')
   }
 
-  const doPay = (order: PendingOrder, m: 'Cash' | 'KHQR', usdCents: number) => {
+  const doPay = (
+    order: PendingOrder,
+    m: 'Cash' | 'KHQR',
+    usdCents: number,
+    khr: number,
+  ) => {
     setBusy(true)
-    onPay(order.id, m, usdCents)
+    onPay(order.id, m, {
+      usdReceivedCents: usdCents,
+      khrReceived: khr,
+      totalCents: Math.round(order.total * 100),
+    })
       .then(() => {
         setPaying(null)
         onToast(t('pending.paid', { id: order.pickupCode || order.id }))
@@ -101,9 +124,26 @@ export default function PendingOrdersPanel({
     if (!paying) return
     const usdCents =
       method === 'Cash' ? Math.round(Number(received || 0) * 100) : 0
+    const khr =
+      method === 'Cash'
+        ? Math.max(0, Math.round(Number(receivedKhr.replace(/[^0-9]/g, '') || 0)))
+        : 0
     const order = paying
-    // Gate on the shift: either pay now, or open a shift first and pay after.
-    onNeedShift(() => doPay(order, method, usdCents))
+    onNeedShift(() => doPay(order, method, usdCents, khr))
+  }
+
+  const confirmAccept = (order: PendingOrder) => {
+    onNeedShift(() => {
+      setBusy(true)
+      onAccept(order.id)
+        .then(() =>
+          onToast(t('pending.accepted', { id: order.pickupCode || order.id })),
+        )
+        .catch((err) =>
+          onToast(err instanceof Error ? err.message : 'Accept failed'),
+        )
+        .finally(() => setBusy(false))
+    })
   }
 
   const confirmReject = () => {
@@ -204,6 +244,14 @@ export default function PendingOrdersPanel({
               </div>
               <div className="pending-card-actions">
                 <button
+                  className="pending-accept-button"
+                  disabled={busy}
+                  onClick={() => confirmAccept(order)}
+                  title={t('pending.accept')}
+                >
+                  <PauseCircle size={15} /> {t('pending.accept')}
+                </button>
+                <button
                   className="pending-pay-button"
                   disabled={busy}
                   onClick={() => openPay(order)}
@@ -252,16 +300,28 @@ export default function PendingOrdersPanel({
               </button>
             </div>
             {method === 'Cash' ? (
-              <label className="pending-pay-amount">
-                <span>{t('pending.received')}</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={received}
-                  onChange={(event) => setReceived(event.target.value)}
-                />
-              </label>
+              <>
+                <label className="pending-pay-amount">
+                  <span>{t('pending.received')}</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={received}
+                    onChange={(event) => setReceived(event.target.value)}
+                  />
+                </label>
+                <label className="pending-pay-amount">
+                  <span>{t('pending.receivedKhr')}</span>
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    value={receivedKhr}
+                    onChange={(event) => setReceivedKhr(event.target.value)}
+                  />
+                </label>
+              </>
             ) : (
               <p className="pending-pay-note">{t('pending.khqrNote')}</p>
             )}
@@ -270,7 +330,12 @@ export default function PendingOrdersPanel({
             )}
             <button
               className="pending-pay-confirm"
-              disabled={busy || (method === 'Cash' && Number(received) <= 0)}
+              disabled={
+                busy ||
+                (method === 'Cash' &&
+                  Number(received) <= 0 &&
+                  Number(receivedKhr.replace(/[^0-9]/g, '') || 0) <= 0)
+              }
               onClick={confirmPay}
             >
               {t('pending.confirmPayment')}

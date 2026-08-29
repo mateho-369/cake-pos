@@ -61,9 +61,18 @@ class ShiftController extends Controller
             $cash = $this->shifts->cashSalesSince($shift);
             $data['cashSalesUsdCents'] = $cash[0];
             $data['cashSalesKhr'] = $cash[1];
+            $data['cashSales'] = Money::toDecimal($cash[0]);
             $data['expectedCashUsdCents'] =
                 $shift->opening_cash_usd_cents + $cash[0];
             $data['expectedCashKhr'] = $shift->opening_cash_khr + $cash[1];
+            // Decimal aliases the close-shift UI reads. An open shift has
+            // not stored expected_cash_* yet, so ShiftResource would send 0
+            // without this overlay — which is exactly how USD cash sales
+            // disappeared from the close screen while KHR (already overlaid)
+            // stayed correct.
+            $data['expectedCash'] = Money::toDecimal(
+                $shift->opening_cash_usd_cents + $cash[0],
+            );
         }
         $data['startedAt'] = $shift->opened_at->format('g:i A');
         return response()

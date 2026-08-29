@@ -1,6 +1,6 @@
 <?php
 namespace App\Services;
-use App\Models\{Employee, Order, Shift};
+use App\Models\{Employee, OrderPayment, Shift};
 use App\Support\Money;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
@@ -136,28 +136,22 @@ class ShiftService
      */
     public function cashSalesSince(Shift $shift): array
     {
-        return Order::where('status', 'Completed')
-            ->where('payment', 'Cash')
-            ->where('created_at', '>=', $shift->opened_at)
-            ->with('payments')
-            ->get()
-            ->reduce(
-                function ($a, $o) {
-                    $p = $o->payments
-                        ->where('method', 'cash')
-                        ->where('status', 'confirmed')
-                        ->first();
-                    return [
-                        $a[0] +
-                        ($p?->tendered_usd_cents ?? $o->total_cents) -
-                        ($p?->change_usd_cents ?? 0),
-                        $a[1] +
-                        ($p?->tendered_khr ?? 0) -
-                        ($p?->change_khr ?? 0),
-                    ];
-                },
-                [0, 0],
-            );
+        // Use the payment row (tendered − change), not the order total: a
+        // $9 USD + ៛4,100 split on a $10 sale must count $9 of USD cash and
+        // ៛4,100 of riel, independently. Filter on confirmed_at so a hold
+        // created before this shift still counts when paid during it.
+        $row = OrderPayment::query()
+            ->where('method', 'cash')
+            ->where('status', 'confirmed')
+            ->whereRaw('COALESCE(confirmed_at, created_at) >= ?', [
+                $shift->opened_at,
+            ])
+            ->selectRaw(
+                'COALESCE(SUM(COALESCE(tendered_usd_cents, amount_usd_cents) - COALESCE(change_usd_cents, 0)), 0) as usd,
+                 COALESCE(SUM(COALESCE(tendered_khr, 0) - COALESCE(change_khr, 0)), 0) as khr',
+            )
+            ->first();
+        return [(int) ($row->usd ?? 0), (int) ($row->khr ?? 0)];
     }
     private function conflict(string $message): never
     {

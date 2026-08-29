@@ -87,6 +87,7 @@ type SaleDataContextValue = {
     changeUsdCents?: number
     changeKhr?: number
     exchangeRateKhrPerUsd?: number
+    heldOrderIds?: string[]
   }) => Promise<SaleOrder>
   currentShift: ShiftResult | null | undefined
   openShift: (openingCash: number, openingCashKhr?: number) => Promise<ShiftResult>
@@ -228,6 +229,7 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
       changeUsdCents?: number
       changeKhr?: number
       exchangeRateKhrPerUsd?: number
+      heldOrderIds?: string[]
     }) => {
       const result = await apiRequest<SaleOrder>('/api/orders', {
         method: 'POST',
@@ -274,12 +276,7 @@ export function SaleDataProvider({ children }: { children: ReactNode }) {
       const next = normalizeCurrentShift(
         await apiRequest<ShiftResult | null>('/api/shifts/current'),
       )
-      setCurrentShift((previous) =>
-        previous?.id === next?.id &&
-        (previous?.status ?? null) === (next?.status ?? null)
-          ? previous
-          : next,
-      )
+      setCurrentShift(next)
     } catch {
       // transient network error — the next poll retries
     }

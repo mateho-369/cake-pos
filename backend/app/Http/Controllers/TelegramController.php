@@ -2,7 +2,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Resources\{OrderResource, ProductResource};
-use App\Models\{Order, Product, Setting};
+use App\Models\{Order, Product, Setting, Shift};
 use App\Services\{
     CustomerOrderService,
     ReportingService,
@@ -78,6 +78,9 @@ class TelegramController extends Controller
                     ->values();
             })(),
             'khqrImageUrl' => $this->khqrImageUrl(),
+            // Mirrors the admin sidebar Open badge and the sale terminal
+            // shift gate: the shop is open iff a cashier has a shift open.
+            'storeOpen' => Shift::where('status', 'Open')->exists(),
         ]);
     }
     public function profile(Request $request): JsonResponse

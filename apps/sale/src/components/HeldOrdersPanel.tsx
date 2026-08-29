@@ -8,9 +8,14 @@ type Props = {
   busy: boolean
   /** Opened from the header toolbar even when there are no held orders yet. */
   open?: boolean
+  rate: number
   /** Put a held order's lines back into the cart (the hold stays until paid). */
   onResume: (order: HeldOrder) => void
-  onPay: (order: HeldOrder, method: 'Cash' | 'KHQR', usdCents: number) => void
+  onPay: (
+    order: HeldOrder,
+    method: 'Cash' | 'KHQR',
+    tender: { usdReceivedCents: number; khrReceived: number },
+  ) => void
   onVoid: (order: HeldOrder) => void
 }
 
@@ -32,11 +37,13 @@ export default function HeldOrdersPanel({
   const [paying, setPaying] = useState<HeldOrder | null>(null)
   const [method, setMethod] = useState<'Cash' | 'KHQR'>('Cash')
   const [received, setReceived] = useState('')
+  const [receivedKhr, setReceivedKhr] = useState('')
 
   const openPay = (order: HeldOrder) => {
     setPaying(order)
     setMethod('Cash')
     setReceived(order.total.toFixed(2))
+    setReceivedKhr('')
   }
   const closePay = useCallback(() => setPaying(null), [])
 
@@ -125,30 +132,54 @@ export default function HeldOrdersPanel({
               </button>
             </div>
             {method === 'Cash' ? (
-              <label className="held-pay-amount">
-                <span>{t('pending.received')}</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={received}
-                  onChange={(event) => setReceived(event.target.value)}
-                />
-              </label>
+              <>
+                <label className="held-pay-amount">
+                  <span>{t('pending.received')}</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={received}
+                    onChange={(event) => setReceived(event.target.value)}
+                  />
+                </label>
+                <label className="held-pay-amount">
+                  <span>{t('pending.receivedKhr')}</span>
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    value={receivedKhr}
+                    onChange={(event) => setReceivedKhr(event.target.value)}
+                  />
+                </label>
+              </>
             ) : (
               <p className="held-pay-note">{t('pending.khqrNote')}</p>
             )}
             <button
               className="held-pay-confirm"
               disabled={
-                busy || (method === 'Cash' && Number(received) <= 0)
+                busy ||
+                (method === 'Cash' &&
+                  Number(received) <= 0 &&
+                  Number(receivedKhr.replace(/[^0-9]/g, '') || 0) <= 0)
               }
               onClick={() => {
                 const usdCents =
                   method === 'Cash'
                     ? Math.round(Number(received || 0) * 100)
                     : 0
-                onPay(paying, method, usdCents)
+                const khrReceived =
+                  method === 'Cash'
+                    ? Math.max(
+                        0,
+                        Math.round(
+                          Number(receivedKhr.replace(/[^0-9]/g, '') || 0),
+                        ),
+                      )
+                    : 0
+                onPay(paying, method, { usdReceivedCents: usdCents, khrReceived })
                 setPaying(null)
               }}
             >

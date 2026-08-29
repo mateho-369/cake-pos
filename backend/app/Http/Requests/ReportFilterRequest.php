@@ -10,7 +10,8 @@ class ReportFilterRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'preset' => 'nullable|in:today,yesterday,this_week,this_month',
+            'preset' =>
+                'nullable|in:today,yesterday,this_week,this_month,last_month,this_year',
             'from' => 'nullable|date_format:Y-m-d',
             'to' => 'nullable|date_format:Y-m-d',
             'timezone' => 'nullable|in:Asia/Phnom_Penh',

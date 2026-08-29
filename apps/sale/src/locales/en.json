@@ -794,11 +794,15 @@
     "messagePlaceholder": "e.g. Your order is ready — see you at 4pm!",
     "messageSend": "Send message",
     "messageSent": "Message sent to {{name}}",
-    "messageFailed": "Telegram is unreachable — the message was not sent"
+    "messageFailed": "Telegram is unreachable — the message was not sent",
+    "accept": "Accept",
+    "accepted": "Accepted {{id}} — parked in held orders",
+    "receivedKhr": "Cash received (៛)",
+    "queueBack": "Back to menu"
   },
   "hold": {
     "title": "Held orders",
-    "empty": "No orders are held yet. Add items to a cart and tap \u201cHold order\u201d to park one here.",
+    "empty": "No orders are held yet. Add items to a cart and tap “Hold order” to park one here.",
     "manyHeld": "Several orders are held — resume the right one, then take payment.",
     "holdOrder": "Hold order",
     "confirm": "Hold it",
@@ -812,6 +816,7 @@
     "resumed": "Resumed {{id}} — take payment to close the hold",
     "resumedPartial": "Resumed {{id}} (some items are no longer on sale)",
     "paid": "{{id}} paid — no longer held",
-    "voided": "Discarded hold {{id}}"
+    "voided": "Discarded hold {{id}}",
+    "queueBack": "Back to menu"
   }
 }

@@ -74,6 +74,10 @@ class ReportController extends Controller
     {
         return $this->get('waste', $r);
     }
+    public function losses(ReportFilterRequest $r): JsonResponse
+    {
+        return $this->get('losses', $r);
+    }
     public function freshness(ReportFilterRequest $r): JsonResponse
     {
         return $this->get('freshness', $r);

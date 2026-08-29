@@ -14,6 +14,7 @@ use App\Models\{
     OrderPayment,
     OrderStatusEvent,
 };
+use App\Support\CashTender;
 use App\Support\ExchangeRate;
 use App\Support\Money;
 use Illuminate\Database\QueryException;
@@ -130,17 +131,12 @@ class OrderService
                         'confirmed' => ['Cashier confirmation is required'],
                     ]);
                 }
-                $usd = (int) ($input['usdReceivedCents'] ?? $total);
-                $khr = (int) ($input['khrReceived'] ?? 0);
                 $rate = ExchangeRate::current();
-                if (
-                    isset($input['exchangeRateKhrPerUsd']) &&
-                    (int) $input['exchangeRateKhrPerUsd'] !== $rate
-                ) {
-                    throw ValidationException::withMessages([
-                        'exchangeRateKhrPerUsd' => ['Exchange rate is stale'],
-                    ]);
-                }
+                $tenderUsd = null;
+                $tenderKhr = null;
+                $changeUsd = null;
+                $changeKhr = null;
+                $roundingKhr = null;
                 if ($method === 'cash') {
                     // Mixed-currency tender (USD notes + riel notes) is valid
                     // as long as the combined value covers the total — the
@@ -148,13 +144,13 @@ class OrderService
                     // tendered amounts are stored as distinct per-currency
                     // values, never blended, so shift reconciliation can
                     // compare against a physical two-pile drawer count.
-                    $due = $total * $rate;
-                    $tender = $usd * $rate + $khr * 100;
-                    if ($tender < $due) {
-                        throw ValidationException::withMessages([
-                            'payment' => ['Tender is below the amount due'],
-                        ]);
-                    }
+                    $tender = CashTender::validate($total, $input, true);
+                    $rate = $tender['rate'];
+                    $tenderUsd = $tender['usd'];
+                    $tenderKhr = $tender['khr'];
+                    $changeUsd = $tender['changeUsd'];
+                    $changeKhr = $tender['changeKhr'];
+                    $roundingKhr = $tender['roundingKhr'];
                 }
                 OrderPayment::create([
                     'order_id' => $order->id,
@@ -162,16 +158,11 @@ class OrderService
                     'status' => 'confirmed',
                     'amount_usd_cents' => $total,
                     'exchange_rate_khr_per_usd' => $rate,
-                    'tendered_usd_cents' =>
-                        $method === 'cash' ? $usd : null,
-                    'tendered_khr' =>
-                        $method === 'cash' ? $khr : null,
-                    'change_usd_cents' =>
-                        $method === 'cash'
-                            ? $input['changeUsdCents'] ?? 0
-                            : null,
-                    'change_khr' =>
-                        $method === 'cash' ? $input['changeKhr'] ?? 0 : null,
+                    'tendered_usd_cents' => $tenderUsd,
+                    'tendered_khr' => $tenderKhr,
+                    'change_usd_cents' => $changeUsd,
+                    'change_khr' => $changeKhr,
+                    'settlement_rounding_khr' => $roundingKhr,
                     'confirmed_by_employee_id' => $employee->id,
                     'confirmed_at' => now(),
                 ]);
@@ -427,6 +418,60 @@ class OrderService
         if ($order->source === 'telegram') {
             SendCustomerStatusNotification::dispatch($order->id);
         }
+    }
+
+    /**
+     * Accept a pending Telegram customer order: staff verified it is real
+     * (called/messaged the customer) and now parks it in the held-orders
+     * queue under that customer's name/phone. Stock stays reserved; nothing
+     * is charged. Payment happens later when the customer arrives, exactly
+     * like a walk-in hold.
+     */
+    public function accept(Order $order, Employee $employee): Order
+    {
+        return DB::transaction(function () use ($order, $employee) {
+            $order = Order::whereKey($order->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $order->loadMissing('customer');
+            $acceptable =
+                $order->source === 'telegram' &&
+                $order->payment_status !== 'paid' &&
+                in_array($order->status, ['Pending', 'Confirmed', 'Ready'], true);
+            if (!$acceptable) {
+                $this->conflict(
+                    'Only unpaid pending customer orders can be accepted',
+                );
+            }
+            $from = $order->status;
+            $name = $order->customer?->name ?: 'Customer';
+            $phone = $order->customer?->phone;
+            $label =
+                $order->hold_label ?:
+                trim($name . ($phone ? ' · ' . $phone : ''));
+            $order->update([
+                'status' => 'Held',
+                'fulfillment_status' => 'Held',
+                'hold_label' => $label,
+                ...$order->cashier_id === null
+                    ? ['cashier_id' => $employee->id]
+                    : [],
+            ]);
+            OrderStatusEvent::create([
+                'order_id' => $order->id,
+                'from_status' => $from,
+                'to_status' => 'Held',
+                'employee_id' => $employee->id,
+                'metadata' => ['reason' => 'accepted'],
+            ]);
+            $this->audit->log($employee, 'order.accepted', $order->id, [
+                'fromStatus' => $from,
+                'holdLabel' => $label,
+                'totalCents' => $order->total_cents,
+                'customerId' => $order->customer_id,
+            ]);
+            return $order->fresh(['cashier', 'customer', 'orderItems']);
+        });
     }
 
     /**

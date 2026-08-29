@@ -74,7 +74,7 @@ check(
 
 // ---------------- tender.ts (sale app, real source) ----------------
 const tenderSrc = readFileSync(join(root, 'apps/sale/src/lib/tender.ts'), 'utf8')
-const { splitTender } = await bundle(tenderSrc, 'tender')
+const { splitTender, cashTenderPayload } = await bundle(tenderSrc, 'tender')
 // Worked example from the shop owner: $10.00 total, customer pays
 // $8.00 + ៛8,200 at rate 4100 → exactly covered, change 0.
 r = splitTender(1000, 800, 8200, 4100)
@@ -122,6 +122,27 @@ check(
   r.totalKhrEquivalent === 43255,
   JSON.stringify(r),
 )
+// Walk-in / delayed /pay payload: change is USD cents = round(changeCentRiel / rate),
+// never dollars. $9 + ៛4100 on a $10 due is exact → change 0.
+{
+  const p = cashTenderPayload(1000, 900, 4100, 4100)
+  check(
+    'cashTenderPayload($10, $9 + ៛4100) records both tenders, change 0',
+    p.usdReceivedCents === 900 &&
+      p.khrReceived === 4100 &&
+      p.changeUsdCents === 0 &&
+      p.changeKhr === 0 &&
+      p.exchangeRateKhrPerUsd === 4100,
+    JSON.stringify(p),
+  )
+  const over = cashTenderPayload(1000, 2000, 0, 4100)
+  // $10 extra → 1,000 cents × 4100 = 4,100,000 cent-riel → 1000 USD cents
+  check(
+    'cashTenderPayload change is USD cents not dollars ($20 on $10 → 1000)',
+    over.changeUsdCents === 1000 && over.usdReceivedCents === 2000,
+    JSON.stringify(over),
+  )
+}
 
 // ---------------- ordersInRange (admin exports lib, real source) ----------------
 const exportsSrc = readFileSync(

@@ -35,6 +35,17 @@ class OrderController extends Controller
             201,
         );
     }
+    /**
+     * Accept a pending Telegram customer order into the held-orders queue
+     * without taking payment. Stock stays reserved under the customer's
+     * name; the cashier charges it later like any other hold.
+     */
+    public function accept(Order $order): JsonResponse
+    {
+        $accepted = $this->orders->accept($order, request()->user());
+        return response()->json(OrderResource::make($accepted)->resolve());
+    }
+
     public function pay(PayOrderRequest $request, Order $order): JsonResponse
     {
         $method = strtolower((string) $request->method);

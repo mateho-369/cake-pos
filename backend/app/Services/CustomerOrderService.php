@@ -1,7 +1,8 @@
 <?php
 namespace App\Services;
-use App\Models\{Customer, Order, OrderItem, Product};
+use App\Models\{Customer, Order, OrderItem, Product, Shift};
 use App\Support\Money;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\{DB, Http};
 use Illuminate\Validation\ValidationException;
 class CustomerOrderService
@@ -29,6 +30,18 @@ class CustomerOrderService
         mixed $requestedTotal,
         ?string $idempotencyKey = null,
     ): array {
+        if (!Shift::where('status', 'Open')->exists()) {
+            throw new HttpResponseException(
+                response()->json(
+                    [
+                        'message' =>
+                            'The shop is currently closed — no cashier is on shift',
+                        'store_closed' => true,
+                    ],
+                    409,
+                ),
+            );
+        }
         if (!$customer->phone) {
             abort(
                 409,

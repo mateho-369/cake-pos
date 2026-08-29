@@ -6,6 +6,7 @@ use App\Models\{
     Customer,
     Employee,
     Order,
+    OrderStatusEvent,
     Product,
     ProductImage,
     Setting,
@@ -1186,6 +1187,7 @@ class ApiContractTest extends TestCase
         config(['services.telegram.bot_token' => '123:test-token']);
         $admin = Employee::where('role', 'admin')->first();
         $cashier = Employee::where('role', 'cashier')->first();
+        $this->openShiftIfNone($cashier);
         $product = Product::first();
         $product->update(['price_cents' => 1000, 'stock' => 10]);
         $initData = $this->signedInitData([
@@ -1255,6 +1257,13 @@ class ApiContractTest extends TestCase
             collect($pending2)->firstWhere('id', $orderId)['isStale'],
         );
 
+        // Close the shift that was required to place the Telegram order so
+        // converting still proves the pay gate.
+        $this->postJson(
+            '/api/shifts/close',
+            ['closingCash' => '100.00'],
+            $this->auth($cashier),
+        )->assertOk();
         // Converting to a paid sale requires an open shift...
         $this->postJson(
             "/api/orders/$orderId/pay",
@@ -1302,6 +1311,7 @@ class ApiContractTest extends TestCase
         Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
         config(['services.telegram.bot_token' => '123:test-token']);
         $cashier = Employee::where('role', 'cashier')->first();
+        $this->openShiftIfNone($cashier);
         $product = Product::first();
         $product->update(['price_cents' => 1000, 'stock' => 10]);
         $initData = $this->signedInitData([
@@ -1883,6 +1893,18 @@ class ApiContractTest extends TestCase
         $this->assertSame('product.stock_zeroed', $zeroRows[0]['action']);
         $this->assertGreaterThan(0, $zeroRows[0]['details']['stockBefore']);
         $this->assertSame(0, $zeroRows[0]['details']['stockAfter']);
+
+        // A century-wide audit window is refused (the 366-day cap). The
+        // catalog editor's product-reason lookup sends only productId and
+        // must not 422 — that path is all-time for one product.
+        $this->getJson(
+            '/api/reports/audit?from=2000-01-01&to=2099-12-31',
+            $headers,
+        )->assertUnprocessable();
+        $this->getJson(
+            "/api/reports/audit?productId={$product->id}",
+            $headers,
+        )->assertOk();
     }
 
     /**
@@ -2318,6 +2340,258 @@ class ApiContractTest extends TestCase
                 $secondary['type'] === 'url' &&
                 str_contains($secondary['url'], 'maps.google.com');
         });
+    }
+
+    public function test_customer_order_is_refused_when_no_cashier_is_on_shift(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        $this->assertFalse(Shift::where('status', 'Open')->exists());
+        $initData = $this->signedInitData([
+            'id' => 501,
+            'first_name' => 'Closed',
+            'username' => 'closed_shop',
+        ]);
+        Customer::where('telegram_user_id', '501')->update([
+            'phone' => '+855 12 000 501',
+        ]);
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $this->postJson('/api/customer-products', ['initData' => $initData])
+            ->assertOk()
+            ->assertJsonPath('storeOpen', false);
+        $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'requestedTotal' => '10.00',
+        ])
+            ->assertStatus(409)
+            ->assertJsonPath('store_closed', true);
+        $this->assertSame(0, Order::where('source', 'telegram')->count());
+    }
+
+    public function test_accepting_a_pending_customer_order_parks_it_held_unpaid(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        $cashier = Employee::where('role', 'cashier')->first();
+        $this->openShiftIfNone($cashier);
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 502,
+            'first_name' => 'Dara',
+            'username' => 'dara',
+        ]);
+        $this->postJson('/api/customer-products', ['initData' => $initData])
+            ->assertOk();
+        Customer::where('telegram_user_id', '502')->update([
+            'phone' => '+855 12 000 502',
+        ]);
+        $orderId = $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'requestedTotal' => '10.00',
+        ])
+            ->assertCreated()
+            ->json('order.id');
+
+        $this->postJson(
+            "/api/orders/$orderId/accept",
+            [],
+            $this->auth($cashier),
+        )
+            ->assertOk()
+            ->assertJsonPath('status', 'Held')
+            ->assertJsonPath('paymentStatus', 'unpaid');
+
+        $order = Order::find($orderId);
+        $this->assertSame('Held', $order->status);
+        $this->assertSame('unpaid', $order->payment_status);
+        $this->assertSame('Held', $order->fulfillment_status);
+        $this->assertDatabaseCount('order_payments', 0);
+        $this->assertSame(1, (int) $product->fresh()->reserved_stock);
+        $this->assertSame(10, (int) $product->fresh()->stock);
+        $this->assertNotContains(
+            $orderId,
+            collect(
+                $this->getJson(
+                    '/api/orders/pending',
+                    $this->auth($cashier),
+                )->json(),
+            )->pluck('id'),
+        );
+        $held = $this->getJson('/api/orders/held', $this->auth($cashier))
+            ->assertOk()
+            ->json();
+        $this->assertSame($orderId, collect($held)->first()['id'] ?? null);
+    }
+
+    /**
+     * The reported close-shift bug: $9 USD + ៛4,100 on a $10 sale must
+     * count $9 of USD cash (not drop it) and ៛4,100 of riel independently.
+     */
+    public function test_nine_usd_plus_four_thousand_one_hundred_riel_counts_both_tenders(): void
+    {
+        $cashier = Employee::where('role', 'cashier')->first();
+        $headers = $this->auth($cashier);
+        $this->postJson(
+            '/api/shifts/open',
+            ['openingCash' => '100.00', 'openingCashKhr' => 40000],
+            $headers,
+        )->assertCreated();
+
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+
+        $payload = [
+            'payment' => 'Cash',
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'idempotencyKey' => (string) Str::uuid(),
+            'usdReceivedCents' => 900,
+            'khrReceived' => 4100,
+            'changeUsdCents' => 0,
+            'changeKhr' => 0,
+            'exchangeRateKhrPerUsd' => 4100,
+        ];
+        $orderId = $this->postJson('/api/orders', $payload, $headers)
+            ->assertCreated()
+            ->json('id');
+
+        $payment = DB::table('order_payments')->where('order_id', $orderId)->first();
+        $this->assertSame(900, (int) $payment->tendered_usd_cents);
+        $this->assertSame(4100, (int) $payment->tendered_khr);
+        $this->assertSame(0, (int) $payment->change_usd_cents);
+        $this->assertSame(0, (int) $payment->change_khr);
+
+        $current = $this->getJson('/api/shifts/current', $headers)
+            ->assertOk()
+            ->json();
+        $this->assertSame(10000 + 900, $current['expectedCashUsdCents']);
+        $this->assertSame(40000 + 4100, $current['expectedCashKhr']);
+        $this->assertSame(900, $current['cashSalesUsdCents']);
+        $this->assertSame(4100, $current['cashSalesKhr']);
+
+        $closed = $this->postJson(
+            '/api/shifts/close',
+            ['closingCash' => '109.00', 'closingCashKhr' => 44100],
+            $headers,
+        )
+            ->assertOk()
+            ->json();
+        $this->assertSame(0.0, $closed['variance']);
+        $shift = DB::table('shifts')->latest('id')->first();
+        $this->assertSame(0, (int) $shift->variance_usd_cents);
+        $this->assertSame(0, (int) $shift->variance_khr);
+        $this->assertSame(10900, (int) $shift->expected_cash_usd_cents);
+        $this->assertSame(44100, (int) $shift->expected_cash_khr);
+    }
+
+    public function test_delayed_pay_records_both_usd_and_khr_tenders(): void
+    {
+        $cashier = Employee::where('role', 'cashier')->first();
+        $headers = $this->auth($cashier);
+        $this->openShiftIfNone($cashier);
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+
+        $held = $this->holdOrder($cashier, $product, 1, [
+            'holdLabel' => 'Split delayed pay',
+        ]);
+        $this->postJson(
+            "/api/orders/{$held['id']}/pay",
+            [
+                'method' => 'Cash',
+                'usdReceivedCents' => 900,
+                'khrReceived' => 4100,
+                'changeUsdCents' => 0,
+                'changeKhr' => 0,
+                'exchangeRateKhrPerUsd' => 4100,
+            ],
+            $headers,
+        )->assertOk();
+
+        $payment = DB::table('order_payments')
+            ->where('order_id', $held['id'])
+            ->first();
+        $this->assertSame(900, (int) $payment->tendered_usd_cents);
+        $this->assertSame(4100, (int) $payment->tendered_khr);
+
+        $current = $this->getJson('/api/shifts/current', $headers)
+            ->assertOk()
+            ->json();
+        $this->assertSame(900, $current['cashSalesUsdCents']);
+        $this->assertSame(4100, $current['cashSalesKhr']);
+    }
+
+    public function test_reports_losses_and_year_month_presets(): void
+    {
+        $admin = Employee::where('role', 'admin')->first();
+        $cashier = Employee::where('role', 'cashier')->first();
+        $product = Product::first();
+        $product->update(['price_cents' => 2000, 'stock' => 50]);
+
+        $this->postJson(
+            '/api/shifts/open',
+            ['openingCash' => '100.00'],
+            $this->auth($cashier),
+        )->assertCreated();
+        $orderId = $this->postJson(
+            '/api/orders',
+            [
+                'payment' => 'Cash',
+                'items' => [['productId' => $product->id, 'quantity' => 1]],
+                'discount' => ['type' => 'fixed', 'amount' => '2.00'],
+                'idempotencyKey' => (string) Str::uuid(),
+            ],
+            $this->auth($cashier),
+        )
+            ->assertCreated()
+            ->json('id');
+        $this->postJson(
+            '/api/shifts/close',
+            ['closingCash' => '116.00'],
+            $this->auth($cashier),
+        )->assertOk();
+        $this->postJson(
+            "/api/orders/$orderId/corrections",
+            ['type' => 'void', 'amount' => '3.00'],
+            $this->auth($admin),
+        )->assertCreated();
+        $this->postJson(
+            '/api/inventory/waste',
+            [
+                'productId' => $product->id,
+                'quantity' => 1,
+                'reason' => 'expired',
+            ],
+            $this->auth($admin),
+        )->assertCreated();
+
+        $losses = $this->getJson(
+            '/api/reports/losses?preset=today',
+            $this->auth($admin),
+        )
+            ->assertOk()
+            ->json();
+        $this->assertSame(2000, $losses['wasteCents']);
+        $this->assertSame(200, $losses['discountsCents']);
+        $this->assertSame(300, $losses['voidsCents']);
+        $this->assertSame(0, $losses['refundsCents']);
+        // Opening 100 + $18 cash sale = 118 expected; counted 116 → $2 short.
+        $this->assertSame(200, $losses['cashShortagesCents']);
+        $this->assertSame(2700, $losses['totalLostCents']);
+
+        $this->getJson(
+            '/api/reports/summary?preset=this_year',
+            $this->auth($admin),
+        )->assertOk();
+        $this->getJson(
+            '/api/reports/summary?preset=last_month',
+            $this->auth($admin),
+        )->assertOk();
+        $this->getJson(
+            '/api/reports/losses?preset=this_year',
+            $this->auth($admin),
+        )->assertOk();
     }
 }
 

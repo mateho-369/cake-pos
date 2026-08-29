@@ -68,17 +68,31 @@ export default function ReportsPage({
   const topProduct = summary?.topProducts?.[0]
   const hasInsight = Boolean(bestDay && bestDay.value > 0)
   const [tab, setTab] = useState('sales')
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localIsoDate(new Date())
   const [from, setFrom] = useState(today.slice(0, 8) + '01')
   const [to, setTo] = useState(today)
   const selectedOrders = ordersInRange(orders, from, to)
+  const applyPreset = (preset: string) => {
+    const range = rangeForPreset(preset)
+    setFrom(range.from)
+    setTo(range.to)
+  }
   const tabs = [
     { id: 'sales', label: 'reports.sales' },
     { id: 'products', label: 'reports.products' },
     { id: 'payments', label: 'reports.payments' },
     { id: 'team', label: 'reports.team' },
     { id: 'waste', label: 'reports.waste' },
+    { id: 'losses', label: 'reports.losses' },
     { id: 'audit', label: 'reports.auditLog' },
+  ]
+  const presets = [
+    { id: 'today', label: 'reports.today' },
+    { id: 'yesterday', label: 'reports.yesterday' },
+    { id: 'this_week', label: 'reports.thisWeek' },
+    { id: 'this_month', label: 'reports.thisMonth' },
+    { id: 'last_month', label: 'reports.lastMonth' },
+    { id: 'this_year', label: 'reports.thisYear' },
   ]
   const libraries = [
     { key: 'dailySummary', label: 'reports.dailySummary' },
@@ -210,8 +224,20 @@ export default function ReportsPage({
           ))}
         </div>
         <div className="toolbar-actions report-export-actions">
+          <div className="report-presets">
+            {presets.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className="text-button"
+                onClick={() => applyPreset(preset.id)}
+              >
+                {t(preset.label)}
+              </button>
+            ))}
+          </div>
           <label>
-            From
+            {t('reports.from')}
             <input
               type="date"
               value={from}
@@ -219,7 +245,7 @@ export default function ReportsPage({
             />
           </label>
           <label>
-            To
+            {t('reports.to')}
             <input
               type="date"
               value={to}
@@ -307,6 +333,7 @@ export default function ReportsPage({
           {tab === 'audit' && (
             <AuditLogPanel from={from} to={to} onToast={onToast} />
           )}
+          {tab === 'losses' && <LossesPanel from={from} to={to} />}
         </div>
         <div className="glass-panel insight-panel">
           <div className="insight-icon">
@@ -455,6 +482,8 @@ export default function ReportsPage({
     </div>
   )
 }
+const cents = (value: number) => `$${(value / 100).toFixed(2)}`
+
 function tabTitle(t: (key: string) => string, tab: string) {
   switch (tab) {
     case 'waste':
@@ -465,9 +494,124 @@ function tabTitle(t: (key: string) => string, tab: string) {
       return t('reports.paymentsTitle')
     case 'team':
       return t('reports.teamTitle')
+    case 'losses':
+      return t('reports.lossesTitle')
     default:
       return t('reports.salesTrend')
   }
+}
+
+function localIsoDate(d: Date) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function rangeForPreset(preset: string): { from: string; to: string } {
+  const now = new Date()
+  const today = localIsoDate(now)
+  const y = now.getFullYear()
+  const m = now.getMonth()
+  const iso = (year: number, month: number, day: number) =>
+    `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  switch (preset) {
+    case 'yesterday': {
+      const d = new Date(now)
+      d.setDate(d.getDate() - 1)
+      const day = localIsoDate(d)
+      return { from: day, to: day }
+    }
+    case 'this_week': {
+      const d = new Date(now)
+      const weekday = d.getDay()
+      const mondayOffset = weekday === 0 ? 6 : weekday - 1
+      d.setDate(d.getDate() - mondayOffset)
+      return { from: localIsoDate(d), to: today }
+    }
+    case 'this_month':
+      return { from: iso(y, m, 1), to: today }
+    case 'last_month': {
+      const last = new Date(y, m, 0)
+      return {
+        from: iso(last.getFullYear(), last.getMonth(), 1),
+        to: localIsoDate(last),
+      }
+    }
+    case 'this_year':
+      return { from: `${y}-01-01`, to: today }
+    default:
+      return { from: today, to: today }
+  }
+}
+
+type LossesReport = {
+  wasteCents: number
+  discountsCents: number
+  voidsCents: number
+  refundsCents: number
+  cashShortagesCents: number
+  totalLostCents: number
+}
+
+function LossesPanel({ from, to }: { from: string; to: string }) {
+  const { t } = useTranslation()
+  const [data, setData] = useState<LossesReport | null>(null)
+  useEffect(() => {
+    let alive = true
+    apiRequest<LossesReport>(`/api/reports/losses?from=${from}&to=${to}`)
+      .then((row) => alive && setData(row))
+      .catch(() => alive && setData(null))
+    return () => {
+      alive = false
+    }
+  }, [from, to])
+  if (!data)
+    return (
+      <div className="empty-state">
+        <span>{t('reports.loadingData')}</span>
+      </div>
+    )
+  const rows = [
+    { label: t('reports.waste'), value: data.wasteCents },
+    { label: t('reports.discounts'), value: data.discountsCents },
+    { label: t('reports.voids'), value: data.voidsCents },
+    { label: t('reports.refunds'), value: data.refundsCents },
+    { label: t('reports.cashShortages'), value: data.cashShortagesCents },
+  ]
+  return (
+    <div className="report-tab-table table-responsive">
+      <div className="table-row table-head">
+        <span>{t('reports.losses')}</span>
+        <span>{t('dashboard.revenue')}</span>
+      </div>
+      {rows.map((row) => (
+        <div className="table-row" key={row.label}>
+          <strong>{row.label}</strong>
+          <strong className="numeric">{cents(row.value)}</strong>
+        </div>
+      ))}
+      <div className="table-row">
+        <strong>{t('reports.totalLost')}</strong>
+        <strong className="numeric">{cents(data.totalLostCents)}</strong>
+      </div>
+      <button
+        className="text-button"
+        onClick={() =>
+          downloadCsv(
+            `losses-${from}-${to}.csv`,
+            ['Category', 'USD'],
+            [
+              ...rows.map((row) => [row.label, (row.value / 100).toFixed(2)]),
+              [t('reports.totalLost'), (data.totalLostCents / 100).toFixed(2)],
+            ],
+          )
+        }
+      >
+        <Download size={14} /> {t('common.export')}
+      </button>
+    </div>
+  )
 }
 
 function TopProductsTable() {
@@ -564,8 +708,6 @@ type CashierAccountability = {
     varianceUsdCents: number
   }>
 }
-
-const cents = (value: number) => `$${(value / 100).toFixed(2)}`
 
 /**
  * Employee accountability: normal sales numbers next to the anti-theft
