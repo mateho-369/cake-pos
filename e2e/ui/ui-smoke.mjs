@@ -569,7 +569,13 @@ await page
 await page.waitForTimeout(600)
 const shifts2 = await page.locator('.page-content').innerText()
 check('shifts shows open shift', shifts2.includes('Open'))
-check('shifts expected drawer $130.00', shifts2.includes('$130.00'))
+  // Opening $100 + mixed $8 USD (the ៛8,200 is a separate pile) + $20 cash
+  // = $128 USD expected. The old $130 figure blended the riel into USD.
+  check(
+    'shifts expected drawer $128.00 (USD pile; KHR is separate)',
+    shifts2.includes('$128.00'),
+    shifts2.replace(/\n/g, ' | ').slice(0, 400),
+  )
 
 // Orders page shows the real order
 await page
