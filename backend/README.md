@@ -24,11 +24,17 @@ files keep serving. After `.env` is in place run `php artisan config:cache`,
 `route:cache`, and `view:cache` (they bake the current env; re-run them
 whenever `.env` changes). On the VM that is `sh bin/post-deploy.sh`.
 
-The GitHub `deploy-backend.yml` still does `config:clear` + migrate + seed
-and cannot be edited from this PR (the GitHub App has no `workflows`
-permission). Until that YAML is patched to `--force-recreate` plus the
-three `*:cache` artisan commands (and the `/healthz` closure is gone, so
-`route:cache` can succeed), run `bin/post-deploy.sh` after each deploy.
+The GitHub `deploy-backend.yml` cannot currently be updated from this branch:
+the GitHub App token used here lacks the `workflows` permission, so GitHub
+rejects a push that touches
+`.github/workflows/deploy-backend.yml`. The intended workflow change is saved
+as a ready-to-apply patch in `docs/patches/deploy-backend-cache-opcache.patch`
+(it adds `--force-recreate` plus `config:cache` / `route:cache` / `view:cache`
+after migrate/seed). A maintainer with `workflows` access should apply that
+patch and push it. Until then, run `bin/post-deploy.sh` on the VM after each
+GitHub deploy so the app and queue containers are recreated and the three
+Laravel caches are baked. The Dockerfile `CACHEBUST` fix and the manual
+`post-deploy.sh` steps are already committed on this branch.
 
 The one-shot `migrate` and `minio-init` services use explicit shell entrypoints and YAML lists containing one folded-scalar command. `minio-init` creates the bucket, grants anonymous downloads only below `product-images/`, and applies browser CORS rules. Neither MySQL nor MinIO is exposed beyond `127.0.0.1`; reverse-proxy the configured `AWS_PUBLIC_ENDPOINT` to MinIO's local port while preserving the request host for S3 signatures.
 
