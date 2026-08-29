@@ -2176,7 +2176,8 @@ class ApiContractTest extends TestCase
                     ['productId' => $product->id, 'quantity' => 2],
                 ],
                 'idempotencyKey' => (string) Str::uuid(),
-                'usdReceivedCents' => 2000,
+                'usdReceivedCents' => 1800,
+                'khrReceived' => 8200,
                 'changeUsdCents' => 0,
                 'changeKhr' => 0,
                 'exchangeRateKhrPerUsd' => 4100,
@@ -2188,6 +2189,15 @@ class ApiContractTest extends TestCase
             ->json();
 
         $this->assertSame('Completed', $paid['status']);
+        // Split tender must still be recorded as distinct per-currency values
+        // in the resumed-and-checked-out path, not just the direct /pay path.
+        $payment = DB::table('order_payments')
+            ->where('order_id', $paid['id'])
+            ->first();
+        $this->assertSame(1800, (int) $payment->tendered_usd_cents);
+        $this->assertSame(8200, (int) $payment->tendered_khr);
+        $this->assertSame(0, (int) $payment->change_usd_cents);
+        $this->assertSame(0, (int) $payment->change_khr);
         // The hold is released, not silently left parked.
         $this->assertSame(
             'Cancelled',
@@ -2514,6 +2524,65 @@ class ApiContractTest extends TestCase
             ->first();
         $this->assertSame(900, (int) $payment->tendered_usd_cents);
         $this->assertSame(4100, (int) $payment->tendered_khr);
+
+        $current = $this->getJson('/api/shifts/current', $headers)
+            ->assertOk()
+            ->json();
+        $this->assertSame(900, $current['cashSalesUsdCents']);
+        $this->assertSame(4100, $current['cashSalesKhr']);
+    }
+
+    /**
+     * The third payment-creation entry point: taking payment for a pending
+     * Telegram customer order. Same critical split-tender invariant — the
+     * $9 USD + ៛4,100 riel on a $10 order must be recorded as two distinct
+     * per-currency tenders (never a KHR-only row that drops the USD half)
+     * and flow into the open shift's expected drawer.
+     */
+    public function test_pending_customer_order_split_tender_records_both_usd_and_khr(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        $cashier = Employee::where('role', 'cashier')->first();
+        $headers = $this->auth($cashier);
+        $this->openShiftIfNone($cashier);
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 503,
+            'first_name' => 'Split',
+            'username' => 'split_tender',
+        ]);
+        Customer::where('telegram_user_id', '503')->update([
+            'phone' => '+855 12 000 503',
+        ]);
+        $orderId = $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'requestedTotal' => '10.00',
+        ])
+            ->assertCreated()
+            ->json('order.id');
+
+        $this->postJson(
+            \"/api/orders/$orderId/pay\",
+            [
+                'method' => 'Cash',
+                'usdReceivedCents' => 900,
+                'khrReceived' => 4100,
+                'changeUsdCents' => 0,
+                'changeKhr' => 0,
+                'exchangeRateKhrPerUsd' => 4100,
+            ],
+            $headers,
+        )->assertOk();
+
+        $payment = DB::table('order_payments')
+            ->where('order_id', $orderId)
+            ->first();
+        $this->assertSame(900, (int) $payment->tendered_usd_cents);
+        $this->assertSame(4100, (int) $payment->tendered_khr);
+        $this->assertSame(0, (int) $payment->change_usd_cents);
+        $this->assertSame(0, (int) $payment->change_khr);
 
         $current = $this->getJson('/api/shifts/current', $headers)
             ->assertOk()

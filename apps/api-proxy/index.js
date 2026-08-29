@@ -16,10 +16,18 @@ export default {
       headers,
       body,
     });
+    // Never let a shared cache (Cloudflare edge or anything in front of the
+    // Worker) serve a stale API payload. The backend already sends no-store
+    // on the shift endpoints; re-asserting it here protects the deployed UI
+    // from a rolled-back/older backend that omits it. Without it, the sale
+    // terminal can keep showing an old shift badge / stale customer-orders
+    // data after a deploy — the classic "deployed stale UI" symptom.
+    const responseHeaders = new Headers(response.headers);
+    responseHeaders.set('Cache-Control', 'no-store');
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
-      headers: response.headers,
+      headers: responseHeaders,
     });
   },
 };

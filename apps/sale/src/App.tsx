@@ -15,8 +15,6 @@ import ShiftModal from './components/ShiftModal'
 import QuickAddModal from './components/QuickAddModal'
 import SuccessOverlay from './components/SuccessOverlay'
 import OrderHistoryModal from './components/OrderHistoryModal'
-import PendingOrdersPanel from './components/PendingOrdersPanel'
-import HeldOrdersPanel from './components/HeldOrdersPanel'
 import {
   type CartItem,
   type HeldOrder,
@@ -32,6 +30,7 @@ import { useTelegramChrome } from '@cake-pos/telegram/react'
 import { cashTenderPayload } from './lib/tender'
 import CustomerApp from './CustomerApp'
 import CustomerDisplay from './components/CustomerDisplay'
+import { HeldOrdersPage, PendingOrdersPage } from './QueuePages'
 
 type Shift = {
   startedAt?: string
@@ -44,13 +43,18 @@ type PendingSaleAction =
   { type: 'add'; product: Product } | { type: 'checkout' } | null
 export default function App() {
   const { token } = useStaffAuth()
-  if (window.location.pathname.replace(/\/$/, '') === '/customer-display')
-    return <CustomerDisplay />
-  if (window.location.pathname.replace(/\/$/, '') === '/customer')
-    return <CustomerApp />
+  const path = window.location.pathname.replace(/\/$/, '')
+  if (path === '/customer-display') return <CustomerDisplay />
+  if (path === '/customer') return <CustomerApp />
   // The staff terminal is itself a Telegram Mini App: it must open
   // edge-to-edge exactly like the customer storefront, not just expanded.
   const { inTelegram } = useTelegramChrome()
+  if (path === '/held') {
+    return <div className={inTelegram ? 'telegram-app' : ''}>{token ? <HeldOrdersPage /> : <LoginScreen />}</div>
+  }
+  if (path === '/pending') {
+    return <div className={inTelegram ? 'telegram-app' : ''}>{token ? <PendingOrdersPage /> : <LoginScreen />}</div>
+  }
   return (
     <div className={inTelegram ? 'telegram-app' : ''}>
       {token ? <SaleTerminal /> : <LoginScreen />}
@@ -100,88 +104,13 @@ function SaleTerminal() {
   // Held ("parked") orders and the holds the current cart was resumed from.
   const [held, setHeld] = useState<HeldOrder[]>([])
   const [heldBusy, setHeldBusy] = useState(false)
-  // The header toolbar icon opens the held-orders queue even when it is empty.
-  const [heldPanelOpen, setHeldPanelOpen] = useState(false)
-  const [queueView, setQueueView] = useState<'held' | 'pending' | null>(null)
   // Open Telegram customer orders awaiting staff action, polled for the
-  // toolbar badge + pending panel — same pattern as the held queue.
+  // toolbar badge. The queue itself lives on the dedicated /pending page.
   const [pending, setPending] = useState<PendingOrder[]>([])
-  // The header toolbar icon opens the pending-orders queue even when it is
-  // empty, so the feature is discoverable before the first Telegram order.
-  const [pendingPanelOpen, setPendingPanelOpen] = useState(false)
   const promptOpenShift = (action: PendingSaleAction) => {
     setPendingAction(action)
     setShiftMode('open')
     setShiftModal(true)
-  }
-  // Generic "a shift must be open first" gate used by the pending-orders
-  // panel: run the action now when a shift is open, otherwise open the
-  // shift prompt and run it right after.
-  const [shiftResume, setShiftResume] = useState<(() => void) | null>(null)
-  const requestShiftThen = (resume: () => void) => {
-    if (shift) {
-      resume()
-      return
-    }
-    setShiftResume(() => resume)
-    setShiftMode('open')
-    setShiftModal(true)
-  }
-  const payPendingOrder = async (
-    orderId: string,
-    method: 'Cash' | 'KHQR',
-    tender: {
-      usdReceivedCents: number
-      khrReceived: number
-      totalCents: number
-    },
-  ) => {
-    await apiRequest(`/api/orders/${orderId}/pay`, {
-      method: 'POST',
-      body: JSON.stringify(
-        method === 'Cash'
-          ? {
-              method: 'Cash',
-              ...cashTenderPayload(
-                tender.totalCents,
-                tender.usdReceivedCents,
-                tender.khrReceived,
-                exchangeRateKhrPerUsd,
-              ),
-            }
-          : { method: 'KHQR', confirmed: true },
-      ),
-    })
-    await Promise.all([refresh(), loadPending(), loadHeld()])
-  }
-  /** Park a pending Telegram order into the held queue without charging. */
-  const acceptPendingOrder = async (orderId: string) => {
-    await apiRequest(`/api/orders/${orderId}/accept`, { method: 'POST' })
-    await Promise.all([loadPending(), loadHeld(), refresh()])
-    setQueueView('held')
-  }
-  /**
-   * Reject a pending customer order: staff called to verify and it was not
-   * real (or a mistake). The server cancels the order, releases its
-   * reserved stock, audit-logs the rejection and tells the customer.
-   */
-  const rejectPendingOrder = async (orderId: string, reason?: string) => {
-    await apiRequest(`/api/orders/${orderId}/cancel`, {
-      method: 'POST',
-      body: JSON.stringify(reason ? { reason } : {}),
-    })
-    await Promise.all([refresh(), loadPending()])
-  }
-  /**
-   * Send a quick Telegram note to the order's customer through the shop
-   * bot — they reached out on Telegram, so answer them there.
-   */
-  const messagePendingCustomer = async (orderId: string, text: string) => {
-    const result = await apiRequest<{ delivered: boolean }>(
-      `/api/orders/${orderId}/message`,
-      { method: 'POST', body: JSON.stringify({ text }) },
-    )
-    return result.delivered
   }
   const loadPending = useCallback(async () => {
     try {
@@ -317,7 +246,6 @@ function SaleTerminal() {
     if (previous !== null && previous !== nowOpen) {
       setShiftModal(false)
       setPendingAction(null)
-      setShiftResume(null)
     }
   }, [currentShift])
   useEffect(() => {
@@ -479,6 +407,18 @@ function SaleTerminal() {
     const timer = window.setInterval(() => void loadHeld(), 15_000)
     return () => window.clearInterval(timer)
   }, [loadHeld])
+  // A hold resumed from the dedicated /held page stores its id here; the
+  // new terminal page waits for the held list to hydrate and restores the
+  // hold's lines into the cart (the page itself clears the id after use).
+  useEffect(() => {
+    const resumeId = sessionStorage.getItem('cake-pos-resume-hold-id')
+    if (!resumeId || !held.length) return
+    const order = held.find((candidate) => candidate.id === resumeId)
+    if (!order) return
+    sessionStorage.removeItem('cake-pos-resume-hold-id')
+    resumeHold(order)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [held])
 
   /** Park the cart: the customer pays when they come back. */
   const holdCart = async (label: string) => {
@@ -511,8 +451,8 @@ function SaleTerminal() {
       setCheckoutKey(newCheckoutKey())
       setMobileCart(false)
       setToast(t('hold.held', { id: order.holdLabel || order.id }))
-      setQueueView('held')
       await Promise.all([loadHeld(), refresh()])
+      window.location.assign('/held')
     } catch (reason) {
       setToast(
         reason instanceof Error ? reason.message : t('sale.paymentFailed'),
@@ -569,63 +509,6 @@ function SaleTerminal() {
     )
   }
 
-  /** Take payment for a held order without putting it back in the cart. */
-  const payHold = async (
-    order: HeldOrder,
-    method: 'Cash' | 'KHQR',
-    tender: { usdReceivedCents: number; khrReceived: number },
-  ) => {
-    if (!shift) {
-      promptOpenShift({ type: 'checkout' })
-      return
-    }
-    setHeldBusy(true)
-    try {
-      await apiRequest(`/api/orders/${order.id}/pay`, {
-        method: 'POST',
-        body: JSON.stringify(
-          method === 'Cash'
-            ? {
-                method: 'Cash',
-                ...cashTenderPayload(
-                  Math.round(order.total * 100),
-                  tender.usdReceivedCents,
-                  tender.khrReceived,
-                  exchangeRateKhrPerUsd,
-                ),
-              }
-            : { method: 'KHQR', confirmed: true },
-        ),
-      })
-      setToast(t('hold.paid', { id: order.holdLabel || order.id }))
-      await Promise.all([loadHeld(), refresh()])
-    } catch (reason) {
-      setToast(
-        reason instanceof Error ? reason.message : t('sale.paymentFailed'),
-      )
-    } finally {
-      setHeldBusy(false)
-    }
-  }
-
-  /** Discard a hold and give its reserved stock back. */
-  const voidHold = async (order: HeldOrder) => {
-    setHeldBusy(true)
-    try {
-      await apiRequest(`/api/orders/${order.id}/cancel`, { method: 'POST' })
-      // Lines already in the cart keep their fromHoldId; the server skips a
-      // hold that is no longer held, so nothing is double-released.
-      setToast(t('hold.voided', { id: order.holdLabel || order.id }))
-      await Promise.all([loadHeld(), refresh()])
-    } catch (reason) {
-      setToast(
-        reason instanceof Error ? reason.message : t('sale.paymentFailed'),
-      )
-    } finally {
-      setHeldBusy(false)
-    }
-  }
-
   const openShiftAction = () => {
     if (shift && cart.length) {
       setToast(t('sale.completeOrderFirst'))
@@ -658,13 +541,6 @@ function SaleTerminal() {
           t('sale.shiftOpenedWith', { amount: amount.toFixed(2) }) +
             (amountKhr ? ` · ៛${amountKhr.toLocaleString()}` : ''),
         )
-        // Run the sale action that was waiting on the shift (e.g. taking
-        // payment for a held customer order).
-        if (shiftResume) {
-          const resume = shiftResume
-          setShiftResume(null)
-          resume()
-        }
       } else {
         const result = await closeShift(amount, amountKhr)
         setShift(null)
@@ -704,16 +580,8 @@ function SaleTerminal() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shift, pendingAction])
-  const openHeldOrders = () => {
-    setHeldPanelOpen(true)
-    setQueueView('held')
-  }
-  // Same pattern as the held-orders toolbar entry: the button always works,
-  // even before the first Telegram order ever arrives.
-  const openPendingOrders = () => {
-    setPendingPanelOpen(true)
-    setQueueView('pending')
-  }
+  const openHeldOrders = () => window.location.assign('/held')
+  const openPendingOrders = () => window.location.assign('/pending')
   const addQuickProduct = async (product: Product) => {
     try {
       await createProduct({
@@ -763,53 +631,6 @@ function SaleTerminal() {
           </div>
           <b>{t('sale.openShift')}</b>
         </button>
-      )}
-      {queueView && (
-        <div className="queue-view" role="dialog" aria-modal="true">
-          <div className="queue-view-bar">
-            <strong>
-              {queueView === 'held' ? t('hold.title') : t('pending.title')}
-            </strong>
-            <button
-              className="secondary-button"
-              onClick={() => {
-                setQueueView(null)
-                setHeldPanelOpen(false)
-                setPendingPanelOpen(false)
-              }}
-            >
-              {t('common.close')}
-            </button>
-          </div>
-          {queueView === 'pending' && (
-            <PendingOrdersPanel
-              pending={pending}
-              open={pendingPanelOpen || queueView === 'pending'}
-              shiftOpen={Boolean(shift)}
-              rate={exchangeRateKhrPerUsd}
-              onPay={payPendingOrder}
-              onAccept={acceptPendingOrder}
-              onReject={rejectPendingOrder}
-              onMessage={messagePendingCustomer}
-              onNeedShift={requestShiftThen}
-              onToast={setToast}
-            />
-          )}
-          {queueView === 'held' && (
-            <HeldOrdersPanel
-              held={held}
-              busy={heldBusy}
-              open={heldPanelOpen || queueView === 'held'}
-              rate={exchangeRateKhrPerUsd}
-              onResume={(order) => {
-                resumeHold(order)
-                setQueueView(null)
-              }}
-              onPay={payHold}
-              onVoid={voidHold}
-            />
-          )}
-        </div>
       )}
       <div className="terminal-layout">
         <ProductGrid

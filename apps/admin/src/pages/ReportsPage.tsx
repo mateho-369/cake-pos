@@ -16,9 +16,12 @@ import { apiRequest } from '../lib/api'
 import { translateCategory, useTranslation } from '../lib/i18n'
 import {
   downloadCsv,
+  exportLossesExcel,
+  exportLossesWord,
   exportOrdersExcel,
   exportSummaryWord,
   ordersInRange,
+  type LossesReport,
 } from '../lib/exports'
 
 export default function ReportsPage({
@@ -333,7 +336,9 @@ export default function ReportsPage({
           {tab === 'audit' && (
             <AuditLogPanel from={from} to={to} onToast={onToast} />
           )}
-          {tab === 'losses' && <LossesPanel from={from} to={to} />}
+          {tab === 'losses' && (
+            <LossesPanel from={from} to={to} onToast={onToast} />
+          )}
         </div>
         <div className="glass-panel insight-panel">
           <div className="insight-icon">
@@ -545,16 +550,15 @@ function rangeForPreset(preset: string): { from: string; to: string } {
   }
 }
 
-type LossesReport = {
-  wasteCents: number
-  discountsCents: number
-  voidsCents: number
-  refundsCents: number
-  cashShortagesCents: number
-  totalLostCents: number
-}
-
-function LossesPanel({ from, to }: { from: string; to: string }) {
+function LossesPanel({
+  from,
+  to,
+  onToast,
+}: {
+  from: string
+  to: string
+  onToast: (message: string) => void
+}) {
   const { t } = useTranslation()
   const [data, setData] = useState<LossesReport | null>(null)
   useEffect(() => {
@@ -595,21 +599,46 @@ function LossesPanel({ from, to }: { from: string; to: string }) {
         <strong>{t('reports.totalLost')}</strong>
         <strong className="numeric">{cents(data.totalLostCents)}</strong>
       </div>
-      <button
-        className="text-button"
-        onClick={() =>
-          downloadCsv(
-            `losses-${from}-${to}.csv`,
-            ['Category', 'USD'],
-            [
-              ...rows.map((row) => [row.label, (row.value / 100).toFixed(2)]),
-              [t('reports.totalLost'), (data.totalLostCents / 100).toFixed(2)],
-            ],
-          )
-        }
-      >
-        <Download size={14} /> {t('common.export')}
-      </button>
+      <div className="report-export-actions">
+        <button
+          className="text-button"
+          onClick={() =>
+            void exportLossesWord(data, from, to)
+              .then(() => onToast('Losses Word report exported'))
+              .catch((error) => onToast(error.message))
+          }
+        >
+          <FileText size={14} /> Word
+        </button>
+        <button
+          className="text-button"
+          onClick={() =>
+            void exportLossesExcel(data, from, to)
+              .then(() => onToast('Losses Excel workbook exported'))
+              .catch((error) => onToast(error.message))
+          }
+        >
+          <FileSpreadsheet size={14} /> Excel
+        </button>
+        <button
+          className="text-button"
+          onClick={() =>
+            downloadCsv(
+              `losses-${from}-${to}.csv`,
+              ['Category', 'USD'],
+              [
+                ...rows.map((row) => [row.label, (row.value / 100).toFixed(2)]),
+                [
+                  t('reports.totalLost'),
+                  (data.totalLostCents / 100).toFixed(2),
+                ],
+              ],
+            )
+          }
+        >
+          <Download size={14} /> {t('common.export')}
+        </button>
+      </div>
     </div>
   )
 }

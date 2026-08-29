@@ -34,7 +34,14 @@ after migrate/seed). A maintainer with `workflows` access should apply that
 patch and push it. Until then, run `bin/post-deploy.sh` on the VM after each
 GitHub deploy so the app and queue containers are recreated and the three
 Laravel caches are baked. The Dockerfile `CACHEBUST` fix and the manual
-`post-deploy.sh` steps are already committed on this branch.
+`post-deploy.sh` steps are committed here.
+
+The other half of the "deployed stale" symptom lives outside PHP: each
+frontend ships `public/_headers` (HTML revalidates, hashed `/assets/*` are
+immutable) and the `apps/api-proxy` Worker re-asserts
+`Cache-Control: no-store` on every API response, so a stale Cloudflare-edge
+copy of `/api/shifts/current` can never keep the terminal showing an old UI
+state. See `docs/DEPLOYMENT_ARCHITECTURE.md`.
 
 The one-shot `migrate` and `minio-init` services use explicit shell entrypoints and YAML lists containing one folded-scalar command. `minio-init` creates the bucket, grants anonymous downloads only below `product-images/`, and applies browser CORS rules. Neither MySQL nor MinIO is exposed beyond `127.0.0.1`; reverse-proxy the configured `AWS_PUBLIC_ENDPOINT` to MinIO's local port while preserving the request host for S3 signatures.
 
