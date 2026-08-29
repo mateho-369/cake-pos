@@ -2211,10 +2211,11 @@ class ApiContractTest extends TestCase
         $this->assertSame(8200, (int) $payment->tendered_khr);
         $this->assertSame(0, (int) $payment->change_usd_cents);
         $this->assertSame(0, (int) $payment->change_khr);
-        // The hold is Released (the customer paid for it), never labelled
-        // Cancelled — a paid-hold release is not a cancellation.
+        // The hold is closed with a Cancelled status (only the paid order
+        // carries the revenue). The UI differentiates this from a genuine
+        // rejection via the status event metadata (reason: hold_paid).
         $this->assertSame(
-            'Released',
+            'Cancelled',
             DB::table('orders')->where('id', $held['id'])->value('status'),
         );
         $this->assertSame(
@@ -2229,6 +2230,17 @@ class ApiContractTest extends TestCase
             'action' => 'order.hold_released',
             'order_id' => $held['id'],
         ]);
+        // The status history explains why the old order looks "cancelled".
+        $event = OrderStatusEvent::where('order_id', $held['id'])
+            ->orderByDesc('created_at')
+            ->first();
+        $this->assertSame('Held', $event->from_status);
+        $this->assertSame('Cancelled', $event->to_status);
+        $this->assertSame(
+            'hold_paid',
+            $event->metadata['reason'],
+        );
+        $this->assertSame($paid['id'], $event->metadata['paidOrderId']);
         $details = json_decode(
             DB::table('audit_events')
                 ->where('action', 'order.hold_released')
@@ -2236,6 +2248,21 @@ class ApiContractTest extends TestCase
             true,
         );
         $this->assertSame($paid['id'], $details['paidOrderId']);
+        // The admin list exposes the status-change reason so the UI can show
+        // "Converted → CS-..." instead of a misleading "Cancelled" badge.
+        $listed = $this->getJson(
+            '/api/orders',
+            $this->auth(Employee::where('role', 'admin')->first()),
+        )
+            ->assertOk()
+            ->json();
+        $listedHold = collect($listed)->firstWhere('id', $held['id']);
+        $this->assertNotNull($listedHold);
+        $this->assertSame('hold_paid', $listedHold['statusChange']['reason']);
+        $this->assertSame(
+            $paid['id'],
+            $listedHold['statusChange']['paidOrderId'],
+        );
         // Revenue counts the paid order only — never the released hold.
         $summary = $this->getJson(
             '/api/reports/summary',

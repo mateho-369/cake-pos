@@ -172,6 +172,10 @@ class CustomerOrderService
                 ->where('active', true)
                 ->lockForUpdate()
                 ->firstOrFail();
+            // A null price must never become a silent $0 customer order.
+            if ($product->price_cents === null) {
+                abort(409, "{$product->name} has no price and cannot be ordered");
+            }
             // Reserved units belong to other open orders — they are not
             // available for a new hold.
             if ($product->stock - $product->reserved_stock < $quantity) {

@@ -13,6 +13,13 @@ import { apiRequest } from '../lib/api'
 import { useTranslation } from '../lib/i18n'
 import type { Product } from '../data'
 
+// A product row with a missing/legacy null price must never throw
+// `toFixed is not a function` while picking a photo. The catalog API is
+// expected to send a numeric price, but an old/partial payload should render
+// as $0.00 instead of crashing the Products page.
+const usd = (value: number | null | undefined) =>
+  `$${(Number.isFinite(value as number) ? (value as number) : 0).toFixed(2)}`
+
 /**
  * Shared image chooser used wherever the admin attaches a photo to something
  * — the broadcast composer AND the product form (new or existing). One
@@ -30,7 +37,7 @@ export type PickedImage = {
   url: string
   caption?: string
   source: 'upload' | 'product' | 'library'
-  product?: { id: number; name: string; price: number }
+  product?: { id: number; name: string; price?: number | null }
 }
 
 type TabId = 'upload' | 'product' | 'library'
@@ -130,7 +137,7 @@ export default function ImageSourcePicker({
     }
     onPick({
       url,
-      caption: `New: ${product.name} — $${product.price.toFixed(2)}`,
+      caption: `New: ${product.name} — ${usd(product.price)}`,
       source: 'product',
       product: {
         id: product.id,
@@ -225,7 +232,7 @@ export default function ImageSourcePicker({
                     {!url && <span>{product.name.slice(0, 2)}</span>}
                     <em>
                       {product.name}
-                      <small>${product.price.toFixed(2)}</small>
+                      <small>{usd(product.price)}</small>
                     </em>
                   </button>
                 )

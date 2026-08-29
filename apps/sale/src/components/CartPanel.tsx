@@ -14,6 +14,12 @@ import {
 import type { CartItem } from '../data'
 import { splitTender } from '../lib/tender'
 import { useTranslation } from '../lib/i18n'
+// Legacy/partial product rows may carry a null price; treat it as $0.00 so
+// the cart never throws `toFixed is not a function` on the sale terminal.
+const safeNumber = (value: number | null | undefined) =>
+  Number.isFinite(value as number) ? (value as number) : 0
+const usd = (value: number | null | undefined) =>
+  `$${safeNumber(value).toFixed(2)}`
 export type PaymentMethod = 'cash' | 'khqr'
 type DiscountType = 'percentage' | 'fixed'
 type Props = {
@@ -155,7 +161,7 @@ export default function CartPanel({
               <div className="cart-item-copy">
                 <strong>{product.name}</strong>
                 <span>
-                  ${product.price.toFixed(2)} {t('sale.each')}
+                  {usd(product.price)} {t('sale.each')}
                 </span>
                 <div className="quantity-control">
                   <button onClick={() => onQuantity(product.id, -1)}>
@@ -171,7 +177,7 @@ export default function CartPanel({
                 </div>
               </div>
               <div className="cart-item-total">
-                <strong>${(product.price * quantity).toFixed(2)}</strong>
+                <strong>{usd(safeNumber(product.price) * quantity)}</strong>
                 <button onClick={() => onRemove(product.id)}>
                   <Trash2 size={14} />
                 </button>

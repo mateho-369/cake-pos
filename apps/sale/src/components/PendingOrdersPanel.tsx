@@ -11,6 +11,11 @@ import {
 } from 'lucide-react'
 import { useTranslation } from '../lib/i18n'
 import type { PendingOrder } from '../data'
+// A null/omitted total on a legacy payload must never throw in the pending UI.
+const safeNumber = (value: number | null | undefined) =>
+  Number.isFinite(value as number) ? (value as number) : 0
+const usd = (value: number | null | undefined) =>
+  `$${safeNumber(value).toFixed(2)}`
 
 type CashTender = {
   usdReceivedCents: number
@@ -76,7 +81,7 @@ export default function PendingOrdersPanel({
   const openPay = (order: PendingOrder) => {
     setPaying(order)
     setMethod('Cash')
-    setReceived(order.total.toFixed(2))
+    setReceived(safeNumber(order.total).toFixed(2))
     setReceivedKhr('')
   }
 
@@ -95,7 +100,7 @@ export default function PendingOrdersPanel({
     onPay(order.id, m, {
       usdReceivedCents: usdCents,
       khrReceived: khr,
-      totalCents: Math.round(order.total * 100),
+      totalCents: Math.round(safeNumber(order.total) * 100),
     })
       .then(() => {
         setPaying(null)
@@ -184,7 +189,7 @@ export default function PendingOrdersPanel({
                     <AlertTriangle size={11} /> {t('pending.stale')}
                   </span>
                 )}
-                <b>${order.total.toFixed(2)}</b>
+                <b>{usd(order.total)}</b>
               </div>
               <div className="pending-card-body">
                 <strong>{order.customer?.name || t('pending.customer')}</strong>

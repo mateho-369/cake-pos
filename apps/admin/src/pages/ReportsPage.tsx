@@ -492,7 +492,11 @@ export default function ReportsPage({
               <FileSpreadsheet size={19} />
               <span>
                 <strong>{t(item.label)}</strong>
-                <small>{t('reports.updatedNow')}</small>
+                <small>
+                  {t('reports.csvRange', {
+                    range: formatReportRange(from, to),
+                  })}
+                </small>
               </span>
               <Download size={16} />
             </button>
@@ -844,7 +848,7 @@ function TopProductsTable() {
           <span className="rank">{index + 1}</span>
           <strong>{product.name}</strong>
           <span>{product.units}</span>
-          <strong className="numeric">${product.revenue.toFixed(2)}</strong>
+          <strong className="numeric">{usd(product.revenue)}</strong>
         </div>
       ))}
     </div>
@@ -885,7 +889,7 @@ function PaymentsBreakdown() {
               </small>
             )}
           </strong>
-          <strong className="numeric">${row.value.toFixed(2)}</strong>
+          <strong className="numeric">{usd(row.value)}</strong>
           <span>{total ? Math.round((row.value / total) * 100) : 0}%</span>
         </div>
       ))}
@@ -1368,7 +1372,7 @@ function ComparisonChart({ waste }: { waste: boolean }) {
       <div className="bar-plot">
         {series.map((item) => (
           <div className="bar-group" key={item.day}>
-            <div className="bar-tooltip">${item.value.toFixed(2)}</div>
+            <div className="bar-tooltip">{usd(item.value)}</div>
             <div className="bars">
               <i
                 className="sales-bar"
@@ -1388,6 +1392,21 @@ function ComparisonChart({ waste }: { waste: boolean }) {
       )}
     </div>
   )
+}
+
+function formatReportRange(from: string, to: string) {
+  if (!from && !to) return 'All time'
+  const fmt = (value: string) =>
+    new Date(`${value}T00:00:00`).toLocaleDateString('en', {
+      month: 'short',
+      day: 'numeric',
+    })
+  const start = from ? fmt(from) : ''
+  const end = to ? fmt(to) : 'today'
+  if (from && to && from === to) return start
+  if (from && to) return `${start} – ${end}`
+  if (from) return `${start} – today`
+  return `until ${end}`
 }
 
 function formatReportDay(day: string) {

@@ -206,11 +206,12 @@ class OrderService
      * Held orders reserve stock while they wait, so a hold that is resumed
      * into the cart and then checked out must be closed — otherwise the
      * customer's order stays in the held list forever and its reserved stock
-     * never comes back. Deliberately uses the Released status instead of
-     * Cancelled (a hold the customer legitimately paid for was never
-     * cancelled; only the paid order carries the revenue, so reports cannot
-     * double count), frees the reservation, and records why in the audit
-     * trail.
+     * never comes back. The status stays Cancelled deliberately (never
+     * Completed: only the paid order carries the revenue, so reports cannot
+     * double count). The transition is recorded in the audit trail and the
+     * status event with `reason: hold_paid` + `paidOrderId`, which lets the
+     * admin UI display "Converted → <paid order>" instead of mislabelling a
+     * real sale as a cancellation.
      *
      * Idempotent: a hold that is no longer held (already paid directly,
      * voided, or released by a retry) is skipped, never released twice.
@@ -256,13 +257,13 @@ class OrderService
                 }
             }
             $order->update([
-                'status' => 'Released',
-                'fulfillment_status' => 'Released',
+                'status' => 'Cancelled',
+                'fulfillment_status' => 'Cancelled',
             ]);
             OrderStatusEvent::create([
                 'order_id' => $order->id,
                 'from_status' => 'Held',
-                'to_status' => 'Released',
+                'to_status' => 'Cancelled',
                 'employee_id' => $employee->id,
                 'metadata' => [
                     'reason' => 'hold_paid',
@@ -356,8 +357,11 @@ class OrderService
      * (Pending/Confirmed/Ready) CANNOT be cancelled by staff — that window
      * belongs exclusively to the customer through the phone Mini App, so a
      * staff mis-click can never kill a real customer order before it is
-     * verified. The optional reason travels into the audit trail and the
-     * status event — never into the customer notification.
+     * verified. A hold that was resumed and paid is released separately
+     * (releaseHeldOrders) — it is never cancelled through this path, so the
+     * "void" action never touches a real paid conversion. The optional reason
+     * travels into the audit trail and the status event — never into the
+     * customer notification.
      */
     public function cancel(
         Order $order,
@@ -721,6 +725,14 @@ class OrderService
                 ->where('active', true)
                 ->lockForUpdate()
                 ->firstOrFail();
+            // A null price must never become a silent $0 order. The catalog UI
+            // renders such rows as $0.00 without crashing, but the server still
+            // refuses to sell a product that has no price.
+            if ($product->price_cents === null) {
+                $this->conflict(
+                    "{$product->name} has no price and cannot be ordered",
+                );
+            }
             if (
                 $product->stock - ($forHold ? $product->reserved_stock : 0) <
                 $quantity

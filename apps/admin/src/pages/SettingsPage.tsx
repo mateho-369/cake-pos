@@ -21,6 +21,11 @@ import { apiRequest, getApiUrl } from '../lib/api'
 import { useTranslation } from '../lib/i18n'
 import BroadcastSettings from './BroadcastSettings'
 
+const safeNumber = (value: number | null | undefined) =>
+  Number.isFinite(value as number) ? (value as number) : 0
+const money = (value: number | null | undefined) =>
+  `$${safeNumber(value).toFixed(2)}`
+
 const settingsTabs = [
   { id: 'business', label: 'settings.businessProfile', icon: Building2 },
   { id: 'payments', label: 'settings.paymentsKhqr', icon: CreditCard },
@@ -756,7 +761,7 @@ function ReceiptPreview({
             </section>
             <strong>
               <span>{km ? 'សរុប' : 'TOTAL'}</span>
-              <b>${latestOrder.total.toFixed(2)}</b>
+              <b>{money(latestOrder.total)}</b>
             </strong>
           </>
         ) : (

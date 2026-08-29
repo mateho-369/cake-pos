@@ -33,7 +33,7 @@ type OpenOrderItem = {
   productId: number
   name: string
   quantity: number
-  price: number
+  price: number | null
 }
 const newPlaceKey = () =>
   globalThis.crypto?.randomUUID?.() ||
@@ -193,10 +193,7 @@ export default function CustomerApp() {
   // be serialized as null and rejected by the backend. Treat unknown prices
   // as 0 so the cart totals/order never throw.
   const total = items.reduce(
-    (sum, item) =>
-      sum +
-      (Number.isFinite(item.product.price as number) ? item.product.price : 0) *
-        item.quantity,
+    (sum, item) => sum + safeNumber(item.product.price) * item.quantity,
     0,
   )
   const change = (product: Product, delta: number) =>

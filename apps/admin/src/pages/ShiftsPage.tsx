@@ -33,6 +33,9 @@ export default function ShiftsPage({
   const [saving, setSaving] = useState(false)
   const closeShift = async (event: React.FormEvent) => {
     event.preventDefault()
+    // Explicit confirmation: closing a shift locks ordering until a new one
+    // opens, so it must never happen from a single click.
+    if (!window.confirm(t('shifts.closeConfirm'))) return
     setSaving(true)
     try {
       await apiRequest('/api/shifts/close', {

@@ -10,6 +10,9 @@ import HeldOrdersPanel from './components/HeldOrdersPanel'
 import ShiftModal from './components/ShiftModal'
 import type { HeldOrder, PendingOrder } from './data'
 
+const safeNumber = (value: number | null | undefined) =>
+  Number.isFinite(value as number) ? (value as number) : 0
+
 function gotoTerminal() {
   window.location.assign('/')
 }
@@ -134,7 +137,7 @@ export function HeldOrdersPage() {
             ? {
                 method: 'Cash',
                 ...cashTenderPayload(
-                  Math.round(order.total * 100),
+                  Math.round(safeNumber(order.total) * 100),
                   tender.usdReceivedCents,
                   tender.khrReceived,
                   exchangeRateKhrPerUsd,

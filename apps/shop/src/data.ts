@@ -9,7 +9,8 @@ export type Product = {
   id: number
   name: string
   category: string
-  price: number
+  // Null price tolerated for legacy/partial payloads; formatters treat it as 0.
+  price: number | null
   stock: number
   imagePosition: string
   imageUrl?: string | null

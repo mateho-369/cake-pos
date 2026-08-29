@@ -2,6 +2,10 @@ import { Printer, ReceiptText } from 'lucide-react'
 import type { SaleOrder } from '../data'
 import Modal from './Modal'
 import { printReceipt } from '../lib/receipt'
+const safeNumber = (value: number | null | undefined) =>
+  Number.isFinite(value as number) ? (value as number) : 0
+const usd = (value: number | null | undefined) =>
+  `$${safeNumber(value).toFixed(2)}`
 export default function OrderHistoryModal({
   open,
   orders,
@@ -37,7 +41,7 @@ export default function OrderHistoryModal({
                 {order.time} · {order.detail.join(', ')}
               </small>
             </div>
-            <b>${order.total.toFixed(2)}</b>
+            <b>{usd(order.total)}</b>
             <div>
               <button onClick={() => print(order.id, 1)}>
                 <Printer size={14} /> Customer

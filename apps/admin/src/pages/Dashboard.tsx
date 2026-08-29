@@ -15,6 +15,13 @@ import {
 import { type PageId } from '../data'
 import { translateCategory, useTranslation } from '../lib/i18n'
 import { useAdminData } from '../lib/data'
+// Money from the API may be missing on a partial/legacy payload. Every
+// render goes through this formatter so a null never throws `toFixed is not
+// a function` on the overview dashboard.
+const safeNumber = (value: number | null | undefined) =>
+  Number.isFinite(value as number) ? (value as number) : 0
+const money = (value: number | null | undefined) =>
+  `$${safeNumber(value).toFixed(2)}`
 
 type DashboardProps = {
   onNavigate: (page: PageId) => void
@@ -57,7 +64,7 @@ export default function Dashboard({
     ['Expires today', '1 day left'].includes(product.status),
   )
   const atRiskValue = freshnessRisk.reduce(
-    (sum, product) => sum + product.stock * product.price,
+    (sum, product) => sum + product.stock * safeNumber(product.price),
     0,
   )
   const atRiskUnits = freshnessRisk.reduce(
@@ -294,7 +301,8 @@ export default function Dashboard({
                     <span>
                       {t('dashboard.unitsAtRisk', {
                         count: product.stock,
-                        value: product.stock * product.price,
+                        value:
+                          product.stock * safeNumber(product.price),
                       })}
                     </span>
                   </div>
@@ -469,7 +477,7 @@ export default function Dashboard({
                   )}
                   {paymentLabel(t, order.payment)}
                 </span>
-                <strong className="numeric">${order.total.toFixed(2)}</strong>
+                <strong className="numeric">{money(order.total)}</strong>
               </button>
             ))}
           </div>

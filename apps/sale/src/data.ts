@@ -13,7 +13,8 @@ export type Product = {
   category: string
   /** Id of the chosen category (stable across renames). Optional. */
   categoryId?: number
-  price: number
+  // Null price tolerated for legacy/partial payloads; formatters treat it as 0.
+  price: number | null
   stock: number
   imagePosition: string
   freshness: Freshness
@@ -60,7 +61,7 @@ export type SaleOrder = {
   discountType?: 'percentage' | 'fixed' | null
   discountValue?: number | null
   discountAmount?: number
-  total: number
+  total: number | null
   payment: 'Cash' | 'KHQR' | null
   status:
     | 'Pending'
@@ -73,6 +74,9 @@ export type SaleOrder = {
     // Orders parked at the terminal for a customer who pays later.
     | 'Held'
     | 'Cancelled'
+    // A hold that was resumed and paid at checkout is closed as Released
+    // (never Cancelled) so reports don't double-count the sale.
+    | 'Released'
   detail: string[]
   /** Optional label the cashier typed when holding ("Dara — 4pm"). */
   holdLabel?: string | null
@@ -105,7 +109,7 @@ export type PendingOrder = {
   isStale?: boolean
   createdAt: string
   status: string
-  total: number
+  total: number | null
   detail: string[]
   customer?: {
     name: string

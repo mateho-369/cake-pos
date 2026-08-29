@@ -5539,6 +5539,24 @@ img.qr-placeholder {
   color: #a92c36;
   background: #f9e1e3;
 }
+.status-badge.order-status-converted {
+  color: #14785a;
+  background: #e4f4ed;
+}
+.status-badge .converted-link {
+  border: 0;
+  padding: 0;
+  margin-left: 4px;
+  font: inherit;
+  font-weight: 700;
+  color: #0f5f48;
+  background: none;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.status-badge .converted-link:hover {
+  color: #0a4636;
+}
 .status-badge.order-status-released {
   color: #756a71;
   background: #eee9eb;

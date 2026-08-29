@@ -11,6 +11,12 @@ import { useAdminData } from '../lib/data'
 import Modal from '../components/Modal'
 import { useTranslation } from '../lib/i18n'
 import type { Product } from '../data'
+// A null/omitted money field from a legacy payload must render as $0.00
+// rather than throw `toFixed is not a function` on the freshness page.
+const safeNumber = (value: number | null | undefined) =>
+  Number.isFinite(value as number) ? (value as number) : 0
+const money = (value: number | null | undefined) =>
+  `$${safeNumber(value).toFixed(2)}`
 
 type Props = { onToast: (message: string) => void }
 export default function FreshnessPage({ onToast }: Props) {
@@ -67,7 +73,7 @@ export default function FreshnessPage({ onToast }: Props) {
       event.productName,
       event.quantity,
       event.reason,
-      event.retailValue.toFixed(2),
+      safeNumber(event.retailValue).toFixed(2),
       event.recordedBy || '',
     ])
     const content = [
@@ -237,7 +243,9 @@ export default function FreshnessPage({ onToast }: Props) {
                 <strong>
                   {product.stock} {t('common.units')}
                 </strong>
-                <strong>${(product.stock * product.price).toFixed(2)}</strong>
+                <strong>
+                  {money(product.stock * safeNumber(product.price))}
+                </strong>
                 {product.status === 'Expired' && (
                   <button
                     className="text-button coral-text"
@@ -291,7 +299,7 @@ export default function FreshnessPage({ onToast }: Props) {
               <span className="reason-pill">
                 {reasonLabel(t, event.reason)}
               </span>
-              <strong>${event.retailValue.toFixed(2)}</strong>
+              <strong>{money(event.retailValue)}</strong>
               <span>{event.recordedBy || '—'}</span>
             </div>
           ))}

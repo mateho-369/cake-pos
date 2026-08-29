@@ -607,6 +607,13 @@
   background: linear-gradient(145deg, #42b98e, #147c5d);
   box-shadow: 0 11px 30px rgba(20, 132, 95, 0.19);
 }
+.status-celebration.cancelled > span {
+  background: linear-gradient(145deg, #ef8e95, #b13a44);
+  box-shadow: 0 11px 30px rgba(169, 44, 54, 0.19);
+}
+.status-celebration.cancelled > small {
+  color: #a92c36;
+}
 .status-celebration > small {
   margin-top: 13px;
   display: block;
@@ -743,6 +750,22 @@
 .customer-khqr p {
   color: var(--muted);
   font-size: calc(12px * var(--font-scale));
+}
+.status-cancel {
+  width: 100%;
+  margin-top: 13px;
+  padding: 12px;
+  border: 1px solid #efd9dc;
+  border-radius: 14px;
+  color: #a92c36;
+  background: #fdf3f4;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.status-cancel:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 .status-back {
   width: 100%;

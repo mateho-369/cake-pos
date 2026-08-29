@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   Banknote,
+  CheckCircle,
   FileSpreadsheet,
   FileText,
   MoreHorizontal,
@@ -37,6 +38,72 @@ const khr = (value: number | null | undefined) =>
 const centsUsd = (cents: number | null | undefined) =>
   `$${(asNumber(cents) / 100).toFixed(2)}`
 const statusClass = (status: string) => `order-status-${status.toLowerCase()}`
+// A hold that was resumed and paid is closed as Cancelled solely so revenue
+// is not double-counted; it is NOT a rejection. The status event's reason
+// (`hold_paid`) is what lets the UI show "Converted → CS-4" instead of a
+// misleading Cancelled label.
+const isHoldConverted = (order: Pick<Order, 'status' | 'statusChange'>) =>
+  order.status === 'Cancelled' &&
+  order.statusChange?.reason === 'hold_paid'
+const convertedPaidOrderId = (
+  order: Pick<Order, 'status' | 'statusChange'>,
+) =>
+  isHoldConverted(order)
+    ? String(order.statusChange?.paidOrderId ?? '')
+    : ''
+
+/**
+ * Status chip. Cancelled + `hold_paid` renders as "Converted → <paid order>"
+ * and the paid order id is a link back to the actual sale. Genuine rejects
+ * and discards keep the plain Cancelled label.
+ */
+function OrderStatusBadge({
+  order,
+  onConverted,
+  className = '',
+}: {
+  order: Order
+  onConverted?: (id: string) => void
+  className?: string
+}) {
+  const { t } = useTranslation()
+  const paidId = convertedPaidOrderId(order)
+  if (isHoldConverted(order) && paidId) {
+    return (
+      <span
+        className={`status-badge order-status-converted ${className}`}
+        title={t('orders.convertedToPaid', { id: paidId })}
+      >
+        <i />
+        {t('orders.converted')}
+        <span
+          role="button"
+          tabIndex={0}
+          className="converted-link"
+          onClick={(event) => {
+            event.stopPropagation()
+            onConverted?.(paidId)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.stopPropagation()
+              event.preventDefault()
+              onConverted?.(paidId)
+            }
+          }}
+        >
+          {paidId}
+        </span>
+      </span>
+    )
+  }
+  return (
+    <span className={`status-badge ${statusClass(order.status)} ${className}`}>
+      <i />
+      {order.status}
+    </span>
+  )
+}
 
 /**
  * Live "pending customer orders" panel: Telegram self-orders that are held
@@ -220,7 +287,7 @@ function PayHeldOrderModal({
 }) {
   const { t } = useTranslation()
   const [method, setMethod] = useState<'Cash' | 'KHQR'>('Cash')
-  const [received, setReceived] = useState(order.total.toFixed(2))
+  const [received, setReceived] = useState(asNumber(order.total).toFixed(2))
   return (
     <div className="modal-layer" role="dialog" aria-modal="true">
       <button
@@ -521,10 +588,7 @@ export default function OrdersPage({
                 )}{' '}
                 {order.payment || t('orders.notPaid')}
               </span>
-              <span className={`status-badge ${statusClass(order.status)}`}>
-                <i />
-                {order.status}
-              </span>
+              <OrderStatusBadge order={order} onConverted={onSelect} />
               <strong className="numeric">{usd(order.total)}</strong>
               <MoreHorizontal size={17} />
             </button>
@@ -542,12 +606,10 @@ export default function OrdersPage({
                   <h2>{selected.id}</h2>
                 </div>
                 <div className="order-detail-actions">
-                  <span
-                    className={`status-badge ${statusClass(selected.status)}`}
-                  >
-                    <i />
-                    {selected.status}
-                  </span>
+                  <OrderStatusBadge
+                    order={selected}
+                    onConverted={onSelect}
+                  />
                   <button
                     className="text-button"
                     onClick={() => onSelect(null)}
@@ -647,7 +709,7 @@ export default function OrdersPage({
                 </span>
               </div>
 
-              {selected.payments?.length ? (
+              {selected.status === 'Completed' && selected.payments?.length ? (
                 <div className="payment-breakdown">
                   <span>{t('orders.paymentBreakdown')}</span>
                   {selected.payments.map((payment) => {
@@ -707,15 +769,31 @@ export default function OrdersPage({
                 </div>
               )}
 
-              {selected.status === 'Cancelled' && selected.source === 'telegram' && (
-                <div className="receipt-confirmation cancelled">
-                  <AlertTriangle size={17} />
-                  <span>
-                    <strong>{t('orders.cancelledByCustomer')}</strong>
-                    <small>{t('orders.cancelledBeforeAccept')}</small>
-                  </span>
-                </div>
-              )}
+              {selected.status === 'Cancelled' &&
+                isHoldConverted(selected) && (
+                  <div className="receipt-confirmation converted">
+                    <CheckCircle size={17} />
+                    <span>
+                      <strong>
+                        {t('orders.convertedToPaid', {
+                          id: convertedPaidOrderId(selected),
+                        })}
+                      </strong>
+                      <small>{t('orders.convertedNote')}</small>
+                    </span>
+                  </div>
+                )}
+              {selected.status === 'Cancelled' &&
+                !isHoldConverted(selected) &&
+                selected.source === 'telegram' && (
+                  <div className="receipt-confirmation cancelled">
+                    <AlertTriangle size={17} />
+                    <span>
+                      <strong>{t('orders.cancelledByCustomer')}</strong>
+                      <small>{t('orders.cancelledBeforeAccept')}</small>
+                    </span>
+                  </div>
+                )}
 
               {selected.source === 'telegram' ? (
                 <div className="telegram-order-controls">

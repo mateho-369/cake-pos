@@ -41,6 +41,10 @@ type Shift = {
 type Success = { total: number; method: PaymentMethod; orderId: string }
 type PendingSaleAction =
   { type: 'add'; product: Product } | { type: 'checkout' } | null
+// API money fields can be null on a partial payload; never let null throw
+// `toFixed is not a function` in the sale terminal.
+const safeNumber = (value: number | null | undefined) =>
+  Number.isFinite(value as number) ? (value as number) : 0
 export default function App() {
   const { token } = useStaffAuth()
   const path = window.location.pathname.replace(/\/$/, '')
@@ -189,7 +193,10 @@ function SaleTerminal() {
   }
   const subtotal = useMemo(
     () =>
-      cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0),
+      cart.reduce(
+        (sum, item) => sum + safeNumber(item.product.price) * item.quantity,
+        0,
+      ),
     [cart],
   )
   const requestedDiscount = Math.max(0, Number(discountValue || 0))
@@ -235,9 +242,9 @@ function SaleTerminal() {
         )
       }
       setShift({
-        openingCash: liveShift.openingCash,
-        openingCashKhr: liveShift.openingCashKhr ?? 0,
-        expectedCashKhr: liveShift.expectedCashKhr ?? 0,
+        openingCash: safeNumber(liveShift.openingCash),
+        openingCashKhr: safeNumber(liveShift.openingCashKhr),
+        expectedCashKhr: safeNumber(liveShift.expectedCashKhr),
         ...(startedAt ? { startedAt } : {}),
       })
     } else {
@@ -372,7 +379,11 @@ function SaleTerminal() {
           ? cashTenderPayload(totalCents, usdCents, khrReceived, rate)
           : {}),
       })
-      setSuccess({ total: order.total, method: payment, orderId: order.id })
+      setSuccess({
+        total: safeNumber(order.total),
+        method: payment,
+        orderId: order.id,
+      })
       setCart([])
       setTendered('')
       setTenderedKhr('')
@@ -532,9 +543,9 @@ function SaleTerminal() {
           )
         }
         setShift({
-          openingCash: result.openingCash,
-          openingCashKhr: result.openingCashKhr ?? 0,
-          expectedCashKhr: result.expectedCashKhr ?? 0,
+          openingCash: safeNumber(result.openingCash),
+          openingCashKhr: safeNumber(result.openingCashKhr),
+          expectedCashKhr: safeNumber(result.expectedCashKhr),
           ...(startedAt ? { startedAt } : {}),
         })
         setToast(
@@ -587,7 +598,7 @@ function SaleTerminal() {
       await createProduct({
         name: product.name,
         category: product.category,
-        price: product.price,
+        price: Number(product.price ?? 0),
         stock: product.stock,
         bestBefore: product.bestBefore,
         imagePosition: product.imagePosition,
