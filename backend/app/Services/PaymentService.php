@@ -3,6 +3,7 @@ namespace App\Services;
 use App\Jobs\SendCustomerStatusNotification;
 use App\Jobs\SendStaffOrderNotification;
 use App\Models\{Employee, Order, OrderPayment, Product, OrderStatusEvent};
+use App\Support\CashTender;
 use App\Support\ExchangeRate;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
@@ -71,53 +72,18 @@ final class PaymentService
                 return $existing;
             }
             $this->ensurePayable($order);
-            $rate = ExchangeRate::current();
-            if (
-                isset($input['exchangeRateKhrPerUsd']) &&
-                (int) $input['exchangeRateKhrPerUsd'] !== $rate
-            ) {
-                throw ValidationException::withMessages([
-                    'exchangeRateKhrPerUsd' => ['Exchange rate is stale'],
-                ]);
-            }
-            $usd = (int) ($input['usdReceivedCents'] ?? 0);
-            $khr = (int) ($input['khrReceived'] ?? 0);
-            $cu = (int) ($input['changeUsdCents'] ?? 0);
-            $ck = (int) ($input['changeKhr'] ?? 0);
-            if (min($usd, $khr, $cu, $ck) < 0) {
-                throw ValidationException::withMessages([
-                    'payment' => ['Tender and change cannot be negative'],
-                ]);
-            }
-            $due = $order->total_cents * $rate;
-            $tender = $usd * $rate + $khr * 100;
-            $change = $cu * $rate + $ck * 100;
-            if ($tender < $due) {
-                throw ValidationException::withMessages([
-                    'payment' => ['Tender is below the amount due'],
-                ]);
-            }
-            $expected = $tender - $due;
-            $difference = $change - $expected;
-            $tolerance = ExchangeRate::increment() * 100;
-            if (abs($difference) > $tolerance) {
-                throw ValidationException::withMessages([
-                    'payment' => [
-                        'Change breakdown does not match the expected change',
-                    ],
-                ]);
-            }
+            $tender = CashTender::validate($order->total_cents, $input);
             $payment = OrderPayment::create([
                 'order_id' => $order->id,
                 'method' => $method,
                 'status' => 'confirmed',
                 'amount_usd_cents' => $order->total_cents,
-                'exchange_rate_khr_per_usd' => $rate,
-                'tendered_usd_cents' => $usd,
-                'tendered_khr' => $khr,
-                'change_usd_cents' => $cu,
-                'change_khr' => $ck,
-                'settlement_rounding_khr' => intdiv($difference, 100),
+                'exchange_rate_khr_per_usd' => $tender['rate'],
+                'tendered_usd_cents' => $tender['usd'],
+                'tendered_khr' => $tender['khr'],
+                'change_usd_cents' => $tender['changeUsd'],
+                'change_khr' => $tender['changeKhr'],
+                'settlement_rounding_khr' => $tender['roundingKhr'],
                 'confirmed_by_employee_id' => $employee->id,
                 'confirmed_at' => now(),
             ]);

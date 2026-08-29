@@ -9,7 +9,7 @@ services:
         deploy:
             resources:
                 limits:
-                    memory: 192M
+                    memory: 256M
 
     queue:
         build:
@@ -22,7 +22,7 @@ services:
         deploy:
             resources:
                 limits:
-                    memory: 128M
+                    memory: 192M
 
     migrate:
         build:

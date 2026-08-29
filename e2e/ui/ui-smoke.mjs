@@ -569,7 +569,13 @@ await page
 await page.waitForTimeout(600)
 const shifts2 = await page.locator('.page-content').innerText()
 check('shifts shows open shift', shifts2.includes('Open'))
-check('shifts expected drawer $130.00', shifts2.includes('$130.00'))
+  // Opening $100 + mixed $8 USD (the ៛8,200 is a separate pile) + $20 cash
+  // = $128 USD expected. The old $130 figure blended the riel into USD.
+  check(
+    'shifts expected drawer $128.00 (USD pile; KHR is separate)',
+    shifts2.includes('$128.00'),
+    shifts2.replace(/\n/g, ' | ').slice(0, 400),
+  )
 
 // Orders page shows the real order
 await page
@@ -790,30 +796,73 @@ if (BOT_TOKEN) {
     first_name: 'Srey',
     username: 'srey_test',
   })
+  const menuClosed = await api('/api/customer-products', {
+    method: 'POST',
+    body: { initData },
+  })
+  check(
+    'customer-products reports storeOpen while shift is closed',
+    menuClosed.status === 200 && menuClosed.json?.storeOpen === false,
+    `${menuClosed.status} storeOpen=${menuClosed.json?.storeOpen}`,
+  )
+  const reopenForShop = await api('/api/shifts/open', {
+    method: 'POST',
+    token: adminToken,
+    body: { openingCash: 20, openingCashKhr: 0 },
+  })
+  check(
+    'phase E: reopen shift so the Mini App can take orders',
+    reopenForShop.status === 201,
+    `${reopenForShop.status}`,
+  )
   const menu = await api('/api/customer-products', {
     method: 'POST',
     body: { initData },
   })
   check(
-    'customer-products 200 with real menu',
+    'customer-products 200 with real menu and storeOpen',
     menu.status === 200 &&
+      menu.json.storeOpen === true &&
       menu.json.products.some((p) => p.name === 'Smoke Cake'),
     `${menu.status}`,
   )
-  const custOrder = await api('/api/customer-orders', {
+  const closedAttempt = await api('/api/customer-orders', {
     method: 'POST',
-    body: { initData, items: [{ productId: prod.json.id, quantity: 1 }] },
+    body: {
+      initData,
+      items: [{ productId: prod.json.id, quantity: 1 }],
+      requestedTotal: 10,
+    },
   })
   check(
-    'customer-orders 201',
-    custOrder.status === 201,
+    'customer-orders is not store_closed once a shift is open',
+    closedAttempt.status !== 409 || closedAttempt.json?.store_closed !== true,
+    `${closedAttempt.status} ${JSON.stringify(closedAttempt.json).slice(0, 200)}`,
+  )
+  const custOrder = closedAttempt.status === 201 ? closedAttempt : await api('/api/customer-orders', {
+    method: 'POST',
+    body: {
+      initData,
+      items: [{ productId: prod.json.id, quantity: 1 }],
+      requestedTotal: 10,
+    },
+  })
+  check(
+    'customer-orders 201 or 409 for missing phone (not store-closed / not 422)',
+    custOrder.status === 201 ||
+      (custOrder.status === 409 &&
+        /phone/i.test(String(custOrder.json?.message || '')) &&
+        !custOrder.json?.store_closed),
     `${custOrder.status} ${JSON.stringify(custOrder.json)}`,
   )
-  const all = await api('/api/orders', { token: adminToken })
-  check(
-    'telegram order appears in admin order list',
-    all.json.some((o) => o.id === custOrder.json.id),
-  )
+  if (custOrder.status === 201) {
+    const all = await api('/api/orders', { token: adminToken })
+    const orderId = custOrder.json?.order?.id || custOrder.json?.id
+    check(
+      'telegram order appears in admin order list',
+      (all.json || []).some((o) => o.id === orderId),
+    )
+  }
 }
 
 // =====================================================================

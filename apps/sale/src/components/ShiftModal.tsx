@@ -18,6 +18,7 @@ export default function ShiftModal({
   openingCash,
   openingCashKhr = 0,
   cashSales,
+  cashSalesKhr = 0,
   employeeName,
   shiftStartedAt,
   onClose,
@@ -30,6 +31,7 @@ export default function ShiftModal({
   openingCash: number
   openingCashKhr?: number
   cashSales: number
+  cashSalesKhr?: number
   employeeName: string
   shiftStartedAt?: string
   onClose: () => void
@@ -113,7 +115,12 @@ export default function ShiftModal({
             </div>
             <div>
               <span>{t('shifts.cashSales')}</span>
-              <strong>+${cashSales.toFixed(2)}</strong>
+              <strong>
+                +${cashSales.toFixed(2)}
+                {cashSalesKhr
+                  ? ` · +៛${cashSalesKhr.toLocaleString()}`
+                  : ''}
+              </strong>
             </div>
             <div className="expected-row">
               <span>{t('shiftModal.countedDrawer')}</span>

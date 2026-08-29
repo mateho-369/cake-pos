@@ -624,7 +624,21 @@
     "repeatRate": "Repeat rate",
     "customersWithOrders": "Customers ordering",
     "thisMonth": "this month",
-    "productEvents": "Product events"
+    "productEvents": "Product events",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "thisWeek": "This week",
+    "lastMonth": "Last month",
+    "thisYear": "This year",
+    "losses": "Losses",
+    "lossesTitle": "Money lost",
+    "cashShortages": "Cash shortages",
+    "totalLost": "Total lost",
+    "voids": "Voids",
+    "refunds": "Refunds",
+    "discounts": "Discounts",
+    "from": "From",
+    "to": "To"
   },
   "settings": {
     "configuration": "Configuration",

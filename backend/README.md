@@ -16,6 +16,20 @@ docker compose up -d app web
 curl http://localhost:8080/healthz
 ```
 
+Production PHP-FPM enables OPcache with `opcache.validate_timestamps=0`
+(`docker/opcache.ini`). Bytecode is never rechecked on disk, so **every
+deploy must recreate the `app` (and `queue`) containers** — `docker
+compose up -d --build --force-recreate` — or the previous image's compiled
+files keep serving. After `.env` is in place run `php artisan config:cache`,
+`route:cache`, and `view:cache` (they bake the current env; re-run them
+whenever `.env` changes). On the VM that is `sh bin/post-deploy.sh`.
+
+The GitHub `deploy-backend.yml` still does `config:clear` + migrate + seed
+and cannot be edited from this PR (the GitHub App has no `workflows`
+permission). Until that YAML is patched to `--force-recreate` plus the
+three `*:cache` artisan commands (and the `/healthz` closure is gone, so
+`route:cache` can succeed), run `bin/post-deploy.sh` after each deploy.
+
 The one-shot `migrate` and `minio-init` services use explicit shell entrypoints and YAML lists containing one folded-scalar command. `minio-init` creates the bucket, grants anonymous downloads only below `product-images/`, and applies browser CORS rules. Neither MySQL nor MinIO is exposed beyond `127.0.0.1`; reverse-proxy the configured `AWS_PUBLIC_ENDPOINT` to MinIO's local port while preserving the request host for S3 signatures.
 
 Laravel signs direct browser PUTs through `/api/uploads/presign`, then `/api/uploads/complete` reads the stored bytes through the internal MinIO endpoint and verifies size plus MIME magic before the URL may be persisted. The backend app, MinIO server, and init job all read the same `backend/.env`; there is no second credential file to drift out of sync.

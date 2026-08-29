@@ -83,6 +83,10 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         OrderController::class,
         'pay',
     ])->middleware('open-shift');
+    Route::post('/orders/{order}/accept', [
+        OrderController::class,
+        'accept',
+    ])->middleware('open-shift');
     Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
     // Quick manual note from staff to the order's customer over Telegram.
     Route::post('/orders/{order}/message', [OrderController::class, 'message']);
@@ -186,6 +190,10 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::get('/reports/waste', [
         ReportController::class,
         'waste',
+    ])->middleware('admin');
+    Route::get('/reports/losses', [
+        ReportController::class,
+        'losses',
     ])->middleware('admin');
     Route::get('/reports/freshness', [
         ReportController::class,

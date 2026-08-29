@@ -19,12 +19,15 @@ RUN composer dump-autoload --no-dev --classmap-authoritative --no-interaction
 
 FROM php:8.4-fpm-alpine AS runtime
 WORKDIR /var/www/html
-RUN docker-php-ext-install -j1 pdo_mysql opcache \
+RUN apk add --no-cache freetype-dev libjpeg-turbo-dev libpng-dev \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j1 pdo_mysql opcache gd \
     && WWW_CONF="$(find /usr/local/etc -type f -name www.conf -print -quit)" \
     && test -n "$WWW_CONF" \
     && echo "php-fpm pool config: $WWW_CONF" \
     && sed -i 's/^;\?clear_env[[:space:]]*=.*/clear_env = no/' "$WWW_CONF" \
     && grep -Eq '^clear_env[[:space:]]*=[[:space:]]*no' "$WWW_CONF"
+COPY docker/opcache.ini /usr/local/etc/php/conf.d/opcache.ini
 COPY --from=vendor /app /var/www/html
 RUN mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache

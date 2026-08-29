@@ -61,6 +61,11 @@
     "phoneTelegram": "Phone sharing is only available inside Telegram.",
     "cancelled": "Phone sharing was cancelled.",
     "getPhone": "Could not get your phone",
-    "send": "Could not send your order"
+    "send": "Could not send your order",
+    "closed": "The shop is closed until a cashier opens a shift. Please try again later."
+  },
+  "closed": {
+    "title": "We're closed right now",
+    "body": "The shop is closed until a cashier opens a shift. Please try again later."
   }
 }

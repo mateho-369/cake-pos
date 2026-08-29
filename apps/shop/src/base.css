@@ -55,7 +55,7 @@ button:disabled {
   border-radius: 14px;
   background: linear-gradient(145deg, #d9437d, #ad154e);
   box-shadow: 0 10px 24px rgba(190, 24, 93, 0.24);
-  font-size: calc(10px * var(--font-scale));
+  font-size: calc(11px * var(--font-scale));
   font-weight: 800;
   text-decoration: none;
 }

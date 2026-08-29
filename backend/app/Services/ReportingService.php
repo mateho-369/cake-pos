@@ -344,8 +344,19 @@ final class ReportingService
      */
     public function audit(array $input): array
     {
-        $r = DateRange::from($input);
-        $q = AuditEvent::whereBetween('created_at', [$r->from, $r->to]);
+        // Product-accountability lookups (catalog editor) omit from/to so
+        // they see the full reason history. A fake 2000–2099 window used to
+        // 422 on DateRange's 366-day cap.
+        $productOnly =
+            !empty($input['productId']) &&
+            empty($input['from']) &&
+            empty($input['to']) &&
+            empty($input['preset']);
+        $q = AuditEvent::query();
+        if (!$productOnly) {
+            $r = DateRange::from($input);
+            $q->whereBetween('created_at', [$r->from, $r->to]);
+        }
         if (!empty($input['employee'])) {
             $q->where('employee_id', (int) $input['employee']);
         }
@@ -449,6 +460,46 @@ final class ReportingService
             ->groupBy('reason')
             ->get()
             ->toArray();
+    }
+
+    /**
+     * Money that left the business without becoming net sales: waste,
+     * discounts on paid orders, voids, refunds, and cash-drawer shortages
+     * (negative variance only — overages are not “lost”).
+     */
+    public function losses(array $input): array
+    {
+        $r = DateRange::from($input);
+        $wasteCents = (int) DB::table('inventory_waste_events')
+            ->whereBetween('recorded_at', [$r->from, $r->to])
+            ->sum('retail_value_cents');
+        $discountsCents = (int) $this->paid($r)->sum(
+            'orders.discount_amount_cents',
+        );
+        $voidsCents = (int) Order::where('status', 'Voided')
+            ->whereBetween('created_at', [$r->from, $r->to])
+            ->sum(DB::raw('-total_cents'));
+        $refundsCents = (int) Order::where('status', 'Refunded')
+            ->whereBetween('created_at', [$r->from, $r->to])
+            ->sum(DB::raw('-total_cents'));
+        $cashShortagesCents = (int) Shift::where('status', 'Closed')
+            ->whereBetween('closed_at', [$r->from, $r->to])
+            ->where('variance_usd_cents', '<', 0)
+            ->selectRaw('COALESCE(SUM(-variance_usd_cents), 0) as amt')
+            ->value('amt');
+        return [
+            'wasteCents' => $wasteCents,
+            'discountsCents' => $discountsCents,
+            'voidsCents' => $voidsCents,
+            'refundsCents' => $refundsCents,
+            'cashShortagesCents' => $cashShortagesCents,
+            'totalLostCents' =>
+                $wasteCents +
+                $discountsCents +
+                $voidsCents +
+                $refundsCents +
+                $cashShortagesCents,
+        ];
     }
 
     /**

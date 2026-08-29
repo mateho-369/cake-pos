@@ -18,12 +18,16 @@ final readonly class DateRange
                 'yesterday' => $today->subDay(),
                 'this_week' => $today->startOfWeek(),
                 'this_month' => $today->startOfMonth(),
+                'last_month' => $today->subMonthNoOverflow()->startOfMonth(),
+                'this_year' => $today->startOfYear(),
                 default => $today,
             };
             $to = match ($preset) {
                 'yesterday' => $today->subDay()->endOfDay(),
                 'this_week' => $today->endOfWeek(),
                 'this_month' => $today->endOfMonth(),
+                'last_month' => $today->subMonthNoOverflow()->endOfMonth(),
+                'this_year' => $today->endOfYear(),
                 default => $today->endOfDay(),
             };
         } else {

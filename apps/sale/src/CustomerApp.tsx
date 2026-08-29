@@ -31,6 +31,7 @@ type MenuResponse = {
   customer: Customer
   products: Product[]
   khqrImageUrl?: string
+  storeOpen?: boolean
 }
 type Cart = Record<number, number>
 const statusSteps = ['Pending', 'Confirmed', 'Paid', 'Ready']
@@ -184,8 +185,12 @@ export default function CustomerApp() {
       setCartOpen(false)
       webApp?.HapticFeedback?.notificationOccurred?.('success')
     } catch (reason) {
+      const message =
+        reason instanceof Error ? reason.message : 'Could not send your order'
       setError(
-        reason instanceof Error ? reason.message : 'Could not send your order',
+        /closed|no cashier/i.test(message)
+          ? 'The shop is closed until a cashier opens a shift. Please try again later.'
+          : message,
       )
     } finally {
       setSending(false)
@@ -209,6 +214,19 @@ export default function CustomerApp() {
         </span>
         <strong>Storefront unavailable</strong>
         <p>{error}</p>
+      </main>
+    )
+  if (menu.storeOpen === false && !order)
+    return (
+      <main className="customer-state">
+        <span>
+          <CakeSlice />
+        </span>
+        <strong>We're closed right now</strong>
+        <p>
+          The shop is closed until a cashier opens a shift. Please try again
+          later.
+        </p>
       </main>
     )
   if (order)
