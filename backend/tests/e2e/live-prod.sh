@@ -70,7 +70,7 @@ assert() {
     FAIL=$((FAIL + 1)); echo "  FAIL  $1"
     # Every failure is an ::error annotation too, so a red job is
     # diagnosable WITHOUT downloading the logs (sandbox egress cannot reach
-    # the Azure log store). GitHub shows the first errors per step.
+    # the Azure log store). GitHub shows at most 10 errors per step.
     annotate error "assertion-failed" "$1"
   fi
 }
