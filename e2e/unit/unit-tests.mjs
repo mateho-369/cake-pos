@@ -153,6 +153,12 @@ const stubSrc = exportsSrc.replace(
   /function download\(blob: Blob, filename: string\) \{[\s\S]*?\n\}/,
   'function download() {}',
 )
+// exports.ts imports its sibling branding module; copy it into the bundle
+// directory so esbuild resolves it the same way Vite does.
+writeFileSync(
+  join(outDir, 'reportBranding.ts'),
+  readFileSync(join(root, 'apps/admin/src/lib/reportBranding.ts'), 'utf8'),
+)
 const { ordersInRange } = await bundle(stubSrc, 'orders')
 const base = {
   id: 'x',

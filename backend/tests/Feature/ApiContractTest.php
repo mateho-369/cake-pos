@@ -3128,6 +3128,30 @@ class ApiContractTest extends TestCase
         $this->assertSame(200, $losses['cashShortagesCents']);
         $this->assertSame(2700, $losses['totalLostCents']);
 
+        // A drawer that balances in dollars but is short in RIEL is still a
+        // loss: open with 41,000៛ in the till, count only 20,500៛ back at
+        // close. At the configured 4,100៛/$ that is exactly $5.00 short and
+        // it must land in cashShortagesCents, not vanish because the USD
+        // variance happened to be zero.
+        $this->postJson(
+            '/api/shifts/open',
+            ['openingCash' => '0.00', 'openingCashKhr' => 41000],
+            $this->auth($cashier),
+        )->assertCreated();
+        $this->postJson(
+            '/api/shifts/close',
+            ['closingCash' => '0.00', 'closingCashKhr' => 20500],
+            $this->auth($cashier),
+        )->assertOk();
+        $withKhr = $this->getJson(
+            '/api/reports/losses?preset=today',
+            $this->auth($admin),
+        )
+            ->assertOk()
+            ->json();
+        $this->assertSame(700, $withKhr['cashShortagesCents']);
+        $this->assertSame(3200, $withKhr['totalLostCents']);
+
         $this->getJson(
             '/api/reports/summary?preset=this_year',
             $this->auth($admin),

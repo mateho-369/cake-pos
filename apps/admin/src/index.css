@@ -3573,17 +3573,59 @@ button.order-full-row.selected {
   justify-content: space-between;
   gap: 12px;
 }
+/* Date presets are a segmented control, not a run-on line of link text:
+   every chip carries its own border/background at rest so the group reads
+   as buttons, and the selected one is filled in brand pink. */
 .report-presets {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+.report-presets .text-button {
+  padding: 7px 13px;
+  border: 1px solid rgba(79, 40, 58, 0.14);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink, #4f283a);
+  font-size: calc(12px * var(--font-scale));
+  font-weight: 700;
+  line-height: 1.1;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.report-presets .text-button:hover {
+  border-color: rgba(190, 24, 93, 0.4);
+  background: rgba(190, 24, 93, 0.06);
+  color: var(--pink-deep);
+}
+.report-presets .text-button:focus-visible {
+  outline: 2px solid var(--pink-deep);
+  outline-offset: 2px;
 }
 .report-presets .text-button.active {
-  color: var(--pink-deep);
-  border-color: rgba(190, 24, 93, 0.35);
-  background: rgba(190, 24, 93, 0.08);
+  border-color: transparent;
+  background: linear-gradient(145deg, #ec4899, #be185d);
+  color: #fff;
   font-weight: 800;
+  box-shadow: 0 4px 12px rgba(190, 24, 93, 0.28);
+}
+.report-presets .text-button.active:hover {
+  color: #fff;
+}
+@media (max-width: 820px) {
+  .report-presets {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 .report-tabs {
   overflow-x: auto;
@@ -3630,11 +3672,51 @@ button.order-full-row.selected {
 .report-tab-table {
   padding: 4px 14px 14px;
 }
+/* Every report rollup shares .report-tab-table, but they do NOT share a
+   shape: the products table has a rank badge + 3 data columns, the payments
+   table has 3 columns and the losses table only has a label and a value.
+   One hardcoded 4-column grid squeezed the 2-column rows into the 34px rank
+   slot and ran the label into its amount, so each shape declares its own
+   grid via a modifier class. The default (no modifier) stays 4-column for
+   any legacy markup. */
 .report-tab-table .table-row {
   display: grid;
   grid-template-columns: 34px minmax(140px, 2fr) 1fr 1fr;
   align-items: center;
   gap: 10px;
+}
+.report-tab-table--2col .table-row {
+  grid-template-columns: minmax(160px, 3fr) minmax(90px, 1fr);
+}
+.report-tab-table--3col .table-row {
+  grid-template-columns: minmax(160px, 2.4fr) minmax(90px, 1fr) minmax(
+      70px,
+      0.7fr
+    );
+}
+.report-tab-table--4col .table-row {
+  grid-template-columns: 34px minmax(140px, 2fr) 1fr 1fr;
+}
+/* Amounts sit on the right edge of their own column: with a label of any
+   length the two can never visually collide. */
+.report-tab-table--2col .table-row > *:last-child,
+.report-tab-table--3col .table-row > .numeric {
+  text-align: right;
+}
+.report-tab-table--2col .table-row.table-total {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+/* The Team tab's rows live inside .report-tab-table too, and their own
+   .accountability-head / .variance-row grids are LESS specific than the
+   shared rule above — so they were being overridden into the 4-column
+   products shape. Restate them at matching specificity. */
+.report-tab-table .table-row.accountability-head {
+  grid-template-columns: minmax(140px, 1.4fr) 60px 90px 120px 110px 120px auto;
+}
+.report-tab-table .table-row.variance-row {
+  grid-template-columns: minmax(140px, 1.4fr) 90px 90px 90px 80px;
 }
 .report-tab-table .table-row > .rank {
   width: 22px;
@@ -6690,5 +6772,163 @@ img.qr-placeholder {
   }
   .report-detail-table .detail-items {
     max-width: 180px;
+  }
+}
+
+/* --------------------------------------------------------------------
+   Reports → record-table filter bar + review-before-download dialog
+   -------------------------------------------------------------------- */
+.report-detail-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line, rgba(79, 40, 58, 0.12));
+}
+.report-detail-filters .inline-search {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+.report-detail-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 6px 5px 12px;
+  border: 1px solid var(--line, rgba(79, 40, 58, 0.14));
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.75);
+  font-size: calc(12px * var(--font-scale));
+  color: var(--muted, #7a6b74);
+  white-space: nowrap;
+}
+.report-detail-filter select {
+  max-width: 170px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  color: var(--ink, #2c2128);
+  font-weight: 600;
+  cursor: pointer;
+}
+.report-detail-filter:focus-within {
+  border-color: var(--pink, #e75480);
+  box-shadow: 0 0 0 3px rgba(231, 84, 128, 0.12);
+}
+.report-detail-clear {
+  gap: 5px;
+  color: var(--pink-deep, #a92c36);
+}
+
+.export-preview-card {
+  max-width: 900px;
+}
+.export-preview-lead {
+  margin: 0;
+  color: var(--muted, #7a6b74);
+}
+.export-preview-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line, rgba(79, 40, 58, 0.12));
+  border-radius: 14px;
+  background: rgba(253, 242, 246, 0.6);
+}
+.export-preview-meta dt {
+  margin-bottom: 4px;
+  font-size: calc(11px * var(--font-scale));
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted, #7a6b74);
+}
+.export-preview-meta dd {
+  margin: 0;
+  font-size: calc(13px * var(--font-scale));
+  color: var(--ink, #2c2128);
+  overflow-wrap: anywhere;
+}
+.export-preview-choices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.export-preview-formats,
+.export-preview-language {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--line, rgba(79, 40, 58, 0.14));
+  border-radius: 999px;
+  background: rgba(247, 232, 239, 0.45);
+}
+.export-preview-language > span {
+  padding: 0 8px;
+  font-size: calc(11px * var(--font-scale));
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted, #7a6b74);
+}
+.export-preview-formats button,
+.export-preview-language button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 600;
+  color: var(--muted, #7a6b74);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.export-preview-formats button:hover,
+.export-preview-language button:hover {
+  color: var(--ink, #2c2128);
+  background: rgba(255, 255, 255, 0.8);
+}
+.export-preview-formats button.active,
+.export-preview-language button.active {
+  background: var(--pink, #e75480);
+  border-color: var(--pink, #e75480);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(231, 84, 128, 0.24);
+}
+.export-preview-table-wrap {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--line, rgba(79, 40, 58, 0.12));
+  border-radius: 14px;
+}
+.export-preview-table {
+  font-size: calc(12px * var(--font-scale));
+}
+.export-preview-table th {
+  background: #fff;
+}
+.export-preview-more {
+  color: var(--muted, #7a6b74);
+}
+@media (max-width: 820px) {
+  .export-preview-choices {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .report-detail-filter select {
+    max-width: 120px;
   }
 }

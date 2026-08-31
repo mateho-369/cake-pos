@@ -68,6 +68,8 @@ class SettingsController extends Controller
             'shiftClosingPolicy' => 'opener_or_admin',
             'defaultShelfLifeDays' => 3,
             'warningDays' => 1,
+            // Language exported reports are written in (en/km).
+            'reportLanguage' => 'en',
         ];
         $stored = Setting::find('pos_rules')?->value_json ?? [];
         return response()->json(array_merge($defaults, $stored));

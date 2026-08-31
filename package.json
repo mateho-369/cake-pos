@@ -31,8 +31,9 @@
     "test:jsdom": "node e2e/ui-audit/run-audit.mjs",
     "test:ui:quick-add": "node e2e/ui-audit/verify-quick-add-category.mjs && node e2e/ui-audit/verify-quick-add-empty-state.mjs",
     "test:ui:categories": "node e2e/ui-audit/verify-category-review.mjs",
-    "test:ui": "npm run test:ui:quick-add && npm run test:ui:categories && node e2e/ui-audit/verify-accountability.mjs && node e2e/ui-audit/verify-pending-orders.mjs && npm run test:ui:reports",
-    "test:ui:reports": "node e2e/ui-audit/verify-report-detail.mjs"
+    "test:ui": "npm run test:ui:quick-add && npm run test:ui:categories && node e2e/ui-audit/verify-accountability.mjs && node e2e/ui-audit/verify-pending-orders.mjs && npm run test:ui:reports && npm run test:exports",
+    "test:ui:reports": "node e2e/ui-audit/verify-report-detail.mjs",
+    "test:exports": "node e2e/exports-verify/verify.mjs"
   },
   "devDependencies": {
     "@prettier/plugin-php": "^0.25.0",

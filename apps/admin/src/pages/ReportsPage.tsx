@@ -3,8 +3,6 @@ import {
   AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
-  ChevronDown,
-  ChevronUp,
   Download,
   FileSpreadsheet,
   FileText,
@@ -15,25 +13,20 @@ import {
   TrendingUp,
   X,
 } from 'lucide-react'
-import type { Order, Product, RevenuePoint } from '../data'
+import type { Order, Product, RevenuePoint, WasteEvent } from '../data'
 import { useAdminData } from '../lib/data'
 import { apiRequest } from '../lib/api'
 import { translateCategory, useTranslation } from '../lib/i18n'
-import TablePagination, {
-  DEFAULT_PAGE_SIZE,
-  paginate,
-  pageCount,
-  type PageSize,
-} from '../components/TablePagination'
+import ReportDetailTable from '../components/ReportDetailTable'
+import ExportPreviewModal, {
+  type ExportRequest,
+} from '../components/ExportPreviewModal'
+import { ordersInRange, type LossesReport } from '../lib/exports'
 import {
-  downloadCsv,
-  exportLossesExcel,
-  exportLossesWord,
-  exportOrdersExcel,
-  exportSummaryWord,
-  ordersInRange,
-  type LossesReport,
-} from '../lib/exports'
+  defaultBranding,
+  type ReportBranding,
+  type ReportLanguage,
+} from '../lib/reportBranding'
 
 export default function ReportsPage({
   onToast,
@@ -89,6 +82,97 @@ export default function ReportsPage({
     key: string
     label: string
   } | null>(null)
+  // Letterhead identity + report language come from Settings, so every
+  // export carries the shop's real name/address and the labels the owner
+  // chose — not hardcoded strings baked into the exporter.
+  const [branding, setBranding] = useState<ReportBranding>(defaultBranding)
+  const [language, setLanguage] = useState<ReportLanguage>('en')
+  const [posRules, setPosRules] = useState<Record<string, unknown> | null>(null)
+  // Nothing downloads on click: the request is staged here and the review
+  // dialog is what actually generates the file.
+  const [exportRequest, setExportRequest] = useState<ExportRequest | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const profile = await apiRequest<{
+          businessName?: string
+          locationName?: string
+          address?: string
+          phone?: string
+        }>('/api/settings/business-profile')
+        if (!cancelled && profile) {
+          setBranding({
+            businessName: profile.businessName || defaultBranding.businessName,
+            locationName: profile.locationName || '',
+            address: profile.address || '',
+            phone: profile.phone || '',
+          })
+        }
+      } catch {
+        // Offline or unauthorised: fall back to the default letterhead.
+      }
+      try {
+        const rules = await apiRequest<Record<string, unknown>>(
+          '/api/settings/pos-rules',
+        )
+        if (!cancelled && rules) {
+          setPosRules(rules)
+          if (rules.reportLanguage === 'km' || rules.reportLanguage === 'en') {
+            setLanguage(rules.reportLanguage)
+          }
+        }
+      } catch {
+        // Keep the English default when the setting cannot be read.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  // Remember the language with the rest of the POS rules so the choice
+  // survives a reload and applies to every terminal, not just this tab.
+  const changeLanguage = (next: ReportLanguage) => {
+    setLanguage(next)
+    if (!posRules) return
+    const payload = { ...posRules, reportLanguage: next }
+    setPosRules(payload)
+    void apiRequest('/api/settings/pos-rules', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }).catch(() => {
+      /* A failed save must not block the download in front of the admin. */
+    })
+  }
+  const stageExport = (request: ExportRequest) => setExportRequest(request)
+  const wasteInRange = (freshness?.events ?? []).filter((event) =>
+    inRange(event.recordedAt, from, to),
+  )
+  /** The whole selected period as one order table, staged for review. */
+  const ordersExportRequest = (format: 'word' | 'excel'): ExportRequest => ({
+    meta: {
+      title: t('reports.ordersInPeriod'),
+      from,
+      to,
+      branding,
+      language,
+      totals: [
+        {
+          label: t('orders.total'),
+          value: usd(
+            selectedOrders.reduce(
+              (sum, order) => sum + safeNumber(order.total),
+              0,
+            ),
+          ),
+        },
+      ],
+    },
+    header: orderExportHeader,
+    rows: selectedOrders.map(orderExportRow),
+    filenameBase: `orders-${from || 'all'}-${to || 'all'}`,
+    defaultFormat: format,
+  })
   const selectedOrders = ordersInRange(orders, from, to)
   const applyPreset = (preset: string) => {
     const range = rangeForPreset(preset)
@@ -121,113 +205,143 @@ export default function ReportsPage({
     { key: 'freshWaste', label: 'reports.freshWaste' },
     { key: 'employeePerformance', label: 'reports.employeePerformance' },
   ]
-  // Each library item downloads a report that matches its label, built from
-  // the filtered dataset the admin chose in the export dialog — never an
-  // immediate unfiltered export.
-  const runLibraryExport = (
+  // Each library item builds the report that matches its label from the
+  // dataset the admin chose in the export dialog, then hands it to the
+  // review step — a library click never downloads anything by itself.
+  const buildLibraryExport = (
     key: string,
     label: string,
     rangeOrders: typeof orders,
     rangeFrom: string,
     rangeTo: string,
-  ) => {
-    onToast(t('reports.prepared', { name: t(label) }))
-    const run = (): Promise<void> | void => {
-      switch (key) {
-        case 'dailySummary':
-          return exportSummaryWord(rangeOrders, rangeFrom, rangeTo)
-        case 'sellThrough':
-          downloadCsv(
-            `product-sell-through-${rangeFrom || 'all'}-${rangeTo || 'all'}.csv`,
-            ['Product', 'Category', 'Sold', 'On hand', 'Sell-through %'],
-            rangeProductSellThrough(rangeOrders, products),
-          )
-          return
-        case 'reconciliation':
-          downloadCsv(
-            `payment-reconciliation-${rangeFrom || 'all'}-${rangeTo || 'all'}.csv`,
-            ['Order', 'Date', 'Payment', 'Status', 'Total (USD)'],
-            rangeOrders.map((order) => [
-              order.id,
-              new Date(order.createdAt).toLocaleDateString('en-CA'),
-              order.payment || 'Unpaid',
-              order.status,
-              usd(order.total),
-            ]),
-          )
-          return
-        case 'shiftVariance':
-          downloadCsv(
-            `shift-variance-${rangeFrom || 'all'}-${rangeTo || 'all'}.csv`,
-            [
-              'Opened',
-              'Closed',
-              'Opened by',
-              'Opening cash (USD)',
-              'Expected cash (USD)',
-              'Counted cash (USD)',
-              'Variance (USD)',
-              'Status',
-            ],
-            shifts
-              .filter(
-                (shift) =>
-                  inRange(shift.openedAt, rangeFrom, rangeTo) ||
-                  inRange(shift.closedAt, rangeFrom, rangeTo),
-              )
-              .map((shift) => [
-                new Date(shift.openedAt).toLocaleString(),
-                shift.closedAt ? new Date(shift.closedAt).toLocaleString() : '',
-                shift.openedBy || '',
-                ((shift.openingCashUsdCents ?? 0) / 100).toFixed(2),
-                ((shift.expectedCashUsdCents ?? 0) / 100).toFixed(2),
-                shift.closedAt
-                  ? ((shift.closingCashUsdCents ?? 0) / 100).toFixed(2)
-                  : '',
-                shift.closedAt
-                  ? ((shift.varianceUsdCents ?? 0) / 100).toFixed(2)
-                  : '',
-                shift.status,
-              ]),
-          )
-          return
-        case 'freshWaste':
-          downloadCsv(
-            `freshness-waste-${rangeFrom || 'all'}-${rangeTo || 'all'}.csv`,
-            [
-              'Date',
-              'Product',
-              'Quantity',
-              'Reason',
-              'Retail value (USD)',
-              'Recorded by',
-            ],
-            (freshness?.events ?? [])
-              .filter((event) => inRange(event.recordedAt, rangeFrom, rangeTo))
-              .map((event) => [
-                new Date(event.recordedAt).toLocaleString(),
-                event.productName,
-                event.quantity,
-                event.reason,
-                usd(event.retailValue),
-                event.recordedBy || '',
-              ]),
-          )
-          return
-        case 'employeePerformance':
-          downloadCsv(
-            `employee-performance-${rangeFrom || 'all'}-${rangeTo || 'all'}.csv`,
-            ['Employee', 'Role', 'Orders', 'Sales (USD)'],
-            rangeEmployeePerformance(rangeOrders),
-          )
-          return
-        default:
-          return exportOrdersExcel(rangeOrders, rangeFrom, rangeTo)
+  ): ExportRequest => {
+    const suffix = `${rangeFrom || 'all'}-${rangeTo || 'all'}`
+    const meta = (
+      title: string,
+      totals?: Array<{ label: string; value: string }>,
+    ) => ({
+      title,
+      from: rangeFrom,
+      to: rangeTo,
+      branding,
+      language,
+      totals,
+    })
+    switch (key) {
+      case 'dailySummary': {
+        const revenue = rangeOrders.reduce(
+          (sum, order) => sum + safeNumber(order.total),
+          0,
+        )
+        const items = rangeOrders.reduce(
+          (sum, order) => sum + safeNumber(order.items),
+          0,
+        )
+        const average = rangeOrders.length ? revenue / rangeOrders.length : 0
+        return {
+          meta: meta(t(label)),
+          header: ['Metric', 'Value'],
+          rows: [
+            ['Orders', rangeOrders.length],
+            ['Items sold', items],
+            ['Revenue (USD)', Number(revenue.toFixed(2))],
+            ['Average order (USD)', Number(average.toFixed(2))],
+            ...summaryTopProductRows(rangeOrders, products),
+          ],
+          filenameBase: `daily-summary-${suffix}`,
+        }
       }
+      case 'sellThrough':
+        return {
+          meta: meta(t(label)),
+          header: ['Product', 'Category', 'Sold', 'On hand', 'Sell-through %'],
+          rows: rangeProductSellThrough(rangeOrders, products),
+          filenameBase: `product-sell-through-${suffix}`,
+        }
+      case 'reconciliation':
+        return {
+          meta: meta(t(label)),
+          header: ['Order', 'Date', 'Payment', 'Status', 'Total (USD)'],
+          rows: rangeOrders.map((order) => [
+            order.id,
+            new Date(order.createdAt).toLocaleDateString('en-CA'),
+            order.payment || 'Unpaid',
+            order.status,
+            Number(safeNumber(order.total).toFixed(2)),
+          ]),
+          filenameBase: `payment-reconciliation-${suffix}`,
+        }
+      case 'shiftVariance':
+        return {
+          meta: meta(t(label)),
+          header: [
+            'Opened',
+            'Closed',
+            'Opened by',
+            'Opening cash (USD)',
+            'Expected cash (USD)',
+            'Counted cash (USD)',
+            'Variance (USD)',
+            'Status',
+          ],
+          rows: shifts
+            .filter(
+              (shift) =>
+                inRange(shift.openedAt, rangeFrom, rangeTo) ||
+                inRange(shift.closedAt, rangeFrom, rangeTo),
+            )
+            .map((shift) => [
+              new Date(shift.openedAt).toLocaleString(),
+              shift.closedAt ? new Date(shift.closedAt).toLocaleString() : '',
+              shift.openedBy || '',
+              Number(((shift.openingCashUsdCents ?? 0) / 100).toFixed(2)),
+              Number(((shift.expectedCashUsdCents ?? 0) / 100).toFixed(2)),
+              shift.closedAt
+                ? Number(((shift.closingCashUsdCents ?? 0) / 100).toFixed(2))
+                : '',
+              shift.closedAt
+                ? Number(((shift.varianceUsdCents ?? 0) / 100).toFixed(2))
+                : '',
+              shift.status,
+            ]),
+          filenameBase: `shift-variance-${suffix}`,
+        }
+      case 'freshWaste':
+        return {
+          meta: meta(t(label)),
+          header: [
+            'Date',
+            'Product',
+            'Quantity',
+            'Reason',
+            'Retail value (USD)',
+            'Recorded by',
+          ],
+          rows: wasteInRange.map((event) => [
+            new Date(event.recordedAt).toLocaleString(),
+            event.productName,
+            event.quantity,
+            event.reason,
+            Number(safeNumber(event.retailValue).toFixed(2)),
+            event.recordedBy || '',
+          ]),
+          filenameBase: `freshness-waste-${suffix}`,
+        }
+      case 'employeePerformance':
+        return {
+          meta: meta(t(label)),
+          header: ['Employee', 'Role', 'Orders', 'Sales (USD)'],
+          rows: rangeEmployeePerformance(rangeOrders),
+          filenameBase: `employee-performance-${suffix}`,
+        }
+      default:
+        return {
+          meta: meta(t(label)),
+          header: orderExportHeader,
+          rows: rangeOrders.map(orderExportRow),
+          filenameBase: `orders-${suffix}`,
+        }
     }
-    Promise.resolve(run()).catch((error) =>
-      onToast(error instanceof Error ? error.message : String(error)),
-    )
   }
   return (
     <div className="page-content">
@@ -280,21 +394,13 @@ export default function ReportsPage({
           </label>
           <button
             className="secondary-button"
-            onClick={() =>
-              void exportSummaryWord(selectedOrders, from, to)
-                .then(() => onToast('Word report exported'))
-                .catch((error) => onToast(error.message))
-            }
+            onClick={() => stageExport(ordersExportRequest('word'))}
           >
             <FileText size={16} /> Word
           </button>
           <button
             className="primary-button"
-            onClick={() =>
-              void exportOrdersExcel(selectedOrders, from, to)
-                .then(() => onToast('Excel workbook exported'))
-                .catch((error) => onToast(error.message))
-            }
+            onClick={() => stageExport(ordersExportRequest('excel'))}
           >
             <FileSpreadsheet size={16} /> Excel
           </button>
@@ -357,10 +463,23 @@ export default function ReportsPage({
           {tab === 'payments' && <PaymentsBreakdown />}
           {tab === 'team' && <TeamAccountability from={from} to={to} />}
           {tab === 'audit' && (
-            <AuditLogPanel from={from} to={to} onToast={onToast} />
+            <AuditLogPanel
+              from={from}
+              to={to}
+              onToast={onToast}
+              branding={branding}
+              language={language}
+              onReview={stageExport}
+            />
           )}
           {tab === 'losses' && (
-            <LossesPanel from={from} to={to} onToast={onToast} />
+            <LossesPanel
+              from={from}
+              to={to}
+              branding={branding}
+              language={language}
+              onReview={stageExport}
+            />
           )}
         </div>
         <div className="glass-panel insight-panel">
@@ -409,11 +528,24 @@ export default function ReportsPage({
         </div>
       </section>
       {DETAIL_TABLE_TABS.includes(tab) && (
-        <TransactionDetailTable
+        <TabDetailSection
+          tab={tab}
           orders={selectedOrders}
+          products={products}
+          waste={wasteInRange}
           from={from}
           to={to}
-          tab={tab}
+          onExport={({ header, rows, filters, title }) =>
+            stageExport({
+              meta: { title, from, to, branding, language, filters },
+              header,
+              rows,
+              filenameBase: `${title
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-|-$/g, '')}-${from || 'all'}-${to || 'all'}`,
+            })
+          }
         />
       )}
       <PeriodComparison from={from} to={to} />
@@ -524,9 +656,20 @@ export default function ReportsPage({
           onClose={() => setLibraryPicker(null)}
           onExport={(key, label, rangeFrom, rangeTo) => {
             const rangeOrders = ordersInRange(orders, rangeFrom, rangeTo)
-            runLibraryExport(key, label, rangeOrders, rangeFrom, rangeTo)
+            stageExport(
+              buildLibraryExport(key, label, rangeOrders, rangeFrom, rangeTo),
+            )
             setLibraryPicker(null)
           }}
+        />
+      )}
+      {exportRequest && (
+        <ExportPreviewModal
+          request={exportRequest}
+          language={language}
+          onLanguage={changeLanguage}
+          onClose={() => setExportRequest(null)}
+          onDone={onToast}
         />
       )}
     </div>
@@ -610,6 +753,46 @@ function LibraryExportModal({
     </div>
   )
 }
+/** The order-table shape shared by the toolbar export and the library. */
+const orderExportHeader = [
+  'Order ID',
+  'Date',
+  'Time',
+  'Source',
+  'Customer / Cashier',
+  'Items',
+  'Details',
+  'Subtotal (USD)',
+  'Discount (USD)',
+  'Payment',
+  'Status',
+  'Total (USD)',
+]
+
+const orderExportRow = (order: Order): Array<string | number> => [
+  order.id,
+  new Date(order.createdAt).toLocaleDateString('en-CA'),
+  order.time,
+  order.source,
+  order.customer?.name || order.cashier || '',
+  safeNumber(order.items),
+  (order.detail ?? []).join('; '),
+  Number(safeNumber(order.subtotal ?? order.total).toFixed(2)),
+  Number(safeNumber(order.discountAmount).toFixed(2)),
+  order.payment || '',
+  order.status,
+  Number(safeNumber(order.total).toFixed(2)),
+]
+
+/** Top sellers appended under the daily-summary KPI rows. */
+const summaryTopProductRows = (
+  orders: Order[],
+  products: Product[],
+): Array<Array<string | number>> =>
+  rangeProductSellThrough(orders, products)
+    .slice(0, 5)
+    .map((row) => [`Top seller · ${row[0]}`, row[2]])
+
 const cents = (value: number) => `$${(value / 100).toFixed(2)}`
 const safeNumber = (value: number | null | undefined) =>
   Number.isFinite(value as number) ? (value as number) : 0
@@ -621,29 +804,13 @@ const inRange = (iso: string | null | undefined, from: string, to: string) => {
   return day >= from && day <= to
 }
 /**
- * Tabs that get the shared transaction-detail table. Sales is the primary
- * one; Products / Payments / Team read the same transactions from their own
- * angle (which line items sold, how each order was tendered, who rang it
- * up), so they share one drill-down list with a tab-appropriate default
- * sort rather than three near-identical tables. Waste, Losses and Audit
- * already have their own event-level detail, so they are left alone.
+ * Tabs that browse raw records. Sales/Team browse orders, Products browses
+ * the individual sold line items, Payments browses each tendered payment
+ * and Waste browses each recorded waste event. Losses (a five-row rollup)
+ * and the Audit log (already an event list with its own filters) do not get
+ * a second table.
  */
-const DETAIL_TABLE_TABS = ['sales', 'products', 'payments', 'team']
-
-type DetailSortKey =
-  'date' | 'id' | 'source' | 'who' | 'items' | 'payment' | 'total' | 'status'
-type SortDirection = 'asc' | 'desc'
-
-/** Default sort per tab — the column that tab is actually about. */
-const DETAIL_DEFAULT_SORT: Record<
-  string,
-  { key: DetailSortKey; direction: SortDirection }
-> = {
-  sales: { key: 'date', direction: 'desc' },
-  products: { key: 'items', direction: 'desc' },
-  payments: { key: 'payment', direction: 'asc' },
-  team: { key: 'who', direction: 'asc' },
-}
+const DETAIL_TABLE_TABS = ['sales', 'products', 'payments', 'team', 'waste']
 
 const orderWho = (order: Order) => order.customer?.name || order.cashier || ''
 const orderItemsText = (order: Order) =>
@@ -651,255 +818,528 @@ const orderItemsText = (order: Order) =>
   (order.lineItems ?? [])
     .map((line) => `${line.description ?? '—'} × ${line.quantity}`)
     .join('; ')
+const stamp = (iso: string | null | undefined) =>
+  iso ? new Date(iso).toLocaleString() : '—'
+const stampSort = (iso: string | null | undefined) =>
+  iso ? new Date(iso).getTime() || 0 : 0
+const sourceLabel = (t: TranslationFn, order: Order) =>
+  order.source === 'telegram' ? t('orders.telegram') : t('orders.walkIn')
+const sourcePill = (t: TranslationFn, order: Order) => (
+  <span className={`source-pill ${order.source}`}>
+    {order.source === 'telegram' ? <Send size={12} /> : <Store size={12} />}
+    <strong>{sourceLabel(t, order)}</strong>
+  </span>
+)
+const statusPill = (status: string) => (
+  <span className={`status-badge order-status-${status.toLowerCase()}`}>
+    <i />
+    {status}
+  </span>
+)
+
+type TranslationFn = (
+  key: string,
+  variables?: Record<string, string | number>,
+) => string
+
+type ProductLineRow = {
+  order: Order
+  description: string
+  category: string
+  quantity: number
+  unitPriceCents: number
+  lineTotalCents: number
+  index: number
+}
+
+type PaymentRow = {
+  order: Order
+  method: string
+  status: string
+  amountUsdCents: number
+  tenderedUsdCents: number | null
+  tenderedKhr: number | null
+  changeUsdCents: number | null
+  rate: number | null
+  at: string
+  index: number
+}
+
+/** Expand every order in range into its individual sold line items. */
+function productLineRows(
+  orders: Order[],
+  products: Product[],
+): ProductLineRow[] {
+  const byId = new Map(products.map((product) => [product.id, product]))
+  const rows: ProductLineRow[] = []
+  orders.forEach((order) => {
+    const lines = order.lineItems ?? []
+    if (lines.length) {
+      lines.forEach((line, index) => {
+        rows.push({
+          order,
+          description:
+            line.description ||
+            (line.productId ? byId.get(line.productId)?.name : '') ||
+            '—',
+          category:
+            (line.productId ? byId.get(line.productId)?.category : '') || '—',
+          quantity: line.quantity,
+          unitPriceCents: line.unitPriceCents,
+          lineTotalCents:
+            line.lineTotalCents ?? line.unitPriceCents * line.quantity,
+          index,
+        })
+      })
+      return
+    }
+    // Legacy orders only kept the printed detail lines ("Cake × 2").
+    ;(order.detail ?? []).forEach((entry, index) => {
+      const [name, quantity] = entry.split(' × ')
+      rows.push({
+        order,
+        description: name || '—',
+        category: '—',
+        quantity: Number(quantity) || 1,
+        unitPriceCents: 0,
+        lineTotalCents: 0,
+        index,
+      })
+    })
+  })
+  return rows
+}
+
+/** Expand every order in range into its confirmed payment records. */
+function paymentRows(orders: Order[]): PaymentRow[] {
+  const rows: PaymentRow[] = []
+  orders.forEach((order) => {
+    const payments = order.payments ?? []
+    if (payments.length) {
+      payments.forEach((payment, index) => {
+        rows.push({
+          order,
+          method: payment.method === 'qr_manual' ? 'KHQR' : payment.method,
+          status: payment.status,
+          amountUsdCents: payment.amountUsdCents,
+          tenderedUsdCents: payment.tenderedUsdCents ?? null,
+          tenderedKhr: payment.tenderedKhr ?? null,
+          changeUsdCents: payment.changeUsdCents ?? null,
+          rate: payment.exchangeRateKhrPerUsd ?? null,
+          at: payment.confirmedAt ?? order.createdAt,
+          index,
+        })
+      })
+      return
+    }
+    // No payment row yet (held/pending/cancelled): still browsable, marked
+    // as unpaid rather than silently dropped from the payments view.
+    rows.push({
+      order,
+      method: order.payment ?? '—',
+      status: order.paymentStatus ?? 'unpaid',
+      amountUsdCents: Math.round(safeNumber(order.total) * 100),
+      tenderedUsdCents: null,
+      tenderedKhr: null,
+      changeUsdCents: null,
+      rate: null,
+      at: order.createdAt,
+      index: 0,
+    })
+  })
+  return rows
+}
 
 /**
- * The transaction-detail (drill-down) table every professional reporting
- * tool puts next to its summary rollups: one row per order in the date
- * range the admin picked at the top of Reports, sortable by any column and
- * paginated (25/50/100/All) so a busy month never dumps thousands of rows
- * into the DOM. It reads the same `ordersInRange(orders, from, to)` slice
- * the exports and KPIs use, so changing the preset moves this table with
- * everything else on the page.
+ * The record-level view for the selected tab: the actual rows behind the
+ * rollups, filtered by the same date range/preset chosen at the top of the
+ * page plus per-column filters (cashier, payment method, status, source,
+ * reason…), sortable and paginated. Export hands the exact filtered rows to
+ * the review dialog, so a download can only ever contain what was on screen.
  */
-function TransactionDetailTable({
+function TabDetailSection({
+  tab,
   orders,
+  products,
+  waste,
   from,
   to,
-  tab,
+  onExport,
 }: {
+  tab: string
   orders: Order[]
+  products: Product[]
+  waste: WasteEvent[]
   from: string
   to: string
-  tab: string
+  onExport: (payload: {
+    header: string[]
+    rows: Array<Array<string | number>>
+    filters: Array<{ label: string; value: string }>
+    title: string
+  }) => void
 }) {
   const { t } = useTranslation()
-  const initialSort = DETAIL_DEFAULT_SORT[tab] ?? DETAIL_DEFAULT_SORT.sales
-  const [sortKey, setSortKey] = useState<DetailSortKey>(initialSort.key)
-  const [direction, setDirection] = useState<SortDirection>(
-    initialSort.direction,
-  )
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE)
-  // A new tab means a new question: fall back to that tab's natural sort.
-  useEffect(() => {
-    const next = DETAIL_DEFAULT_SORT[tab] ?? DETAIL_DEFAULT_SORT.sales
-    setSortKey(next.key)
-    setDirection(next.direction)
-    setPage(1)
-  }, [tab])
-  // Range changes are a different dataset: never leave the admin stranded
-  // on page 7 of a shorter list.
-  useEffect(() => {
-    setPage(1)
-  }, [from, to])
+  const rangeLabel = t('reports.detailNote', {
+    range: formatReportRange(from, to),
+  })
+  const shared = { from, to, onExport, subtitle: rangeLabel }
 
-  const columns: Array<{
-    key: DetailSortKey
-    label: string
-    numeric?: boolean
-  }> = [
-    { key: 'date', label: t('reports.dateTimeCol') },
-    { key: 'id', label: t('orders.order') },
-    { key: 'source', label: t('orders.source') },
-    { key: 'who', label: t('orders.customerCashier') },
-    { key: 'items', label: t('orders.items') },
-    { key: 'payment', label: t('orders.payment') },
-    { key: 'total', label: t('orders.total'), numeric: true },
-    { key: 'status', label: t('orders.status') },
-  ]
-
-  const sorted = useMemo(() => {
-    const value = (order: Order): string | number => {
-      switch (sortKey) {
-        case 'date':
-          return new Date(order.createdAt).getTime() || 0
-        case 'id':
-          return order.id
-        case 'source':
-          return order.source
-        case 'who':
-          return orderWho(order).toLowerCase()
-        case 'items':
-          return safeNumber(order.items)
-        case 'payment':
-          return order.payment ?? ''
-        case 'total':
-          return safeNumber(order.total)
-        case 'status':
-          return order.status
-      }
-    }
-    const factor = direction === 'asc' ? 1 : -1
-    return [...orders].sort((a, b) => {
-      const left = value(a)
-      const right = value(b)
-      if (typeof left === 'number' && typeof right === 'number') {
-        return (left - right) * factor
-      }
-      return String(left).localeCompare(String(right)) * factor
-    })
-  }, [orders, sortKey, direction])
-
-  const pages = pageCount(sorted.length, pageSize)
-  const currentPage = Math.min(page, pages)
-  const visible = paginate(sorted, currentPage, pageSize)
-  const toggleSort = (key: DetailSortKey) => {
-    if (key === sortKey) {
-      setDirection(direction === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortKey(key)
-      // Dates and money read newest/biggest-first; text reads A→Z.
-      setDirection(
-        key === 'date' || key === 'total' || key === 'items' ? 'desc' : 'asc',
-      )
-    }
-    setPage(1)
-  }
-  const exportDetail = () =>
-    downloadCsv(
-      `transaction-detail-${from || 'all'}-${to || 'all'}.csv`,
-      [
-        'Date & time',
-        'Order',
-        'Source',
-        'Customer / cashier',
-        'Items',
-        'Item detail',
-        'Payment',
-        'Total (USD)',
-        'Status',
-      ],
-      sorted.map((order) => [
-        new Date(order.createdAt).toLocaleString(),
-        order.id,
-        order.source === 'telegram' ? 'Telegram' : 'Walk-in',
-        orderWho(order),
-        safeNumber(order.items),
-        orderItemsText(order),
-        order.payment || 'Not paid',
-        safeNumber(order.total).toFixed(2),
-        order.status,
-      ]),
+  if (tab === 'waste') {
+    return (
+      <ReportDetailTable<WasteEvent>
+        {...shared}
+        title={t('reports.wasteRecords')}
+        rows={waste}
+        rowKey={(row) => String(row.id)}
+        defaultSort={{ key: 'date', direction: 'desc' }}
+        searchPlaceholder={t('reports.searchWaste')}
+        filters={[
+          {
+            key: 'product',
+            label: t('dashboard.product'),
+            get: (row) => row.productName,
+          },
+          {
+            key: 'reason',
+            label: t('reports.reasonCol'),
+            get: (row) => row.reason,
+          },
+          {
+            key: 'recordedBy',
+            label: t('employees.employee'),
+            get: (row) => row.recordedBy || '—',
+          },
+        ]}
+        columns={[
+          {
+            key: 'date',
+            label: t('reports.dateTimeCol'),
+            value: (row) => stamp(row.recordedAt),
+            sort: (row) => stampSort(row.recordedAt),
+          },
+          {
+            key: 'product',
+            label: t('dashboard.product'),
+            value: (row) => row.productName,
+          },
+          {
+            key: 'category',
+            label: t('catalog.category'),
+            value: (row) => row.category || '—',
+          },
+          {
+            key: 'quantity',
+            label: t('dashboard.units'),
+            numeric: true,
+            value: (row) => row.quantity,
+          },
+          {
+            key: 'reason',
+            label: t('reports.reasonCol'),
+            value: (row) => row.reason,
+          },
+          {
+            key: 'value',
+            label: t('reports.retailValue'),
+            numeric: true,
+            value: (row) => Number(safeNumber(row.retailValue).toFixed(2)),
+            render: (row) => <strong>{usd(row.retailValue)}</strong>,
+          },
+          {
+            key: 'by',
+            label: t('reports.recordedBy'),
+            value: (row) => row.recordedBy || '—',
+          },
+        ]}
+      />
     )
+  }
+
+  if (tab === 'products') {
+    const rows = productLineRows(orders, products)
+    return (
+      <ReportDetailTable<ProductLineRow>
+        {...shared}
+        title={t('reports.productRecords')}
+        rows={rows}
+        rowKey={(row) => `${row.order.id}-${row.index}-${row.description}`}
+        defaultSort={{ key: 'date', direction: 'desc' }}
+        searchPlaceholder={t('reports.searchProducts')}
+        filters={[
+          {
+            key: 'product',
+            label: t('dashboard.product'),
+            get: (row) => row.description,
+          },
+          {
+            key: 'category',
+            label: t('catalog.category'),
+            get: (row) => row.category,
+          },
+          {
+            key: 'source',
+            label: t('orders.source'),
+            get: (row) => sourceLabel(t, row.order),
+          },
+          {
+            key: 'status',
+            label: t('orders.status'),
+            get: (row) => row.order.status,
+          },
+        ]}
+        columns={[
+          {
+            key: 'date',
+            label: t('reports.dateTimeCol'),
+            value: (row) => stamp(row.order.createdAt),
+            sort: (row) => stampSort(row.order.createdAt),
+          },
+          {
+            key: 'order',
+            label: t('orders.order'),
+            value: (row) => row.order.id,
+            render: (row) => <strong>{row.order.id}</strong>,
+          },
+          {
+            key: 'product',
+            label: t('dashboard.product'),
+            value: (row) => row.description,
+          },
+          {
+            key: 'category',
+            label: t('catalog.category'),
+            value: (row) => row.category,
+          },
+          {
+            key: 'quantity',
+            label: t('dashboard.units'),
+            numeric: true,
+            value: (row) => row.quantity,
+          },
+          {
+            key: 'unit',
+            label: t('reports.unitPrice'),
+            numeric: true,
+            value: (row) => Number((row.unitPriceCents / 100).toFixed(2)),
+            render: (row) => cents(row.unitPriceCents),
+          },
+          {
+            key: 'line',
+            label: t('reports.lineTotal'),
+            numeric: true,
+            value: (row) => Number((row.lineTotalCents / 100).toFixed(2)),
+            render: (row) => <strong>{cents(row.lineTotalCents)}</strong>,
+          },
+          {
+            key: 'status',
+            label: t('orders.status'),
+            value: (row) => row.order.status,
+            render: (row) => statusPill(row.order.status),
+          },
+        ]}
+      />
+    )
+  }
+
+  if (tab === 'payments') {
+    const rows = paymentRows(orders)
+    return (
+      <ReportDetailTable<PaymentRow>
+        {...shared}
+        title={t('reports.paymentRecords')}
+        rows={rows}
+        rowKey={(row) => `${row.order.id}-${row.index}`}
+        defaultSort={{ key: 'date', direction: 'desc' }}
+        searchPlaceholder={t('reports.searchPayments')}
+        filters={[
+          {
+            key: 'method',
+            label: t('orders.payment'),
+            get: (row) => row.method,
+          },
+          {
+            key: 'status',
+            label: t('orders.status'),
+            get: (row) => row.status,
+          },
+          {
+            key: 'cashier',
+            label: t('employees.employee'),
+            get: (row) => row.order.cashier || '—',
+          },
+        ]}
+        columns={[
+          {
+            key: 'date',
+            label: t('reports.dateTimeCol'),
+            value: (row) => stamp(row.at),
+            sort: (row) => stampSort(row.at),
+          },
+          {
+            key: 'order',
+            label: t('orders.order'),
+            value: (row) => row.order.id,
+            render: (row) => <strong>{row.order.id}</strong>,
+          },
+          {
+            key: 'method',
+            label: t('orders.payment'),
+            value: (row) => row.method,
+          },
+          {
+            key: 'status',
+            label: t('orders.status'),
+            value: (row) => row.status,
+          },
+          {
+            key: 'amount',
+            label: t('orders.total'),
+            numeric: true,
+            value: (row) => Number((row.amountUsdCents / 100).toFixed(2)),
+            render: (row) => <strong>{cents(row.amountUsdCents)}</strong>,
+          },
+          {
+            key: 'tenderUsd',
+            label: t('reports.tenderedUsd'),
+            numeric: true,
+            value: (row) =>
+              row.tenderedUsdCents === null
+                ? ''
+                : Number((row.tenderedUsdCents / 100).toFixed(2)),
+          },
+          {
+            key: 'tenderKhr',
+            label: t('reports.tenderedKhr'),
+            numeric: true,
+            value: (row) => row.tenderedKhr ?? '',
+          },
+          {
+            key: 'change',
+            label: t('reports.changeGiven'),
+            numeric: true,
+            value: (row) =>
+              row.changeUsdCents === null
+                ? ''
+                : Number((row.changeUsdCents / 100).toFixed(2)),
+          },
+          {
+            key: 'cashier',
+            label: t('employees.employee'),
+            value: (row) => row.order.cashier || '—',
+          },
+        ]}
+      />
+    )
+  }
+
+  // Sales and Team both browse the orders themselves; Team simply opens on
+  // the cashier column so accountability questions start grouped by person.
+  const team = tab === 'team'
   return (
-    <section className="glass-panel report-detail-panel">
-      <div className="panel-heading">
-        <div>
-          <span className="section-kicker">{t('reports.detailKicker')}</span>
-          <h2>{t('reports.detailTitle')}</h2>
-          <small className="report-detail-note">
-            {t('reports.detailNote', { range: formatReportRange(from, to) })}
-          </small>
-        </div>
-        <button
-          className="text-button"
-          onClick={exportDetail}
-          disabled={!sorted.length}
-        >
-          <Download size={14} /> {t('common.export')}
-        </button>
-      </div>
-      {!sorted.length ? (
-        <div className="empty-state">
-          <span>{t('reports.noTransactions')}</span>
-        </div>
-      ) : (
-        <>
-          <div className="table-responsive">
-            <table className="report-detail-table">
-              <thead>
-                <tr>
-                  {columns.map((column) => (
-                    <th
-                      key={column.key}
-                      className={column.numeric ? 'numeric' : undefined}
-                      aria-sort={
-                        sortKey === column.key
-                          ? direction === 'asc'
-                            ? 'ascending'
-                            : 'descending'
-                          : 'none'
-                      }
-                    >
-                      <button
-                        type="button"
-                        className={`detail-sort ${sortKey === column.key ? 'active' : ''}`}
-                        onClick={() => toggleSort(column.key)}
-                      >
-                        {column.label}
-                        {sortKey === column.key &&
-                          (direction === 'asc' ? (
-                            <ChevronUp size={12} />
-                          ) : (
-                            <ChevronDown size={12} />
-                          ))}
-                      </button>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((order) => (
-                  <tr key={order.id}>
-                    <td>
-                      <span className="detail-datetime">
-                        {new Date(order.createdAt).toLocaleString()}
-                      </span>
-                    </td>
-                    <td>
-                      <strong>{order.id}</strong>
-                      {order.pickupCode && (
-                        <small className="block-note">{order.pickupCode}</small>
-                      )}
-                    </td>
-                    <td>
-                      <span className={`source-pill ${order.source}`}>
-                        {order.source === 'telegram' ? (
-                          <Send size={12} />
-                        ) : (
-                          <Store size={12} />
-                        )}
-                        <strong>
-                          {order.source === 'telegram'
-                            ? t('orders.telegram')
-                            : t('orders.walkIn')}
-                        </strong>
-                      </span>
-                    </td>
-                    <td>{orderWho(order) || '—'}</td>
-                    <td>
-                      <strong>{safeNumber(order.items)}</strong>
-                      <small className="block-note detail-items">
-                        {orderItemsText(order) || '—'}
-                      </small>
-                    </td>
-                    <td>{order.payment || t('orders.notPaid')}</td>
-                    <td className="numeric">
-                      <strong>{usd(order.total)}</strong>
-                    </td>
-                    <td>
-                      <span
-                        className={`status-badge order-status-${order.status.toLowerCase()}`}
-                      >
-                        <i />
-                        {order.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <TablePagination
-            total={sorted.length}
-            page={currentPage}
-            pageSize={pageSize}
-            onPage={setPage}
-            onPageSize={setPageSize}
-          />
-        </>
-      )}
-    </section>
+    <ReportDetailTable<Order>
+      {...shared}
+      title={team ? t('reports.teamRecords') : t('reports.detailTitle')}
+      rows={orders}
+      rowKey={(row) => row.id}
+      defaultSort={
+        team
+          ? { key: 'cashier', direction: 'asc' }
+          : { key: 'date', direction: 'desc' }
+      }
+      searchPlaceholder={t('reports.searchOrders')}
+      filters={[
+        {
+          key: 'cashier',
+          label: t('employees.employee'),
+          get: (row) => row.cashier || '—',
+        },
+        {
+          key: 'source',
+          label: t('orders.source'),
+          get: (row) => sourceLabel(t, row),
+        },
+        {
+          key: 'payment',
+          label: t('orders.payment'),
+          get: (row) => row.payment || t('orders.notPaid'),
+        },
+        {
+          key: 'status',
+          label: t('orders.status'),
+          get: (row) => row.status,
+        },
+      ]}
+      columns={[
+        {
+          key: 'date',
+          label: t('reports.dateTimeCol'),
+          value: (row) => stamp(row.createdAt),
+          sort: (row) => stampSort(row.createdAt),
+        },
+        {
+          key: 'id',
+          label: t('orders.order'),
+          value: (row) => row.id,
+          render: (row) => (
+            <>
+              <strong>{row.id}</strong>
+              {row.pickupCode && (
+                <small className="block-note">{row.pickupCode}</small>
+              )}
+            </>
+          ),
+        },
+        {
+          key: 'source',
+          label: t('orders.source'),
+          value: (row) => sourceLabel(t, row),
+          render: (row) => sourcePill(t, row),
+        },
+        {
+          key: 'cashier',
+          label: t('employees.employee'),
+          value: (row) => row.cashier || '—',
+        },
+        {
+          key: 'who',
+          label: t('orders.customerCashier'),
+          value: (row) => orderWho(row) || '—',
+        },
+        {
+          key: 'items',
+          label: t('orders.items'),
+          numeric: true,
+          value: (row) => safeNumber(row.items),
+          render: (row) => (
+            <>
+              <strong>{safeNumber(row.items)}</strong>
+              <small className="block-note detail-items">
+                {orderItemsText(row) || '—'}
+              </small>
+            </>
+          ),
+        },
+        {
+          key: 'payment',
+          label: t('orders.payment'),
+          value: (row) => row.payment || t('orders.notPaid'),
+        },
+        {
+          key: 'total',
+          label: t('orders.total'),
+          numeric: true,
+          value: (row) => Number(safeNumber(row.total).toFixed(2)),
+          render: (row) => <strong>{usd(row.total)}</strong>,
+        },
+        {
+          key: 'status',
+          label: t('orders.status'),
+          value: (row) => row.status,
+          render: (row) => statusPill(row.status),
+        },
+      ]}
+    />
   )
 }
 
@@ -1019,11 +1459,15 @@ function rangeForPreset(preset: string): { from: string; to: string } {
 function LossesPanel({
   from,
   to,
-  onToast,
+  branding,
+  language,
+  onReview,
 }: {
   from: string
   to: string
-  onToast: (message: string) => void
+  branding: ReportBranding
+  language: ReportLanguage
+  onReview: (request: ExportRequest) => void
 }) {
   const { t } = useTranslation()
   const [data, setData] = useState<LossesReport | null>(null)
@@ -1050,7 +1494,7 @@ function LossesPanel({
     { label: t('reports.cashShortages'), value: data.cashShortagesCents },
   ]
   return (
-    <div className="report-tab-table table-responsive">
+    <div className="report-tab-table report-tab-table--2col table-responsive">
       <div className="table-row table-head">
         <span>{t('reports.losses')}</span>
         <span>{t('dashboard.revenue')}</span>
@@ -1061,7 +1505,7 @@ function LossesPanel({
           <strong className="numeric">{cents(row.value)}</strong>
         </div>
       ))}
-      <div className="table-row">
+      <div className="table-row table-total">
         <strong>{t('reports.totalLost')}</strong>
         <strong className="numeric">{cents(data.totalLostCents)}</strong>
       </div>
@@ -1069,40 +1513,30 @@ function LossesPanel({
         <button
           className="text-button"
           onClick={() =>
-            void exportLossesWord(data, from, to)
-              .then(() => onToast('Losses Word report exported'))
-              .catch((error) => onToast(error.message))
-          }
-        >
-          <FileText size={14} /> Word
-        </button>
-        <button
-          className="text-button"
-          onClick={() =>
-            void exportLossesExcel(data, from, to)
-              .then(() => onToast('Losses Excel workbook exported'))
-              .catch((error) => onToast(error.message))
-          }
-        >
-          <FileSpreadsheet size={14} /> Excel
-        </button>
-        <button
-          className="text-button"
-          onClick={() =>
-            downloadCsv(
-              `losses-${from}-${to}.csv`,
-              ['Category', 'USD'],
-              [
-                ...rows.map((row) => [row.label, (row.value / 100).toFixed(2)]),
-                [
-                  t('reports.totalLost'),
-                  (data.totalLostCents / 100).toFixed(2),
+            onReview({
+              meta: {
+                title: t('reports.lossesTitle'),
+                from,
+                to,
+                branding,
+                language,
+                totals: [
+                  {
+                    label: t('reports.totalLost'),
+                    value: cents(data.totalLostCents),
+                  },
                 ],
-              ],
-            )
+              },
+              header: [t('reports.losses'), 'USD'],
+              rows: rows.map((row) => [
+                row.label,
+                Number((row.value / 100).toFixed(2)),
+              ]),
+              filenameBase: `losses-${from || 'all'}-${to || 'all'}`,
+            })
           }
         >
-          <Download size={14} /> {t('common.export')}
+          <Download size={14} /> {t('reports.reviewAndExport')}
         </button>
       </div>
     </div>
@@ -1120,7 +1554,7 @@ function TopProductsTable() {
       </div>
     )
   return (
-    <div className="report-tab-table table-responsive">
+    <div className="report-tab-table report-tab-table--4col table-responsive">
       <div className="table-row table-head">
         <span>#</span>
         <span>{t('dashboard.product')}</span>
@@ -1157,7 +1591,7 @@ function PaymentsBreakdown() {
     { label: t('payment.khqr'), value: qr, count: qrCount },
   ]
   return (
-    <div className="report-tab-table table-responsive">
+    <div className="report-tab-table report-tab-table--3col table-responsive">
       <div className="table-row table-head">
         <span>{t('reports.channel')}</span>
         <span>{t('dashboard.revenue')}</span>
@@ -1398,10 +1832,16 @@ function AuditLogPanel({
   from,
   to,
   onToast,
+  branding,
+  language,
+  onReview,
 }: {
   from: string
   to: string
   onToast: (message: string) => void
+  branding: ReportBranding
+  language: ReportLanguage
+  onReview: (request: ExportRequest) => void
 }) {
   const { t } = useTranslation()
   const { employees } = useAdminData()
@@ -1427,18 +1867,40 @@ function AuditLogPanel({
     }
   }, [from, to, employee, action, onToast])
   const sorted = newestFirst ? rows : [...rows].reverse()
+  // The audit log is evidence: it goes through the same review step, so the
+  // exported file provably matches the filtered list on screen.
   const exportAudit = () =>
-    downloadCsv(
-      `audit-log-${from}-${to}.csv`,
-      ['Timestamp', 'Employee', 'Action', 'Order', 'Details'],
-      sorted.map((row) => [
+    onReview({
+      meta: {
+        title: t('reports.auditLog'),
+        from,
+        to,
+        branding,
+        language,
+        filters: [
+          ...(employee
+            ? [
+                {
+                  label: t('employees.employee'),
+                  value:
+                    employees.find((member) => String(member.id) === employee)
+                      ?.name || employee,
+                },
+              ]
+            : []),
+          ...(action ? [{ label: t('reports.actionCol'), value: action }] : []),
+        ],
+      },
+      header: ['Timestamp', 'Employee', 'Action', 'Order', 'Details'],
+      rows: sorted.map((row) => [
         new Date(row.at).toLocaleString(),
         row.employee,
         row.action,
         row.orderId || '',
         describeDetails(row.details),
       ]),
-    )
+      filenameBase: `audit-log-${from || 'all'}-${to || 'all'}`,
+    })
   return (
     <div className="audit-log-panel">
       <div className="audit-filters">
