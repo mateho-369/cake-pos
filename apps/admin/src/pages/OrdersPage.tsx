@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   Banknote,
+  CheckCircle,
   FileSpreadsheet,
   FileText,
   MoreHorizontal,
@@ -26,6 +27,109 @@ import {
   ordersInRange,
 } from '../lib/exports'
 
+// Money is safe even when the API omits a field (a null/undefined value must
+// never throw `toFixed is not a function` on the admin dashboard).
+const asNumber = (value: number | null | undefined) =>
+  Number.isFinite(value as number) ? (value as number) : 0
+const usd = (value: number | null | undefined) =>
+  `$${asNumber(value).toFixed(2)}`
+const khr = (value: number | null | undefined) =>
+  `${Math.round(asNumber(value)).toLocaleString()} ៛`
+const centsUsd = (cents: number | null | undefined) =>
+  `$${(asNumber(cents) / 100).toFixed(2)}`
+const statusClass = (status: string) => `order-status-${status.toLowerCase()}`
+// Cash tender payload for the admin Take Payment modal. Mirrors the sale
+// terminal's `cashTenderPayload`: all change is returned in USD cents (KHR
+// change = 0), matching CashTender::validate on the server, so the admin
+// override cannot bypass the real payment-recording contract.
+function adminCashTender(
+  totalCents: number,
+  usdCents: number,
+  khr: number,
+  rate: number,
+) {
+  const safeRate = Math.trunc(rate) > 0 ? Math.trunc(rate) : 4100
+  const total = Math.max(0, Math.trunc(totalCents))
+  const usd = Math.max(0, Math.trunc(usdCents))
+  const riel = Math.max(0, Math.trunc(khr))
+  const dueCentRiel = total * safeRate
+  const tenderCentRiel = usd * safeRate + riel * 100
+  const changeCentRiel = Math.max(0, tenderCentRiel - dueCentRiel)
+  return {
+    usdReceivedCents: usd,
+    khrReceived: riel,
+    changeUsdCents: Math.round(changeCentRiel / safeRate),
+    changeKhr: 0,
+    exchangeRateKhrPerUsd: safeRate,
+  }
+}
+// A hold that was resumed and paid is closed as Cancelled solely so revenue
+// is not double-counted; it is NOT a rejection. The status event's reason
+// (`hold_paid`) is what lets the UI show "Converted → CS-4" instead of a
+// misleading Cancelled label.
+const isHoldConverted = (order: Pick<Order, 'status' | 'statusChange'>) =>
+  order.status === 'Cancelled' &&
+  order.statusChange?.reason === 'hold_paid'
+const convertedPaidOrderId = (
+  order: Pick<Order, 'status' | 'statusChange'>,
+) =>
+  isHoldConverted(order)
+    ? String(order.statusChange?.paidOrderId ?? '')
+    : ''
+
+/**
+ * Status chip. Cancelled + `hold_paid` renders as "Converted → <paid order>"
+ * and the paid order id is a link back to the actual sale. Genuine rejects
+ * and discards keep the plain Cancelled label.
+ */
+function OrderStatusBadge({
+  order,
+  onConverted,
+  className = '',
+}: {
+  order: Order
+  onConverted?: (id: string) => void
+  className?: string
+}) {
+  const { t } = useTranslation()
+  const paidId = convertedPaidOrderId(order)
+  if (isHoldConverted(order) && paidId) {
+    return (
+      <span
+        className={`status-badge order-status-converted ${className}`}
+        title={t('orders.convertedToPaid', { id: paidId })}
+      >
+        <i />
+        {t('orders.converted')}
+        <span
+          role="button"
+          tabIndex={0}
+          className="converted-link"
+          onClick={(event) => {
+            event.stopPropagation()
+            onConverted?.(paidId)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.stopPropagation()
+              event.preventDefault()
+              onConverted?.(paidId)
+            }
+          }}
+        >
+          {paidId}
+        </span>
+      </span>
+    )
+  }
+  return (
+    <span className={`status-badge ${statusClass(order.status)} ${className}`}>
+      <i />
+      {order.status}
+    </span>
+  )
+}
+
 /**
  * Live "pending customer orders" panel: Telegram self-orders that are held
  * (unpaid) until the customer arrives. Polls every 15 s so new orders appear
@@ -33,8 +137,10 @@ import {
  */
 function PendingCustomerOrders({
   onToast,
+  rate,
 }: {
   onToast: (message: string) => void
+  rate: number
 }) {
   const { t } = useTranslation()
   const { refresh, updateOrder } = useAdminData()
@@ -62,34 +168,28 @@ function PendingCustomerOrders({
       setBusy(false)
     }
   }
-  const cancelOrder = async (order: Order) => {
-    if (!window.confirm(t('orders.cancelPendingConfirm', { id: order.id })))
-      return
-    setBusy(true)
-    try {
-      await apiRequest(`/api/orders/${order.id}/cancel`, { method: 'POST' })
-      await refresh()
-      await load()
-    } catch (reason) {
-      onToast(reason instanceof Error ? reason.message : 'Cancel failed')
-    } finally {
-      setBusy(false)
-    }
-  }
   const submitPayment = async (
     order: Order,
     method: 'Cash' | 'KHQR',
     usdReceived: string,
+    khrReceived: string,
   ) => {
     setBusy(true)
     try {
+      const usdCents = Math.round(Number(usdReceived || 0) * 100)
+      const khr = Math.round(Number(khrReceived.replace(/[^0-9]/g, '') || 0))
       await apiRequest(`/api/orders/${order.id}/pay`, {
         method: 'POST',
         body: JSON.stringify(
           method === 'Cash'
             ? {
                 method: 'Cash',
-                usdReceivedCents: Math.round(Number(usdReceived || 0) * 100),
+                ...adminCashTender(
+                  Math.round(asNumber(order.total) * 100),
+                  usdCents,
+                  khr,
+                  rate,
+                ),
               }
             : { method: 'KHQR', confirmed: true },
         ),
@@ -165,7 +265,7 @@ function PendingCustomerOrders({
               </small>
             </div>
             <div className="pending-order-total">
-              <strong>${order.total.toFixed(2)}</strong>
+              <strong>{usd(order.total)}</strong>
             </div>
             <div className="pending-order-actions">
               {order.status === 'Pending' && (
@@ -193,15 +293,6 @@ function PendingCustomerOrders({
               >
                 <Banknote size={15} /> {t('reports.takePayment')}
               </button>
-              <button
-                className="icon-button"
-                disabled={busy}
-                onClick={() => void cancelOrder(order)}
-                aria-label={t('common.cancel')}
-                title={t('common.cancel')}
-              >
-                <X size={16} />
-              </button>
             </div>
           </article>
         ))}
@@ -210,6 +301,8 @@ function PendingCustomerOrders({
         <PayHeldOrderModal
           order={paying}
           busy={busy}
+          rate={rate}
+          withKhr
           onClose={() => setPaying(null)}
           onSubmit={submitPayment}
         />
@@ -223,15 +316,39 @@ function PayHeldOrderModal({
   busy,
   onClose,
   onSubmit,
+  rate,
+  withKhr = false,
 }: {
   order: Order
   busy: boolean
   onClose: () => void
-  onSubmit: (order: Order, method: 'Cash' | 'KHQR', usdReceived: string) => void
+  onSubmit: (
+    order: Order,
+    method: 'Cash' | 'KHQR',
+    usdReceived: string,
+    khrReceived: string,
+  ) => void
+  rate: number
+  withKhr?: boolean
 }) {
   const { t } = useTranslation()
   const [method, setMethod] = useState<'Cash' | 'KHQR'>('Cash')
-  const [received, setReceived] = useState(order.total.toFixed(2))
+  const [received, setReceived] = useState(asNumber(order.total).toFixed(2))
+  const [receivedKhr, setReceivedKhr] = useState('')
+  const usdCents = Math.round(Number(received || 0) * 100)
+  const khr = Math.round(Number(receivedKhr.replace(/[^0-9]/g, '') || 0))
+  const tender = method === 'Cash'
+    ? adminCashTender(
+        Math.round(asNumber(order.total) * 100),
+        usdCents,
+        khr,
+        rate,
+      )
+    : null
+  const changeUsd = tender ? tender.changeUsdCents / 100 : 0
+  const changeKhr = tender ? tender.changeKhr : 0
+  const canConfirm =
+    method === 'KHQR' || (usdCents > 0 || khr > 0)
   return (
     <div className="modal-layer" role="dialog" aria-modal="true">
       <button
@@ -258,7 +375,7 @@ function PayHeldOrderModal({
         <div className="modal-form pay-held-form">
           <p className="pay-held-total">
             {order.customer?.name || 'Customer'} ·{' '}
-            <strong>${order.total.toFixed(2)}</strong>
+            <strong>{usd(order.total)}</strong>
           </p>
           <div className="filter-tabs">
             <button
@@ -275,19 +392,48 @@ function PayHeldOrderModal({
             </button>
           </div>
           {method === 'Cash' && (
-            <label>
-              <span>{t('shifts.countedCash')}</span>
-              <div className="currency-input">
-                <span>$</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={received}
-                  onChange={(event) => setReceived(event.target.value)}
-                />
-              </div>
-            </label>
+            <>
+              <label>
+                <span>{t('shifts.countedCash')}</span>
+                <div className="currency-input">
+                  <span>$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={received}
+                    onChange={(event) => setReceived(event.target.value)}
+                  />
+                </div>
+              </label>
+              {withKhr && (
+                <label>
+                  <span>{t('shifts.countedCashKhr')}</span>
+                  <div className="currency-input">
+                    <span>៛</span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      step="100"
+                      min="0"
+                      value={receivedKhr}
+                      onChange={(event) => setReceivedKhr(event.target.value)}
+                    />
+                  </div>
+                  <small>
+                    {t('shifts.countInstructionKhr')} · {rate} ៛ / $
+                  </small>
+                </label>
+              )}
+              {usdCents > 0 || khr > 0 ? (
+                <div className="form-notice success">
+                  <span>
+                    {t('shifts.change')}: {centsUsd(tender?.changeUsdCents ?? 0)}
+                    {changeKhr > 0 ? ` · ៛${changeKhr.toLocaleString()}` : ''}
+                  </span>
+                </div>
+              ) : null}
+            </>
           )}
           <div className="modal-actions">
             <button
@@ -301,8 +447,10 @@ function PayHeldOrderModal({
             <button
               type="button"
               className="primary-button"
-              disabled={busy || (method === 'Cash' && Number(received) <= 0)}
-              onClick={() => onSubmit(order, method, received)}
+              disabled={busy || !canConfirm}
+              onClick={() =>
+                onSubmit(order, method, received, receivedKhr)
+              }
             >
               {t('orders.paymentConfirmedShort')}
             </button>
@@ -321,9 +469,8 @@ type OrdersPageProps = {
 const telegramStatuses: Order['status'][] = [
   'Pending',
   'Confirmed',
-  'Paid',
+  'Held',
   'Ready',
-  'Completed',
 ]
 export default function OrdersPage({
   selectedId,
@@ -331,21 +478,48 @@ export default function OrdersPage({
   onToast,
 }: OrdersPageProps) {
   const { t } = useTranslation()
-  const { orders, updateOrder, correctOrder } = useAdminData()
+  const { orders, updateOrder, correctOrder, refresh } = useAdminData()
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('all')
   const today = new Date().toISOString().slice(0, 10)
   const [from, setFrom] = useState(today)
   const [to, setTo] = useState(today)
+  const [rate, setRate] = useState(4100)
+  const [takePayment, setTakePayment] = useState<Order | null>(null)
+  const [payBusy, setPayBusy] = useState(false)
+  useEffect(() => {
+    apiRequest<{ exchangeRateKhrPerUsd?: number }>('/api/settings/pos-rules')
+      .then((value) =>
+        setRate(
+          Number.isFinite(value?.exchangeRateKhrPerUsd as number)
+            ? (value?.exchangeRateKhrPerUsd as number)
+            : 4100,
+        ),
+      )
+      .catch(() => undefined)
+  }, [])
   const selected = orders.find((order) => order.id === selectedId) || null
+  const selectedHasConfirmedPayment =
+    (selected?.payments ?? []).some(
+      (payment) => payment.status === 'confirmed',
+    )
+  const selectedCanTakePayment =
+    selected !== null &&
+    (['Pending', 'Confirmed', 'Held', 'Ready'].includes(selected.status) ||
+      (selected.status === 'Paid' &&
+        selected.paymentStatus !== 'paid' &&
+        !selectedHasConfirmedPayment))
   const statuses = [
     'all',
     'Pending',
     'Confirmed',
     'Paid',
     'Ready',
+    'Held',
     'Completed',
     'Refunded',
+    'Cancelled',
+    'Released',
   ]
   const visible = useMemo(
     () =>
@@ -388,9 +562,44 @@ export default function OrdersPage({
       )
     }
   }
+  const payFromDetail = async (
+    order: Order,
+    method: 'Cash' | 'KHQR',
+    usdReceived: string,
+    khrReceived: string,
+  ) => {
+    setPayBusy(true)
+    try {
+      const usdCents = Math.round(Number(usdReceived || 0) * 100)
+      const khr = Math.round(Number(khrReceived.replace(/[^0-9]/g, '') || 0))
+      await apiRequest(`/api/orders/${order.id}/pay`, {
+        method: 'POST',
+        body: JSON.stringify(
+          method === 'Cash'
+            ? {
+                method: 'Cash',
+                ...adminCashTender(
+                  Math.round(asNumber(order.total) * 100),
+                  usdCents,
+                  khr,
+                  rate,
+                ),
+              }
+            : { method: 'KHQR', confirmed: true },
+        ),
+      })
+      setTakePayment(null)
+      onToast(t('orders.pendingPaid', { id: order.id }))
+      await refresh()
+    } catch (reason) {
+      onToast(reason instanceof Error ? reason.message : 'Payment failed')
+    } finally {
+      setPayBusy(false)
+    }
+  }
   return (
     <div className="page-content">
-      <PendingCustomerOrders onToast={onToast} />
+      <PendingCustomerOrders onToast={onToast} rate={rate} />
       <section className="kpi-grid compact-kpis">
         <article className="mini-kpi glass-panel">
           <span>{t('orders.telegramOrders')}</span>
@@ -528,156 +737,363 @@ export default function OrdersPage({
                 )}{' '}
                 {order.payment || t('orders.notPaid')}
               </span>
-              <span
-                className={`status-badge order-status-${order.status.toLowerCase()}`}
-              >
-                <i />
-                {order.status}
-              </span>
-              <strong className="numeric">${order.total.toFixed(2)}</strong>
+              <OrderStatusBadge order={order} onConverted={onSelect} />
+              <strong className="numeric">{usd(order.total)}</strong>
               <MoreHorizontal size={17} />
             </button>
           ))}
         </div>
         {selected && (
-          <aside className="glass-panel order-detail">
-            <div className="order-detail-head">
-              <div>
-                <span>
-                  {selected.source === 'telegram'
-                    ? 'TELEGRAM ORDER'
-                    : t('orders.orderDetails')}
-                </span>
-                <h2>{selected.id}</h2>
-              </div>
-              <button className="text-button" onClick={() => onSelect(null)}>
-                <X size={16} />
-              </button>
-            </div>
-            {selected.customer && (
-              <div className="telegram-customer-note">
-                <Send size={16} />
-                <span>
-                  <strong>{selected.customer.name}</strong>
-                  <small>
-                    {selected.customer.phone || 'Phone unavailable'}
-                    {selected.customer.telegram_username
-                      ? ` · @${selected.customer.telegram_username}`
-                      : ''}
-                  </small>
-                </span>
-              </div>
-            )}
-            <div className="receipt-lines">
-              <span>{t('orders.items')}</span>
-              {selected.detail.map((item) => (
-                <div key={item}>
-                  <strong>{item}</strong>
+            <aside className="glass-panel order-detail">
+              <div className="order-detail-head">
+                <div>
+                  <span>
+                    {selected.source === 'telegram'
+                      ? 'TELEGRAM ORDER'
+                      : t('orders.orderDetails')}
+                  </span>
+                  <h2>{selected.id}</h2>
                 </div>
-              ))}
-            </div>
-            {selected.source === 'telegram' ? (
-              <div className="telegram-order-controls">
-                <label>
-                  <span>Final agreed price</span>
-                  <div className="admin-price-input">
-                    <b>$</b>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      defaultValue={selected.total}
-                      disabled={selected.status === 'Completed'}
-                      onBlur={(event) => {
-                        const total = Number(event.target.value)
-                        if (total !== selected.total) void save({ total })
-                      }}
-                    />
-                  </div>
-                </label>
-                <label>
-                  <span>Order status</span>
-                  <select
-                    value={selected.status}
-                    disabled={selected.status === 'Completed'}
-                    onChange={(event) =>
-                      void save({
-                        status: event.target.value as Order['status'],
-                      })
-                    }
+                <div className="order-detail-actions">
+                  <OrderStatusBadge
+                    order={selected}
+                    onConverted={onSelect}
+                  />
+                  <button
+                    className="text-button"
+                    onClick={() => onSelect(null)}
+                    aria-label={t('common.close')}
                   >
-                    {telegramStatuses.map((item) => (
-                      <option key={item}>{item}</option>
-                    ))}
-                  </select>
-                </label>
-                <p>
-                  Confirm the final price with the customer in Telegram. Mark
-                  Paid only after you verify their KHQR payment.
-                </p>
+                    <X size={16} />
+                  </button>
+                </div>
               </div>
-            ) : (
-              <>
-                <div className="receipt-total">
-                  <span className="grand-total">
-                    <small>{t('orders.total')}</small>
-                    <strong>${selected.total.toFixed(2)}</strong>
+
+              {selected.customer && (
+                <div className="telegram-customer-note">
+                  <Send size={16} />
+                  <span>
+                    <strong>{selected.customer.name}</strong>
+                    <small>
+                      {selected.customer.phone || 'Phone unavailable'}
+                      {selected.customer.telegram_username
+                        ? ` · @${selected.customer.telegram_username}`
+                        : ''}
+                    </small>
                   </span>
                 </div>
+              )}
+
+              <div className="receipt-meta">
+                <div>
+                  <span>{t('orders.source')}</span>
+                  <strong>
+                    {selected.source === 'telegram'
+                      ? t('orders.telegram')
+                      : t('orders.walkIn')}
+                  </strong>
+                </div>
+                <div>
+                  <span>{t('orders.date')}</span>
+                  <strong>
+                    {selected.date} · {selected.time}
+                  </strong>
+                </div>
+                <div>
+                  <span>{t('orders.customerCashier')}</span>
+                  <strong>{selected.cashier}</strong>
+                </div>
+                <div>
+                  <span>{t('orders.payment')}</span>
+                  <strong>
+                    {selected.payment || t('orders.notPaid')}
+                    {selected.paymentStatus
+                      ? ` · ${selected.paymentStatus}`
+                      : ''}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="receipt-lines">
+                <span>
+                  {t('orders.items')} ({selected.items})
+                </span>
+                {(selected.lineItems?.length
+                  ? selected.lineItems
+                  : selected.detail.map((description) => ({
+                      productId: null,
+                      description,
+                      quantity: 1,
+                      unitPriceCents: 0,
+                    }))
+                ).map((line, index) => (
+                  <div key={`${line.productId ?? index}-${line.description ?? index}`}>
+                    <span>
+                      <strong>{line.description}</strong>
+                      <small>
+                        {line.quantity} × {centsUsd(line.unitPriceCents)}
+                      </small>
+                    </span>
+                    <strong className="numeric">
+                      {centsUsd(line.unitPriceCents * line.quantity)}
+                    </strong>
+                  </div>
+                ))}
+              </div>
+
+              <div className="receipt-total">
+                <span>
+                  <small>{t('orders.subtotal')}</small>
+                  <strong>{usd(selected.subtotal ?? selected.total)}</strong>
+                </span>
+                {selected.discountAmount ? (
+                  <span>
+                    <small>{t('orders.discount')}</small>
+                    <strong>-{usd(selected.discountAmount)}</strong>
+                  </span>
+                ) : null}
+                <span className="grand-total">
+                  <small>{t('orders.total')}</small>
+                  <strong>{usd(selected.total)}</strong>
+                </span>
+              </div>
+
+              {selected.status === 'Completed' && selected.payments?.length ? (
+                <div className="payment-breakdown">
+                  <span>{t('orders.paymentBreakdown')}</span>
+                  {selected.payments.map((payment) => {
+                    const hasTender =
+                      payment.tenderedUsdCents != null ||
+                      payment.tenderedKhr != null
+                    const hasChange =
+                      payment.changeUsdCents != null ||
+                      payment.changeKhr != null
+                    return (
+                      <div className="payment-row" key={payment.id}>
+                        <div className="payment-row-head">
+                          <strong>
+                            {payment.method === 'cash'
+                              ? t('payment.cash')
+                              : t('payment.khqr')}
+                          </strong>
+                          <span>{centsUsd(payment.amountUsdCents)}</span>
+                        </div>
+                        {hasTender && (
+                          <div className="payment-row-values">
+                            <span>
+                              {t('shifts.tendered')}:{' '}
+                              {payment.tenderedUsdCents != null &&
+                                `${usd(payment.tenderedUsdCents / 100)} + `}
+                              {payment.tenderedKhr != null
+                                ? khr(payment.tenderedKhr)
+                                : null}
+                            </span>
+                          </div>
+                        )}
+                        {hasChange && (
+                          <div className="payment-row-values change">
+                            <span>
+                              {t('shifts.change')}:{' '}
+                              {payment.changeUsdCents != null &&
+                                `${usd(payment.changeUsdCents / 100)} + `}
+                              {payment.changeKhr != null
+                                ? khr(payment.changeKhr)
+                                : null}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : null}
+
+              {selected.status === 'Held' && (
+                <div className="receipt-confirmation held">
+                  <ShoppingBag size={17} />
+                  <span>
+                    <strong>{t('orders.heldInCart')}</strong>
+                    <small>{t('orders.heldNotCancelled')}</small>
+                  </span>
+                </div>
+              )}
+
+              {selected.status === 'Cancelled' &&
+                isHoldConverted(selected) && (
+                  <div className="receipt-confirmation converted">
+                    <CheckCircle size={17} />
+                    <span>
+                      <strong>
+                        {t('orders.convertedToPaid', {
+                          id: convertedPaidOrderId(selected),
+                        })}
+                      </strong>
+                      <small>{t('orders.convertedNote')}</small>
+                    </span>
+                  </div>
+                )}
+              {selected.status === 'Cancelled' &&
+                !isHoldConverted(selected) &&
+                selected.source === 'telegram' && (
+                  <div className="receipt-confirmation cancelled">
+                    <AlertTriangle size={17} />
+                    <span>
+                      <strong>{t('orders.cancelledByCustomer')}</strong>
+                      <small>{t('orders.cancelledBeforeAccept')}</small>
+                    </span>
+                  </div>
+                )}
+
+              {selected.source === 'telegram' ? (
+                <div className="telegram-order-controls">
+                  <label>
+                    <span>Final agreed price</span>
+                    <div className="admin-price-input">
+                      <b>$</b>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        defaultValue={selected.total}
+                        disabled={
+                          selected.status === 'Completed' ||
+                          selected.status === 'Cancelled' ||
+                          selected.status === 'Released'
+                        }
+                        onBlur={(event) => {
+                          const total = Number(event.target.value)
+                          if (total !== selected.total) void save({ total })
+                        }}
+                      />
+                    </div>
+                  </label>
+                  <label>
+                    <span>Order status</span>
+                    <select
+                      value={selected.status}
+                      disabled={
+                        selected.status === 'Completed' ||
+                        selected.status === 'Paid' ||
+                        selected.status === 'Cancelled' ||
+                        selected.status === 'Released'
+                      }
+                      onChange={(event) =>
+                        void save({
+                          status: event.target.value as Order['status'],
+                        })
+                      }
+                    >
+                      {telegramStatuses.map((item) => (
+                        <option key={item}>{item}</option>
+                      ))}
+                      {selected.status === 'Paid' && (
+                        <option value="Paid" disabled>
+                          Paid — no payment recorded; use Take Payment
+                        </option>
+                      )}
+                      {selected.status === 'Completed' && (
+                        <option value="Completed" disabled>
+                          Completed
+                        </option>
+                      )}
+                    </select>
+                  </label>
+                  <p>
+                    Confirm the final price with the customer in Telegram.
+                    Payment is recorded only through Take Payment, which
+                    captures the real method and cash tender.
+                  </p>
+                  {!selectedHasConfirmedPayment &&
+                    ['Paid', 'Completed'].includes(selected.status) && (
+                      <div className="form-notice warning">
+                        <AlertTriangle size={15} />
+                        <span>
+                          {selected.status === 'Paid'
+                            ? 'Paid without a payment record — use Take Payment to record the real method and tender.'
+                            : 'Legacy Completed without an OrderPayment — report-only; run the audit command and do not re-pay this order.'}
+                        </span>
+                      </div>
+                    )}
+                  {selectedCanTakePayment && (
+                    <button
+                      className="primary-button"
+                      disabled={payBusy}
+                      onClick={() => setTakePayment(selected)}
+                    >
+                      <Banknote size={15} /> {t('reports.takePayment')}
+                    </button>
+                  )}
+                </div>
+              ) : (
                 <div className="receipt-confirmation">
                   <ReceiptText size={17} />
                   <span>
-                    <strong>{t('orders.paymentConfirmed')}</strong>
+                    <strong>
+                      {selected.status === 'Completed'
+                        ? t('orders.paymentConfirmed')
+                        : t('orders.paymentPending')}
+                    </strong>
                     <small>{selected.cashier}</small>
                   </span>
                 </div>
-              </>
-            )}
-            {selected.status === 'Completed' && (
-              <div className="audit-correction-actions">
-                <strong>Audit-safe correction</strong>
+              )}
+
+              {selected.status === 'Completed' && (
+                <div className="audit-correction-actions">
+                  <strong>Audit-safe correction</strong>
+                  <button
+                    className="secondary-button"
+                    onClick={() => void correct('refund')}
+                  >
+                    Create refund record
+                  </button>
+                  <button
+                    className="danger-outline"
+                    onClick={() => void correct('void')}
+                  >
+                    Create void record
+                  </button>
+                </div>
+              )}
+
+              <div className="receipt-print-actions">
+                <span>
+                  <Printer size={15} /> Reprint receipt
+                </span>
                 <button
                   className="secondary-button"
-                  onClick={() => void correct('refund')}
+                  onClick={() =>
+                    void printReceipt(selected.id, 1).catch((error) =>
+                      onToast(error.message),
+                    )
+                  }
                 >
-                  Create refund record
+                  Customer copy
                 </button>
                 <button
-                  className="danger-outline"
-                  onClick={() => void correct('void')}
+                  className="primary-button"
+                  onClick={() =>
+                    void printReceipt(selected.id, 2).catch((error) =>
+                      onToast(error.message),
+                    )
+                  }
                 >
-                  Create void record
+                  Customer + Store
                 </button>
               </div>
-            )}
-            <div className="receipt-print-actions">
-              <span>
-                <Printer size={15} /> Reprint receipt
-              </span>
-              <button
-                className="secondary-button"
-                onClick={() =>
-                  void printReceipt(selected.id, 1).catch((error) =>
-                    onToast(error.message),
-                  )
-                }
-              >
-                Customer copy
-              </button>
-              <button
-                className="primary-button"
-                onClick={() =>
-                  void printReceipt(selected.id, 2).catch((error) =>
-                    onToast(error.message),
-                  )
-                }
-              >
-                Customer + Store
-              </button>
-            </div>
-          </aside>
+            </aside>
         )}
       </section>
+      {takePayment && (
+        <PayHeldOrderModal
+          order={takePayment}
+          busy={payBusy}
+          rate={rate}
+          withKhr
+          onClose={() => setTakePayment(null)}
+          onSubmit={payFromDetail}
+        />
+      )}
     </div>
   )
 }

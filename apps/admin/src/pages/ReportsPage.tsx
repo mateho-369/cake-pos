@@ -9,16 +9,20 @@ import {
   Lightbulb,
   ShieldAlert,
   TrendingUp,
+  X,
 } from 'lucide-react'
-import type { RevenuePoint } from '../data'
+import type { Order, Product, RevenuePoint } from '../data'
 import { useAdminData } from '../lib/data'
 import { apiRequest } from '../lib/api'
 import { translateCategory, useTranslation } from '../lib/i18n'
 import {
   downloadCsv,
+  exportLossesExcel,
+  exportLossesWord,
   exportOrdersExcel,
   exportSummaryWord,
   ordersInRange,
+  type LossesReport,
 } from '../lib/exports'
 
 export default function ReportsPage({
@@ -35,7 +39,6 @@ export default function ReportsPage({
     summary,
     freshness,
     shifts,
-    employees,
   } = useAdminData()
   const kpiNetSales = summary?.todaySalesTotal ?? 0
   const kpiAverageOrder = (summary?.averageOrderValueCents ?? 0) / 100
@@ -71,11 +74,17 @@ export default function ReportsPage({
   const today = localIsoDate(new Date())
   const [from, setFrom] = useState(today.slice(0, 8) + '01')
   const [to, setTo] = useState(today)
+  const [activePreset, setActivePreset] = useState<string | null>('this_month')
+  const [libraryPicker, setLibraryPicker] = useState<{
+    key: string
+    label: string
+  } | null>(null)
   const selectedOrders = ordersInRange(orders, from, to)
   const applyPreset = (preset: string) => {
     const range = rangeForPreset(preset)
     setFrom(range.from)
     setTo(range.to)
+    setActivePreset(preset)
   }
   const tabs = [
     { id: 'sales', label: 'reports.sales' },
@@ -103,45 +112,43 @@ export default function ReportsPage({
     { key: 'employeePerformance', label: 'reports.employeePerformance' },
   ]
   // Each library item downloads a report that matches its label, built from
-  // the same live data shown elsewhere in the admin app.
-  const runLibraryExport = (key: string, label: string) => {
+  // the filtered dataset the admin chose in the export dialog — never an
+  // immediate unfiltered export.
+  const runLibraryExport = (
+    key: string,
+    label: string,
+    rangeOrders: typeof orders,
+    rangeFrom: string,
+    rangeTo: string,
+  ) => {
     onToast(t('reports.prepared', { name: t(label) }))
     const run = (): Promise<void> | void => {
       switch (key) {
         case 'dailySummary':
-          return exportSummaryWord(selectedOrders, from, to)
+          return exportSummaryWord(rangeOrders, rangeFrom, rangeTo)
         case 'sellThrough':
           downloadCsv(
-            `product-sell-through-${from || 'all'}-${to || 'all'}.csv`,
+            `product-sell-through-${rangeFrom || 'all'}-${rangeTo || 'all'}.csv`,
             ['Product', 'Category', 'Sold', 'On hand', 'Sell-through %'],
-            products.map((product) => {
-              const total = product.sold + product.stock
-              return [
-                product.name,
-                product.category,
-                product.sold,
-                product.stock,
-                total ? Math.round((product.sold / total) * 100) : 0,
-              ]
-            }),
+            rangeProductSellThrough(rangeOrders, products),
           )
           return
         case 'reconciliation':
           downloadCsv(
-            `payment-reconciliation-${from || 'all'}-${to || 'all'}.csv`,
+            `payment-reconciliation-${rangeFrom || 'all'}-${rangeTo || 'all'}.csv`,
             ['Order', 'Date', 'Payment', 'Status', 'Total (USD)'],
-            selectedOrders.map((order) => [
+            rangeOrders.map((order) => [
               order.id,
               new Date(order.createdAt).toLocaleDateString('en-CA'),
               order.payment || 'Unpaid',
               order.status,
-              order.total.toFixed(2),
+              usd(order.total),
             ]),
           )
           return
         case 'shiftVariance':
           downloadCsv(
-            'shift-variance.csv',
+            `shift-variance-${rangeFrom || 'all'}-${rangeTo || 'all'}.csv`,
             [
               'Opened',
               'Closed',
@@ -152,7 +159,13 @@ export default function ReportsPage({
               'Variance (USD)',
               'Status',
             ],
-            shifts.map((shift) => [
+            shifts
+              .filter(
+                (shift) =>
+                  inRange(shift.openedAt, rangeFrom, rangeTo) ||
+                  inRange(shift.closedAt, rangeFrom, rangeTo),
+              )
+              .map((shift) => [
               new Date(shift.openedAt).toLocaleString(),
               shift.closedAt ? new Date(shift.closedAt).toLocaleString() : '',
               shift.openedBy || '',
@@ -170,7 +183,7 @@ export default function ReportsPage({
           return
         case 'freshWaste':
           downloadCsv(
-            'freshness-waste.csv',
+            `freshness-waste-${rangeFrom || 'all'}-${rangeTo || 'all'}.csv`,
             [
               'Date',
               'Product',
@@ -179,30 +192,29 @@ export default function ReportsPage({
               'Retail value (USD)',
               'Recorded by',
             ],
-            (freshness?.events ?? []).map((event) => [
-              new Date(event.recordedAt).toLocaleString(),
-              event.productName,
-              event.quantity,
-              event.reason,
-              event.retailValue.toFixed(2),
-              event.recordedBy || '',
-            ]),
+            (freshness?.events ?? [])
+              .filter((event) =>
+                inRange(event.recordedAt, rangeFrom, rangeTo),
+              )
+              .map((event) => [
+                new Date(event.recordedAt).toLocaleString(),
+                event.productName,
+                event.quantity,
+                event.reason,
+                usd(event.retailValue),
+                event.recordedBy || '',
+              ]),
           )
           return
         case 'employeePerformance':
           downloadCsv(
-            'employee-performance.csv',
-            ['Employee', 'Role', 'Orders', 'Sales today (USD)'],
-            employees.map((employee) => [
-              employee.name,
-              employee.role,
-              employee.orders,
-              employee.sales.toFixed(2),
-            ]),
+            `employee-performance-${rangeFrom || 'all'}-${rangeTo || 'all'}.csv`,
+            ['Employee', 'Role', 'Orders', 'Sales (USD)'],
+            rangeEmployeePerformance(rangeOrders),
           )
           return
         default:
-          return exportOrdersExcel(selectedOrders, from, to)
+          return exportOrdersExcel(rangeOrders, rangeFrom, rangeTo)
       }
     }
     Promise.resolve(run()).catch((error) =>
@@ -229,7 +241,7 @@ export default function ReportsPage({
               <button
                 key={preset.id}
                 type="button"
-                className="text-button"
+                className={`text-button ${activePreset === preset.id ? 'active' : ''}`}
                 onClick={() => applyPreset(preset.id)}
               >
                 {t(preset.label)}
@@ -241,7 +253,10 @@ export default function ReportsPage({
             <input
               type="date"
               value={from}
-              onChange={(event) => setFrom(event.target.value)}
+              onChange={(event) => {
+                setFrom(event.target.value)
+                setActivePreset(null)
+              }}
             />
           </label>
           <label>
@@ -249,7 +264,10 @@ export default function ReportsPage({
             <input
               type="date"
               value={to}
-              onChange={(event) => setTo(event.target.value)}
+              onChange={(event) => {
+                setTo(event.target.value)
+                setActivePreset(null)
+              }}
             />
           </label>
           <button
@@ -333,7 +351,9 @@ export default function ReportsPage({
           {tab === 'audit' && (
             <AuditLogPanel from={from} to={to} onToast={onToast} />
           )}
-          {tab === 'losses' && <LossesPanel from={from} to={to} />}
+          {tab === 'losses' && (
+            <LossesPanel from={from} to={to} onToast={onToast} />
+          )}
         </div>
         <div className="glass-panel insight-panel">
           <div className="insight-icon">
@@ -467,22 +487,189 @@ export default function ReportsPage({
           {libraries.map((item) => (
             <button
               key={item.key}
-              onClick={() => runLibraryExport(item.key, item.label)}
+              onClick={() => setLibraryPicker(item)}
             >
               <FileSpreadsheet size={19} />
               <span>
                 <strong>{t(item.label)}</strong>
-                <small>{t('reports.updatedNow')}</small>
+                <small>
+                  {t('reports.csvRange', {
+                    range: formatReportRange(from, to),
+                  })}
+                </small>
               </span>
               <Download size={16} />
             </button>
           ))}
         </div>
       </section>
+      {libraryPicker && (
+        <LibraryExportModal
+          item={libraryPicker}
+          defaultFrom={from}
+          defaultTo={to}
+          onClose={() => setLibraryPicker(null)}
+          onExport={(key, label, rangeFrom, rangeTo) => {
+            const rangeOrders = ordersInRange(orders, rangeFrom, rangeTo)
+            runLibraryExport(key, label, rangeOrders, rangeFrom, rangeTo)
+            setLibraryPicker(null)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function LibraryExportModal({
+  item,
+  defaultFrom,
+  defaultTo,
+  onClose,
+  onExport,
+}: {
+  item: { key: string; label: string }
+  defaultFrom: string
+  defaultTo: string
+  onClose: () => void
+  onExport: (
+    key: string,
+    label: string,
+    from: string,
+    to: string,
+  ) => void
+}) {
+  const { t } = useTranslation()
+  const [from, setFrom] = useState(defaultFrom)
+  const [to, setTo] = useState(defaultTo)
+  return (
+    <div className="modal-layer" role="dialog" aria-modal="true">
+      <button
+        className="modal-backdrop"
+        onClick={onClose}
+        aria-label={t('modal.closeDialog')}
+      />
+      <section className="modal-card modal-small">
+        <header className="modal-header">
+          <div>
+            <span>{t('reports.downloads')}</span>
+            <h2>{t(item.label)}</h2>
+          </div>
+          <button
+            className="icon-button"
+            onClick={onClose}
+            aria-label={t('modal.close')}
+          >
+            <X size={19} />
+          </button>
+        </header>
+        <div className="modal-form">
+          <p>{t('reports.filterFirst')}</p>
+          <label>
+            <span>{t('reports.from')}</span>
+            <input
+              type="date"
+              value={from}
+              onChange={(event) => setFrom(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>{t('reports.to')}</span>
+            <input
+              type="date"
+              value={to}
+              onChange={(event) => setTo(event.target.value)}
+            />
+          </label>
+          <div className="modal-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={onClose}
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => onExport(item.key, item.label, from, to)}
+            >
+              <Download size={15} />
+              {t('reports.exportFiltered')}
+            </button>
+          </div>
+        </div>
+      </section>
     </div>
   )
 }
 const cents = (value: number) => `$${(value / 100).toFixed(2)}`
+const safeNumber = (value: number | null | undefined) =>
+  Number.isFinite(value as number) ? (value as number) : 0
+const usd = (value: number | null | undefined) =>
+  `$${safeNumber(value).toFixed(2)}`
+const inRange = (
+  iso: string | null | undefined,
+  from: string,
+  to: string,
+) => {
+  if (!iso) return false
+  const day = new Date(iso).toISOString().slice(0, 10)
+  return day >= from && day <= to
+}
+function rangeProductSellThrough(rangeOrders: Order[], products: Product[]) {
+  const sold = new Map<
+    string,
+    { name: string; category: string; units: number }
+  >()
+  const productById = new Map(products.map((product) => [product.id, product]))
+  for (const order of rangeOrders) {
+    for (const line of order.lineItems ?? []) {
+      if (!line.productId) continue
+      const key = String(line.productId)
+      const existing = sold.get(key)
+      sold.set(key, {
+        name:
+          line.description ||
+          productById.get(line.productId)?.name ||
+          `#${line.productId}`,
+        category: productById.get(line.productId)?.category || '',
+        units: (existing?.units ?? 0) + line.quantity,
+      })
+    }
+  }
+  return products.map((product) => {
+    const soldUnits = sold.get(String(product.id))?.units ?? 0
+    const total = soldUnits + product.stock
+    return [
+      product.name,
+      product.category,
+      soldUnits,
+      product.stock,
+      total ? Math.round((soldUnits / total) * 100) : 0,
+    ]
+  })
+}
+function rangeEmployeePerformance(rangeOrders: Order[]) {
+  const byCashier = new Map<
+    string,
+    { orders: number; totalUsd: number }
+  >()
+  for (const order of rangeOrders) {
+    if (order.status !== 'Completed') continue
+    const name = order.cashier || 'Unknown'
+    const existing = byCashier.get(name)
+    byCashier.set(name, {
+      orders: (existing?.orders ?? 0) + 1,
+      totalUsd: (existing?.totalUsd ?? 0) + safeNumber(order.total),
+    })
+  }
+  return [...byCashier.entries()].map(([name, value]) => [
+    name,
+    '',
+    value.orders,
+    value.totalUsd.toFixed(2),
+  ])
+}
 
 function tabTitle(t: (key: string) => string, tab: string) {
   switch (tab) {
@@ -545,16 +732,15 @@ function rangeForPreset(preset: string): { from: string; to: string } {
   }
 }
 
-type LossesReport = {
-  wasteCents: number
-  discountsCents: number
-  voidsCents: number
-  refundsCents: number
-  cashShortagesCents: number
-  totalLostCents: number
-}
-
-function LossesPanel({ from, to }: { from: string; to: string }) {
+function LossesPanel({
+  from,
+  to,
+  onToast,
+}: {
+  from: string
+  to: string
+  onToast: (message: string) => void
+}) {
   const { t } = useTranslation()
   const [data, setData] = useState<LossesReport | null>(null)
   useEffect(() => {
@@ -595,21 +781,46 @@ function LossesPanel({ from, to }: { from: string; to: string }) {
         <strong>{t('reports.totalLost')}</strong>
         <strong className="numeric">{cents(data.totalLostCents)}</strong>
       </div>
-      <button
-        className="text-button"
-        onClick={() =>
-          downloadCsv(
-            `losses-${from}-${to}.csv`,
-            ['Category', 'USD'],
-            [
-              ...rows.map((row) => [row.label, (row.value / 100).toFixed(2)]),
-              [t('reports.totalLost'), (data.totalLostCents / 100).toFixed(2)],
-            ],
-          )
-        }
-      >
-        <Download size={14} /> {t('common.export')}
-      </button>
+      <div className="report-export-actions">
+        <button
+          className="text-button"
+          onClick={() =>
+            void exportLossesWord(data, from, to)
+              .then(() => onToast('Losses Word report exported'))
+              .catch((error) => onToast(error.message))
+          }
+        >
+          <FileText size={14} /> Word
+        </button>
+        <button
+          className="text-button"
+          onClick={() =>
+            void exportLossesExcel(data, from, to)
+              .then(() => onToast('Losses Excel workbook exported'))
+              .catch((error) => onToast(error.message))
+          }
+        >
+          <FileSpreadsheet size={14} /> Excel
+        </button>
+        <button
+          className="text-button"
+          onClick={() =>
+            downloadCsv(
+              `losses-${from}-${to}.csv`,
+              ['Category', 'USD'],
+              [
+                ...rows.map((row) => [row.label, (row.value / 100).toFixed(2)]),
+                [
+                  t('reports.totalLost'),
+                  (data.totalLostCents / 100).toFixed(2),
+                ],
+              ],
+            )
+          }
+        >
+          <Download size={14} /> {t('common.export')}
+        </button>
+      </div>
     </div>
   )
 }
@@ -637,7 +848,7 @@ function TopProductsTable() {
           <span className="rank">{index + 1}</span>
           <strong>{product.name}</strong>
           <span>{product.units}</span>
-          <strong className="numeric">${product.revenue.toFixed(2)}</strong>
+          <strong className="numeric">{usd(product.revenue)}</strong>
         </div>
       ))}
     </div>
@@ -678,7 +889,7 @@ function PaymentsBreakdown() {
               </small>
             )}
           </strong>
-          <strong className="numeric">${row.value.toFixed(2)}</strong>
+          <strong className="numeric">{usd(row.value)}</strong>
           <span>{total ? Math.round((row.value / total) * 100) : 0}%</span>
         </div>
       ))}
@@ -1161,7 +1372,7 @@ function ComparisonChart({ waste }: { waste: boolean }) {
       <div className="bar-plot">
         {series.map((item) => (
           <div className="bar-group" key={item.day}>
-            <div className="bar-tooltip">${item.value.toFixed(2)}</div>
+            <div className="bar-tooltip">{usd(item.value)}</div>
             <div className="bars">
               <i
                 className="sales-bar"
@@ -1181,6 +1392,21 @@ function ComparisonChart({ waste }: { waste: boolean }) {
       )}
     </div>
   )
+}
+
+function formatReportRange(from: string, to: string) {
+  if (!from && !to) return 'All time'
+  const fmt = (value: string) =>
+    new Date(`${value}T00:00:00`).toLocaleDateString('en', {
+      month: 'short',
+      day: 'numeric',
+    })
+  const start = from ? fmt(from) : ''
+  const end = to ? fmt(to) : 'today'
+  if (from && to && from === to) return start
+  if (from && to) return `${start} – ${end}`
+  if (from) return `${start} – today`
+  return `until ${end}`
 }
 
 function formatReportDay(day: string) {

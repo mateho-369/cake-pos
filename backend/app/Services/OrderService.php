@@ -206,9 +206,12 @@ class OrderService
      * Held orders reserve stock while they wait, so a hold that is resumed
      * into the cart and then checked out must be closed — otherwise the
      * customer's order stays in the held list forever and its reserved stock
-     * never comes back. Deliberately sets status Cancelled (never Completed:
-     * only the paid order carries the revenue, so reports cannot double
-     * count), frees the reservation, and records why in the audit trail.
+     * never comes back. The status stays Cancelled deliberately (never
+     * Completed: only the paid order carries the revenue, so reports cannot
+     * double count). The transition is recorded in the audit trail and the
+     * status event with `reason: hold_paid` + `paidOrderId`, which lets the
+     * admin UI display "Converted → <paid order>" instead of mislabelling a
+     * real sale as a cancellation.
      *
      * Idempotent: a hold that is no longer held (already paid directly,
      * voided, or released by a retry) is skipped, never released twice.
@@ -346,12 +349,19 @@ class OrderService
         });
     }
     /**
-     * Cancel an order and give its reserved stock back. Used both for
-     * discarding a walk-in hold and for REJECTING a pending Telegram
-     * customer order (staff called to verify and it was not real). The
-     * optional reason travels into the audit trail and the status event —
-     * never into the customer notification, where it has no business
-     * being (a "prank order" reason is internal information).
+     * Cancel a held order and give its reserved stock back.
+     *
+     * Staff may cancel a HOLD after the seller accepted it (walk-in holds
+     * parked at the counter, or a Telegram customer order already moved to
+     * the held queue). A Telegram order that has NOT been accepted yet
+     * (Pending/Confirmed/Ready) CANNOT be cancelled by staff — that window
+     * belongs exclusively to the customer through the phone Mini App, so a
+     * staff mis-click can never kill a real customer order before it is
+     * verified. A hold that was resumed and paid is released separately
+     * (releaseHeldOrders) — it is never cancelled through this path, so the
+     * "void" action never touches a real paid conversion. The optional reason
+     * travels into the audit trail and the status event — never into the
+     * customer notification.
      */
     public function cancel(
         Order $order,
@@ -363,18 +373,9 @@ class OrderService
             $order = Order::whereKey($order->id)
                 ->lockForUpdate()
                 ->firstOrFail();
-            $cancellable =
-                $order->status === 'Held' ||
-                ($order->source === 'telegram' &&
-                    $order->payment_status !== 'paid' &&
-                    in_array(
-                        $order->status,
-                        ['Pending', 'Confirmed', 'Ready'],
-                        true,
-                    ));
-            if (!$cancellable) {
+            if ($order->status !== 'Held') {
                 $this->conflict(
-                    'Only unpaid held/pending orders can be cancelled',
+                    'Only accepted held orders can be cancelled by staff; a new customer order can only be cancelled by the customer in Telegram',
                 );
             }
             foreach ($order->orderItems()->lockForUpdate()->get() as $item) {
@@ -524,6 +525,22 @@ class OrderService
         }
 
         $status = $input['status'] ?? $order->status;
+        // Paid and Completed are NEVER a status-only change: they require a
+        // real OrderPayment (method + cash tender) recorded through the
+        // /pay endpoint, so shift reconciliation, cash reports, and the order
+        // detail tenders/change block all see the money. This closes the
+        // manual-dropdown bypass where every order was stamped KHQR with no
+        // payment row at all. A total-only update on an already-existing Paid
+        // (legacy) row is still allowed so an admin can fix the amount, then
+        // recover the sale through Take Payment.
+        if (
+            array_key_exists('status', $input) &&
+            in_array($status, ['Paid', 'Completed'], true)
+        ) {
+            $this->conflict(
+                'Paid/Completed must be recorded through the Take Payment action, which creates a real OrderPayment with the method and tender',
+            );
+        }
         $total = array_key_exists('total', $input)
             ? Money::fromDecimal($input['total'], 'total')
             : $order->total_cents;
@@ -542,66 +559,19 @@ class OrderService
             }
             $fromStatus = $order->status;
             $beforeTotal = $order->total_cents;
-
-            if ($status === 'Completed') {
-                $lines = $order
-                    ->orderItems()
-                    ->with('product')
-                    ->lockForUpdate()
-                    ->get()
-                    ->map(fn($item) => [$item->product, $item->quantity])
-                    ->all();
-                foreach ($lines as [$product, $quantity]) {
-                    if ($product->stock < $quantity) {
-                        $this->stockConflict($product);
-                    }
-                    $product->decrement('stock', $quantity);
-                    if ($product->reserved_stock) {
-                        $product->decrement(
-                            'reserved_stock',
-                            min($product->reserved_stock, $quantity),
-                        );
-                    }
-                }
-                $this->recordNetProductRevenue(
-                    $lines,
-                    $order->subtotal_cents,
-                    $total,
-                );
-            }
-
             $discount = max(0, $order->subtotal_cents - $total);
+
+            // updateTelegram only adjusts price/status for an open customer
+            // order. It never claims payment, never decrements stock, and
+            // never changes `payment`/`payment_status`: payment is recorded
+            // exclusively by PaymentService::confirm*/settle via /pay.
             $order->update([
                 'status' => $status,
                 'total_cents' => $total,
                 'discount_type' => $discount ? 'fixed' : null,
                 'discount_value' => $discount ?: null,
                 'discount_amount_cents' => $discount,
-                'payment' => in_array(
-                    $status,
-                    ['Paid', 'Ready', 'Completed'],
-                    true,
-                )
-                    ? 'KHQR'
-                    : $order->payment,
-                'payment_status' =>
-                    $status === 'Completed' ? 'paid' : $order->payment_status,
-                // Order-to-employee integrity: a customer order that becomes a
-                // completed sale here is attributed to the employee handling
-                // it, so no completed sale ever lacks an owner.
-                ...$status === 'Completed' && $order->cashier_id === null
-                    ? ['cashier_id' => $employee->id]
-                    : [],
             ]);
-            if ($status === 'Completed' && $fromStatus !== 'Completed') {
-                $this->audit->log($employee, 'order.completed', $order->id, [
-                    'fromStatus' => $fromStatus,
-                    'totalCents' => $total,
-                    'paymentMethod' => 'KHQR',
-                    'claimedFromUnassigned' => $order->cashier_id === null,
-                    'source' => 'telegram',
-                ]);
-            }
 
             if ($fromStatus !== $status) {
                 $statusChanged = true;
@@ -637,11 +607,6 @@ class OrderService
 
         if ($statusChanged) {
             SendCustomerStatusNotification::dispatch($order->id);
-            if ($status === 'Completed') {
-                // Staff receipt (gcake_pos) for every completed sale,
-                // whichever flow completed it.
-                SendStaffOrderNotification::dispatch($order->id);
-            }
         }
         return $order->fresh();
     }
@@ -724,6 +689,14 @@ class OrderService
                 ->where('active', true)
                 ->lockForUpdate()
                 ->firstOrFail();
+            // A null price must never become a silent $0 order. The catalog UI
+            // renders such rows as $0.00 without crashing, but the server still
+            // refuses to sell a product that has no price.
+            if ($product->price_cents === null) {
+                $this->conflict(
+                    "{$product->name} has no price and cannot be ordered",
+                );
+            }
             if (
                 $product->stock - ($forHold ? $product->reserved_stock : 0) <
                 $quantity

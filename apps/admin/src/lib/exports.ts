@@ -1,5 +1,14 @@
 import type { Order } from '../data'
 
+export type LossesReport = {
+  wasteCents: number
+  discountsCents: number
+  voidsCents: number
+  refundsCents: number
+  cashShortagesCents: number
+  totalLostCents: number
+}
+
 function download(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -266,5 +275,191 @@ export async function exportSummaryWord(
   download(
     await Packer.toBlob(doc),
     `sales-summary-${from || 'all'}-${to || 'all'}.docx`,
+  )
+}
+
+/**
+ * Losses/expense view as a real Excel workbook (same look/behavior as the
+ * Orders export, but with a small category summary). The owner can read it
+ * like the on-screen Losses tab instead of a raw event log.
+ */
+export async function exportLossesExcel(
+  data: LossesReport,
+  from: string,
+  to: string,
+) {
+  const { default: ExcelJS } = await import('exceljs')
+  const workbook = new ExcelJS.Workbook()
+  workbook.creator = 'G-Cake POS'
+  workbook.created = new Date()
+  const sheet = workbook.addWorksheet('Losses', {
+    views: [{ state: 'frozen', ySplit: 1 }],
+  })
+  sheet.columns = [
+    { header: 'Category', key: 'category', width: 28 },
+    { header: 'USD', key: 'usd', width: 16 },
+  ]
+  const money = (cents: number) => Number((cents / 100).toFixed(2))
+  const rows = [
+    { category: 'Waste / spoilage', usd: money(data.wasteCents) },
+    { category: 'Discounts given', usd: money(data.discountsCents) },
+    { category: 'Voided orders', usd: money(data.voidsCents) },
+    { category: 'Refunds', usd: money(data.refundsCents) },
+    { category: 'Cash shortages', usd: money(data.cashShortagesCents) },
+  ]
+  rows.forEach((row) => sheet.addRow(row))
+  sheet.addRow({ category: 'Total lost', usd: money(data.totalLostCents) })
+  sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
+  sheet.getRow(1).fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFBE185D' },
+  }
+  const last = sheet.rowCount
+  sheet.getRow(last).font = { bold: true }
+  sheet.getColumn('usd').numFmt = '$0.00'
+  sheet.autoFilter = { from: 'A1', to: `B${last}` }
+  const buffer = await workbook.xlsx.writeBuffer()
+  download(
+    new Blob([buffer as BlobPart], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    }),
+    `losses-${from || 'all'}-${to || 'all'}.xlsx`,
+  )
+}
+
+/**
+ * Losses/expense summary as a Word document, matching the style of the sales
+ * summary export (Khmer + Latin font, clean labels, money formatted).
+ */
+export async function exportLossesWord(
+  data: LossesReport,
+  from: string,
+  to: string,
+) {
+  const {
+    Document,
+    HeadingLevel,
+    Packer,
+    Paragraph,
+    Table,
+    TableCell,
+    TableRow,
+    TextRun,
+    WidthType,
+  } = await import('docx')
+  const money = (cents: number) => `$${(cents / 100).toFixed(2)}`
+  const khmerFont = {
+    ascii: 'Kantumruy Pro',
+    hAnsi: 'Kantumruy Pro',
+    eastAsia: 'Kantumruy Pro',
+  }
+  const labels = [
+    'Waste / spoilage',
+    'Discounts given',
+    'Voided orders',
+    'Refunds',
+    'Cash shortages',
+  ]
+  const values = [
+    data.wasteCents,
+    data.discountsCents,
+    data.voidsCents,
+    data.refundsCents,
+    data.cashShortagesCents,
+  ]
+  const rows = labels.map(
+    (label, index) =>
+      new TableRow({
+        children: [
+          new TableCell({ children: [new Paragraph(label)] }),
+          new TableCell({
+            children: [new Paragraph(money(values[index] ?? 0))],
+          }),
+        ],
+      }),
+  )
+  rows.push(
+    new TableRow({
+      tableHeader: true,
+      children: [
+        new TableCell({
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: 'Total lost', bold: true })],
+            }),
+          ],
+        }),
+        new TableCell({
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: money(data.totalLostCents), bold: true })],
+            }),
+          ],
+        }),
+      ],
+    }),
+  )
+  const doc = new Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: khmerFont, size: 22 },
+        },
+      },
+    },
+    sections: [
+      {
+        properties: {},
+        children: [
+          new Paragraph({
+            text: 'ហាងនំអាតេលៀ',
+            heading: HeadingLevel.TITLE,
+          }),
+          new Paragraph({
+            text: 'របាយការណ៍ការខាតបង់',
+            heading: HeadingLevel.HEADING_1,
+          }),
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: `រយៈពេលរាយការណ៍៖ ${from || 'រាល់កាលបរិច្ឆេទ'} ដល់ ${to || 'បច្ចុប្បន្ន'}`,
+                font: khmerFont,
+                color: '666666',
+              }),
+            ],
+          }),
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+              new TableRow({
+                tableHeader: true,
+                children: ['Category', 'USD'].map(
+                  (text) =>
+                    new TableCell({
+                      children: [
+                        new Paragraph({
+                          children: [
+                            new TextRun({ text, bold: true, font: khmerFont }),
+                          ],
+                        }),
+                      ],
+                    }),
+                ),
+              }),
+              ...rows,
+            ],
+          }),
+          new Paragraph({
+            text: `បង្កើតនៅ ${new Date().toLocaleString()}`,
+            spacing: { before: 500 },
+          }),
+        ],
+      },
+    ],
+  })
+  download(
+    await Packer.toBlob(doc),
+    `losses-${from || 'all'}-${to || 'all'}.docx`,
   )
 }

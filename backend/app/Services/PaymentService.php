@@ -109,6 +109,25 @@ final class PaymentService
         ) {
             return;
         }
+        // Recovery path for the old manual-status bypass: rows marked `Paid`
+        // by the Telegram order dropdown never got an OrderPayment and never
+        // had stock/revenue recorded (only the old `Completed` branch did).
+        // Let the admin record the real method/tender through /pay so it
+        // lands in cash reports and shift reconciliation instead of staying
+        // invisible. Completed rows are deliberately NOT recovered here: the
+        // old dropdown already decremented stock and counted revenue for
+        // them, so re-paying would double-sell; those are audit-report-only.
+        $hasConfirmedPayment = $order
+            ->payments()
+            ->where('status', 'confirmed')
+            ->exists();
+        if (
+            $order->status === 'Paid' &&
+            $order->payment_status !== 'paid' &&
+            !$hasConfirmedPayment
+        ) {
+            return;
+        }
         throw new HttpResponseException(
             response()->json(
                 [
@@ -155,10 +174,12 @@ final class PaymentService
         if ($order->source === 'telegram') {
             SendCustomerStatusNotification::dispatch($order->id);
         }
-        foreach (
-            $order->orderItems()->with('product')->lockForUpdate()->get()
-            as $item
-        ) {
+        $items = $order->orderItems()->with('product')->lockForUpdate()->get();
+        $subtotal = max(0, (int) $order->subtotal_cents);
+        $total = max(0, (int) $order->total_cents);
+        $remaining = $total;
+        $lastIndex = $items->count() - 1;
+        foreach ($items as $index => $item) {
             if (!$item->product) {
                 continue;
             }
@@ -177,6 +198,20 @@ final class PaymentService
                     min($p->reserved_stock, $item->quantity),
                 );
             }
+            // Recognize revenue only at the real take-payment point, using
+            // the same proportional allocation as the walk-in checkout path.
+            // This closes the old Telegram completion gap without double
+            // counting: holds/Telegram orders are not recorded at creation.
+            $gross = $p->price_cents * $item->quantity;
+            $net =
+                $subtotal === 0
+                    ? 0
+                    : ($index === $lastIndex
+                        ? $remaining
+                        : intdiv($gross * $total, $subtotal));
+            $remaining -= $net;
+            $p->increment('sold', $item->quantity);
+            $p->increment('revenue_cents', $net);
         }
     }
 }

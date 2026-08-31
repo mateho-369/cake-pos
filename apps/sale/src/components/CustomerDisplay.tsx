@@ -3,6 +3,12 @@ import { Heart, ShoppingBag } from 'lucide-react'
 import { GCakeLogo } from '@cake-pos/brand'
 import type { CartItem } from '../data'
 import { useTranslation } from '../lib/i18n'
+// Guard a legacy null price on the customer display: show $0.00 rather than
+// let `toFixed is not a function` blank the screen while the customer waits.
+const safeNumber = (value: number | null | undefined) =>
+  Number.isFinite(value as number) ? (value as number) : 0
+const usd = (value: number | null | undefined) =>
+  `$${safeNumber(value).toFixed(2)}`
 
 type DisplayState = {
   cart: CartItem[]
@@ -69,18 +75,20 @@ export default function CustomerDisplay() {
                   <span>
                     {quantity} × {product.name}
                   </span>
-                  <strong>${(product.price * quantity).toFixed(2)}</strong>
+                  <strong>
+                    {usd(safeNumber(product.price) * quantity)}
+                  </strong>
                 </div>
               ))}
             </div>
             <footer>
               <div>
                 <span>{t('display.subtotal')}</span>
-                <strong>${state.subtotal.toFixed(2)}</strong>
+                <strong>{usd(state.subtotal)}</strong>
               </div>
               <div className="display-total">
                 <span>{t('display.total')}</span>
-                <strong>${state.total.toFixed(2)}</strong>
+                <strong>{usd(state.total)}</strong>
               </div>
             </footer>
           </>

@@ -109,7 +109,12 @@ class OrderController extends Controller
     {
         return response()->json(
             OrderResource::collection(
-                Order::with(['cashier', 'customer', 'orderItems'])
+                Order::with([
+                    'cashier',
+                    'customer',
+                    'orderItems',
+                    'statusEvents',
+                ])
                     ->where('status', 'Held')
                     ->orderBy('created_at')
                     ->get(),
@@ -135,7 +140,13 @@ class OrderController extends Controller
 
     public function index(): JsonResponse
     {
-        $orders = Order::with(['cashier', 'customer'])
+        $orders = Order::with([
+            'cashier',
+            'customer',
+            'orderItems',
+            'payments',
+            'statusEvents',
+        ])
             ->latest('created_at')
             ->get();
         return response()->json(OrderResource::collection($orders)->resolve());

@@ -1,11 +1,15 @@
 #!/bin/sh
-# Run on the VM after `docker compose up -d --build` (and after .env is in
-# place). Recreates app/queue so OPcache (validate_timestamps=0) cannot
-# keep serving the previous image, then bakes Laravel config/routes/views.
+# Manual VM fallback for the cache-busting workflow. Use it after a GitHub
+# deploy while `deploy-backend.yml` is still blocked from being patched by
+# this GitHub App (it lacks the `workflows` permission), and also for manual
+# VM deploys or after changing backend/.env on the server.
 #
-# The GitHub deploy workflow still runs `config:clear` + migrate + seed and
-# cannot be updated from this branch (GitHub App lacks `workflows` scope).
-# Until that YAML is patched, run this script on the VM after each deploy:
+# It forces the app/queue containers to restart so OPcache
+# (validate_timestamps=0) cannot keep serving the previous image, then bakes
+# Laravel config/routes/views.
+#
+# The `deploy-backend.yml` patch (same steps, all in GitHub Actions) is
+# available in docs/patches/deploy-backend-cache-opcache.patch.
 #
 #   cd ~/cake-pos/backend && sh bin/post-deploy.sh
 set -eu

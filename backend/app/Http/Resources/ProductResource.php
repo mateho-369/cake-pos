@@ -19,10 +19,13 @@ class ProductResource extends JsonResource
             // names (the `category` string above stays for display and for
             // older clients that filter by name).
             'categoryId' => $this->category_id,
-            'price' => Money::toDecimal($this->price_cents),
+            // A legacy/partial row with a null price is serialized as $0.00
+            // so the frontend never crashes on `toFixed`. The order services
+            // refuse to sell such a product until an admin sets a price.
+            'price' => Money::toDecimal($this->price_cents ?? 0),
             'stock' => (int) $this->stock,
             'sold' => (int) $this->sold,
-            'revenue' => Money::toDecimal($this->revenue_cents),
+            'revenue' => Money::toDecimal($this->revenue_cents ?? 0),
             'status' => $this->freshnessStatus(),
             'madeAt' => $this->made_at?->format('M j, Y'),
             'bestBefore' =>

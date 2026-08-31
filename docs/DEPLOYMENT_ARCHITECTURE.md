@@ -44,3 +44,47 @@ This preserves argument splitting and avoids the plain multi-line Compose comman
 Laravel CORS allows exactly `ADMIN_ORIGIN` and `SALE_ORIGIN`, methods `GET, POST, PUT, PATCH, DELETE, OPTIONS`, and headers `Accept, Authorization, Content-Type`. Wildcards and cookie credentials are disabled.
 
 Staff login returns a 12-hour Sanctum token. Stock-changing sales run in a MySQL transaction and lock product rows with `SELECT ... FOR UPDATE`, so any validation/stock failure rolls back the entire order.
+
+## Stale content prevention (deployed stale UI + stale shift)
+
+A deploy can leave the terminal showing yesterday's UI even though the new
+source is in the repo. Three independent caches can cause it, and this
+changeset addresses all of them together:
+
+1. **Browser / edge HTML cache.** Each static frontend ships a
+   `public/_headers` file (copied into the deployed Cloudflare Workers
+   asset bundle) that forces the HTML entry point to revalidate
+   (`Cache-Control: no-cache`) while letting Vite's fingerprinted
+   `/assets/*` live until the hash changes
+   (`public, max-age=31536000, immutable`). Without it, a cached
+   `index.html` continues pointing at the previous asset hash and the
+   cashier keeps seeing the old POS UI.
+
+2. **API worklet edge cache.** The `api-proxy` Worker re-asserts
+   `Cache-Control: no-store` on every response. The backend already sends
+   `no-store` on the shift/current endpoints, but if an older backend
+   image is still running the proxy now guarantees the deployed UI can
+   never display a stale shift badge or stale customer-order list.
+
+3. **PHP/FPM caches.** Production uses OPcache with
+   `opcache.validate_timestamps=0` plus cached Laravel config/routes/views.
+   The backend cannot be updated through this branch because the GitHub
+   App token lacks `workflows` permission, so the exact workflow edits are
+   preserved in `docs/patches/deploy-backend-cache-opcache.patch`
+   (`--force-recreate` + the three `*:cache` commands). Until a maintainer
+   applies it, run `backend/bin/post-deploy.sh` after every deploy. The
+   frontend deploy picks up `_headers` automatically because it rebuilds
+   and re-uploads the `dist/` assets.
+
+4. **No CI shift lifecycle against production.** The live-prod probe is now
+   strictly read-only: it never opens or closes a shift, even if
+   `LIVE_PROD_SHIFT_LIFECYCLE=1` is set, and the workflow pins it to `"0"`.
+   A shift may only close through the explicit admin/sale "Close shift"
+   action. A background probe closing the shop's only open shift was the
+   "shift closed by itself" mechanism; it also flipped `storeOpen` to false,
+   so Telegram customers suddenly saw the shop closed and could not order.
+   The `.github/workflows/test.yml` edit cannot be pushed by the GitHub App
+   (it lacks `workflows` permission), so it is preserved in
+   `docs/patches/live-prod-readonly.patch` — apply it, or just rely on the
+   read-only probe script itself, which forces `LIVE_PROD_SHIFT_LIFECYCLE=0`
+   regardless of the workflow env.

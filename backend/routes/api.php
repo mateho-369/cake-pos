@@ -31,6 +31,11 @@ Route::post('/customer-orders/{order}/status', [
     TelegramController::class,
     'status',
 ]);
+// Customer cancellation before the seller accepts (Pending/Confirmed/Ready).
+Route::post('/customer-orders/{order}/cancel', [
+    TelegramController::class,
+    'cancelOrder',
+]);
 
 Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);

@@ -53,6 +53,27 @@ class OrderResource extends JsonResource
             'total' => Money::toDecimal($this->total_cents),
             'payment' => $this->payment,
             'status' => $this->status,
+            // Lets the frontend tell a genuine cancellation (rejected before
+            // payment) from a hold that was resumed and paid: the latter has a
+            // status event with reason `hold_paid` and the paid order id.
+            'statusChange' => $this->whenLoaded(
+                'statusEvents',
+                function () {
+                    $event = $this->statusEvents
+                        ->sortByDesc('created_at')
+                        ->values()
+                        ->first();
+                    if (!$event) {
+                        return null;
+                    }
+                    return [
+                        'fromStatus' => $event->from_status,
+                        'toStatus' => $event->to_status,
+                        'reason' => $event->metadata['reason'] ?? null,
+                        'paidOrderId' => $event->metadata['paidOrderId'] ?? null,
+                    ];
+                },
+            ),
             'detail' => $this->detail_json,
             // Optional label the cashier typed when parking the order.
             'holdLabel' => $this->hold_label,

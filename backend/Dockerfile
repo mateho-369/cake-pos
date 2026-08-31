@@ -14,6 +14,11 @@ RUN if [ -f composer.lock ]; then \
     fi \
     && composer install --no-dev --no-interaction --no-progress --prefer-dist --no-scripts --optimize-autoloader
 ARG CACHEBUST=1
+# CACHEBUST is an unused build arg by itself; consume it so changing the
+# value on every deploy actually invalidates the COPY and dump-autoload
+# layers below. Without this, `docker compose up --build` can keep the old
+# vendor image and OPcache (validate_timestamps=0) would serve stale code.
+RUN echo "cachebust=$CACHEBUST" > /tmp/cachebust
 COPY . .
 RUN composer dump-autoload --no-dev --classmap-authoritative --no-interaction
 

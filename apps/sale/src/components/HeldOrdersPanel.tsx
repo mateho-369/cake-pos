@@ -2,6 +2,11 @@ import { useCallback, useState } from 'react'
 import { Banknote, PauseCircle, RotateCcw, ScanLine, Trash2, X } from 'lucide-react'
 import { useTranslation } from '../lib/i18n'
 import type { HeldOrder } from '../data'
+// A null/omitted total on a legacy payload must never throw in the held list.
+const safeNumber = (value: number | null | undefined) =>
+  Number.isFinite(value as number) ? (value as number) : 0
+const usd = (value: number | null | undefined) =>
+  `$${safeNumber(value).toFixed(2)}`
 
 type Props = {
   held: HeldOrder[]
@@ -42,7 +47,7 @@ export default function HeldOrdersPanel({
   const openPay = (order: HeldOrder) => {
     setPaying(order)
     setMethod('Cash')
-    setReceived(order.total.toFixed(2))
+    setReceived(safeNumber(order.total).toFixed(2))
     setReceivedKhr('')
   }
   const closePay = useCallback(() => setPaying(null), [])
@@ -70,7 +75,7 @@ export default function HeldOrdersPanel({
                 {order.holdLabel || order.id}
               </strong>
               {order.holdLabel && <small className="held-id">{order.id}</small>}
-              <b>${order.total.toFixed(2)}</b>
+              <b>{usd(order.total)}</b>
             </div>
             <div className="held-card-body">
               <small>{order.detail.join('; ')}</small>

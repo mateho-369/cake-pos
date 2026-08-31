@@ -12,6 +12,12 @@ import type { Customer, Order } from '../data'
 import { useAdminData } from '../lib/data'
 import { apiRequest } from '../lib/api'
 import { useTranslation } from '../lib/i18n'
+// API money fields can be null on an old/partial payload; never let that
+// throw `toFixed is not a function` in the customer card or history.
+const safeNumber = (value: number | null | undefined) =>
+  Number.isFinite(value as number) ? (value as number) : 0
+const money = (value: number | null | undefined) =>
+  `$${safeNumber(value).toFixed(2)}`
 
 type Retention = {
   customersWithOrders: number
@@ -135,7 +141,7 @@ export default function CustomersPage() {
                 </small>
               </div>
               <span className="customer-admin-totals">
-                <strong>${customer.totalSpent.toFixed(2)}</strong>
+                <strong>{money(customer.totalSpent)}</strong>
                 <small>
                   {t(
                     customer.totalOrders === 1
@@ -193,7 +199,7 @@ export default function CustomersPage() {
                       <small>{order.detail.join(', ')}</small>
                     </div>
                     <div>
-                      <strong>${order.total.toFixed(2)}</strong>
+                      <strong>{money(order.total)}</strong>
                       <small>{order.status}</small>
                     </div>
                   </article>

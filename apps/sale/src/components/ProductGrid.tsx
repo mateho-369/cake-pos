@@ -3,6 +3,11 @@ import { type CartItem, type Product } from '../data'
 import type { CSSProperties } from 'react'
 import { useSaleData } from '../lib/data'
 import { useTranslation } from '../lib/i18n'
+// A legacy/partial product payload with a missing price must render as
+// $0.00 (a cashier can still flag it for the admin) rather than throwing
+// `toFixed is not a function` on the sale terminal.
+const usd = (value: number | null | undefined) =>
+  `$${(Number.isFinite(value as number) ? (value as number) : 0).toFixed(2)}`
 function productPhotoStyle(product: Product): CSSProperties {
   const primary = product.images?.[0]?.url || product.imageUrl
   return primary
@@ -156,7 +161,7 @@ export default function ProductGrid({
                     <small>{categoryLabel(product.category)}</small>
                     <strong>{product.name}</strong>
                   </span>
-                  <b>${product.price.toFixed(2)}</b>
+                  <b>{usd(product.price)}</b>
                 </span>
                 <span className="add-product">
                   <Plus size={16} />

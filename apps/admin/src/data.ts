@@ -26,7 +26,10 @@ export type Product = {
   category: string
   /** The authoritative category id (rename-safe) for pickers/saves. */
   categoryId?: number
-  price: number
+  // The backend requires a price and refuses to save without one, but a
+  // legacy/partial payload can still carry null. All money rendering uses a
+  // null-safe formatter so a bad row never crashes the catalog page.
+  price: number | null
   stock: number
   sold: number
   revenue: number
@@ -62,6 +65,7 @@ export type Order = {
     name: string
     phone?: string
     telegram_username?: string
+    telegramUserId?: string
   } | null
   customerId?: number | null
   source: 'walk-in' | 'telegram'
@@ -71,6 +75,7 @@ export type Order = {
   discountValue?: number | null
   discountAmount?: number
   originalOrderId?: string | null
+  holdLabel?: string | null
   total: number
   payment: 'Cash' | 'KHQR' | null
   status:
@@ -81,6 +86,38 @@ export type Order = {
     | 'Completed'
     | 'Refunded'
     | 'Voided'
+    | 'Held'
+    | 'Cancelled'
+    | 'Released'
+  paymentStatus?: string
+  fulfillmentStatus?: string
+  statusChange?: {
+    fromStatus?: string | null
+    toStatus?: string | null
+    reason?: string | null
+    paidOrderId?: string | null
+  } | null
+  lineItems?: Array<{
+    productId: number | null
+    description: string | null
+    quantity: number
+    unitPriceCents: number
+    lineTotalCents?: number
+  }>
+  payments?: Array<{
+    id: number
+    method: string
+    status: string
+    amountUsdCents: number
+    exchangeRateKhrPerUsd: number
+    tenderedUsdCents?: number | null
+    tenderedKhr?: number | null
+    changeUsdCents?: number | null
+    changeKhr?: number | null
+    settlementRoundingKhr?: number | null
+    confirmedByEmployeeId?: number | null
+    confirmedAt?: string | null
+  }>
   detail: string[]
 }
 

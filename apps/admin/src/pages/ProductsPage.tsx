@@ -20,6 +20,13 @@ import { apiRequest } from '../lib/api'
 import { useAdminData } from '../lib/data'
 import ProductImportModal from '../components/ProductImportModal'
 
+// A missing/null price from a legacy or partial product row must never throw
+// `toFixed is not a function` on the admin Products page.
+const safeNumber = (value: number | null | undefined) =>
+  Number.isFinite(value as number) ? (value as number) : 0
+const usd = (value: number | null | undefined) =>
+  `$${safeNumber(value).toFixed(2)}`
+
 export const DEACTIVATION_REASONS = [
   { id: 'out_of_stock', key: 'reasons.outOfStock' },
   { id: 'discontinued', key: 'reasons.discontinued' },
@@ -72,7 +79,7 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
   const [broadcastCaption, setBroadcastCaption] = useState('')
   const [broadcastSending, setBroadcastSending] = useState(false)
   const openBroadcastFor = (product: Product) => {
-    setBroadcastCaption(`New: ${product.name} — $${product.price.toFixed(2)}`)
+    setBroadcastCaption(`New: ${product.name} — ${usd(product.price)}`)
     setBroadcastFor(product)
   }
   const sendBroadcast = async () => {
@@ -109,7 +116,7 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
   ]
   const stockTotal = products.reduce((sum, product) => sum + product.stock, 0)
   const retailValue = products.reduce(
-    (sum, product) => sum + product.stock * product.price,
+    (sum, product) => sum + product.stock * safeNumber(product.price),
     0,
   )
   // Same freshness-risk definition as the Overview dashboard so both pages
@@ -122,7 +129,7 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
     0,
   )
   const riskValue = riskProducts.reduce(
-    (sum, product) => sum + product.stock * product.price,
+    (sum, product) => sum + product.stock * safeNumber(product.price),
     0,
   )
   const soldTotal = products.reduce((sum, product) => sum + product.sold, 0)
@@ -318,7 +325,7 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
     const input = {
       name: String(form.get('name') || editing.name),
       categoryId: Number(form.get('categoryId') || editing.categoryId || 0),
-      price: Number(form.get('price') || editing.price),
+      price: Number(form.get('price') || (editing.price ?? 0)),
       stock: Number(form.get('stock') ?? editing.stock),
       madeAt: String(form.get('madeAt') || editing.madeAt),
       bestBefore: String(form.get('bestBefore') || editing.bestBefore),
@@ -479,10 +486,10 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
                 <strong>{product.stock}</strong>
                 <span>{t('common.units')}</span>
               </div>
-              <strong className="numeric">${product.price.toFixed(2)}</strong>
+              <strong className="numeric">{usd(product.price)}</strong>
               <div>
                 <strong>{t('catalog.sold', { count: product.sold })}</strong>
-                <small className="block-note">${product.revenue}</small>
+                <small className="block-note">{usd(product.revenue)}</small>
               </div>
               <span
                 className={`status-badge ${product.active ? 'success' : 'neutral'}`}
@@ -570,7 +577,7 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
                 <span>{translateCategory(t, product.category)}</span>
                 <h3>{product.name}</h3>
                 <div>
-                  <strong>${product.price}</strong>
+                  <strong>{usd(product.price)}</strong>
                   <span>
                     {product.stock} {t('common.units')}
                   </span>
@@ -836,7 +843,7 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
                   name="price"
                   type="number"
                   step="0.01"
-                  defaultValue={editing.price}
+                  defaultValue={editing.price ?? 0}
                   required
                 />
               </label>

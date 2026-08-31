@@ -1,0 +1,35 @@
+diff --git a/.github/workflows/test.yml b/.github/workflows/test.yml
+index 9f855dd..4aaa66f 100644
+--- a/.github/workflows/test.yml
++++ b/.github/workflows/test.yml
+@@ -251,23 +251,22 @@ jobs:
+           path: e2e/ui/artifacts
+ 
+   # ============================================================
+-  # LIVE PRODUCTION probes (read-only + shift lifecycle w/ cleanup)
++  # LIVE PRODUCTION probes (STRICTLY READ-ONLY)
+   # ============================================================
+   live-prod:
+     runs-on: ubuntu-latest
+-    # Only ONE shift can be open store-wide: two probes racing on the same
+-    # production shift is exactly how a shift got stranded Open before.
+     concurrency:
+       group: live-prod
+       cancel-in-progress: false
+     steps:
+       - uses: actions/checkout@v4
+-      - name: Probe live production API
++      - name: Probe live production API (read-only)
+         env:
+           WORKER_URL: https://g-cake-api.system-app.workers.dev
+           VM_URL: http://34.9.115.19:8080
+-          # The mutating open/close lifecycle runs only when a human triggers
+-          # the workflow. Pushes stay read-only — backend-e2e/ui already cover
+-          # open/close/conflict/relogin against a throwaway MySQL.
+-          LIVE_PROD_SHIFT_LIFECYCLE: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
++          # The probe ignores LIVE_PROD_SHIFT_LIFECYCLE entirely and never
++          # opens or closes a production shift. Only the admin/sale UI Close
++          # action may close a shift; a CI shift lifecycle was the async
++          # "shift closed on its own" bug.
++          LIVE_PROD_SHIFT_LIFECYCLE: "0"
+         run: bash backend/tests/e2e/live-prod.sh
