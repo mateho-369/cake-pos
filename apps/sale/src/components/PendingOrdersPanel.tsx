@@ -7,6 +7,7 @@ import {
   Phone,
   ScanLine,
   Send,
+  Trash2,
   X,
 } from 'lucide-react'
 import { useTranslation } from '../lib/i18n'
@@ -38,6 +39,12 @@ type Props = {
   /** Park into the held queue without charging. */
   onAccept: (orderId: string) => Promise<void>
   /**
+   * Staff decline of a not-yet-accepted order: the cashier called the
+   * customer and they never placed it. Cancels the order and releases its
+   * reserved stock. The optional reason goes to the audit trail only.
+   */
+  onReject: (orderId: string, reason?: string) => Promise<void>
+  /**
    * Send a quick Telegram note to the order's customer through the shop
    * bot. Resolves with whether Telegram actually accepted the message.
    */
@@ -53,11 +60,14 @@ type Props = {
 /**
  * Telegram customer orders awaiting staff action. The customer placed the
  * order in the Mini App; staff verify it (phone call or Telegram message),
- * then Accept (park as held, unpaid) or take payment on arrival. Staff cannot
- * cancel a not-yet-accepted order — before the seller accepts, only the
- * customer can cancel it in the Mini App. Several can be pending at once;
- * the panel is a queue, oldest first. An order leaves the list the moment it
- * is paid, accepted, or cancelled by the customer.
+ * then Accept (park as held, unpaid), take payment on arrival, or Reject it
+ * if the customer says they never placed it. Rejecting is destructive, so it
+ * asks for confirmation (and an optional reason) first. The customer can
+ * also cancel the same order themselves in the Mini App until staff accept
+ * it — whichever happens first wins, and the other side gets a plain error.
+ * Several can be pending at once; the panel is a queue, oldest first. An
+ * order leaves the list the moment it is paid, accepted, rejected, or
+ * cancelled by the customer.
  */
 export default function PendingOrdersPanel({
   pending,
@@ -65,6 +75,7 @@ export default function PendingOrdersPanel({
   open = false,
   onPay,
   onAccept,
+  onReject,
   onMessage,
   onNeedShift,
   onToast,
@@ -77,12 +88,19 @@ export default function PendingOrdersPanel({
   const [busy, setBusy] = useState(false)
   const [messaging, setMessaging] = useState<PendingOrder | null>(null)
   const [note, setNote] = useState('')
+  const [rejecting, setRejecting] = useState<PendingOrder | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
 
   const openPay = (order: PendingOrder) => {
     setPaying(order)
     setMethod('Cash')
     setReceived(safeNumber(order.total).toFixed(2))
     setReceivedKhr('')
+  }
+
+  const openReject = (order: PendingOrder) => {
+    setRejecting(order)
+    setRejectReason('')
   }
 
   const openMessage = (order: PendingOrder) => {
@@ -118,7 +136,10 @@ export default function PendingOrdersPanel({
       method === 'Cash' ? Math.round(Number(received || 0) * 100) : 0
     const khr =
       method === 'Cash'
-        ? Math.max(0, Math.round(Number(receivedKhr.replace(/[^0-9]/g, '') || 0)))
+        ? Math.max(
+            0,
+            Math.round(Number(receivedKhr.replace(/[^0-9]/g, '') || 0)),
+          )
         : 0
     const order = paying
     onNeedShift(() => doPay(order, method, usdCents, khr))
@@ -136,6 +157,22 @@ export default function PendingOrdersPanel({
         )
         .finally(() => setBusy(false))
     })
+  }
+
+  const confirmReject = () => {
+    if (!rejecting) return
+    const order = rejecting
+    const reason = rejectReason.trim()
+    setBusy(true)
+    onReject(order.id, reason || undefined)
+      .then(() => {
+        setRejecting(null)
+        onToast(t('pending.rejected', { id: order.pickupCode || order.id }))
+      })
+      .catch((err) =>
+        onToast(err instanceof Error ? err.message : 'Reject failed'),
+      )
+      .finally(() => setBusy(false))
   }
 
   const confirmMessage = () => {
@@ -162,7 +199,7 @@ export default function PendingOrdersPanel({
       .finally(() => setBusy(false))
   }
 
-  if (!pending.length && !paying && !messaging && !open) {
+  if (!pending.length && !paying && !messaging && !rejecting && !open) {
     return null
   }
   return (
@@ -219,6 +256,15 @@ export default function PendingOrdersPanel({
                 <small>{order.detail.join('; ')}</small>
               </div>
               <div className="pending-card-actions">
+                <button
+                  className="pending-reject-button"
+                  disabled={busy}
+                  onClick={() => openReject(order)}
+                  title={t('pending.reject')}
+                  aria-label={t('pending.reject')}
+                >
+                  <Trash2 size={15} />
+                </button>
                 <button
                   className="pending-accept-button"
                   disabled={busy}
@@ -305,6 +351,49 @@ export default function PendingOrdersPanel({
             >
               {t('pending.confirmPayment')}
             </button>
+          </div>
+        </div>
+      )}
+      {rejecting && (
+        <div className="pending-pay-sheet">
+          <div className="pending-pay-card">
+            <header>
+              <strong>
+                {t('pending.rejectTitle', {
+                  id: rejecting.pickupCode || rejecting.id,
+                })}
+              </strong>
+              <button onClick={() => setRejecting(null)} aria-label="Close">
+                <X size={16} />
+              </button>
+            </header>
+            <p className="pending-reject-note">{t('pending.rejectNote')}</p>
+            <label className="pending-reject-reason">
+              <span>{t('pending.rejectReasonLabel')}</span>
+              <input
+                type="text"
+                maxLength={280}
+                value={rejectReason}
+                onChange={(event) => setRejectReason(event.target.value)}
+                placeholder={t('pending.rejectReasonPlaceholder')}
+              />
+            </label>
+            <div className="pending-reject-actions">
+              <button
+                className="pending-reject-cancel"
+                disabled={busy}
+                onClick={() => setRejecting(null)}
+              >
+                {t('pending.keepOrder')}
+              </button>
+              <button
+                className="pending-reject-confirm"
+                disabled={busy}
+                onClick={confirmReject}
+              >
+                <Trash2 size={14} /> {t('pending.rejectConfirm')}
+              </button>
+            </div>
           </div>
         </div>
       )}

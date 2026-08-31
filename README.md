@@ -19,7 +19,7 @@ A customer can order now and pay on collection. On the sale terminal:
 1. Add the items to the cart and tap **Hold order** — optionally name it
    ("Dara — 4pm") so it can be told apart from the other holds.
 2. The ticket shows up in the **Held orders** panel, oldest first. Its stock is
-   *reserved*, not sold, so the shelf count is never double-sold while it waits.
+   _reserved_, not sold, so the shelf count is never double-sold while it waits.
    Many orders can be held at once.
 3. When the customer comes back: **Take payment** pays the hold directly, or
    **Resume** puts its lines back into the cart — the hold stays parked until
@@ -35,6 +35,28 @@ A customer can order now and pay on collection. On the sale terminal:
 Holding is shift-gated like every other sale endpoint (`POST /api/orders/hold`,
 `GET /api/orders/held`). A released hold is never counted as revenue — only the
 paid order is (status `Completed` + `payment_status = paid`).
+
+## Cancelling a pending customer order — two doors, one lock
+
+A Telegram order that the seller has not accepted yet can be called off from
+either side, and both paths end identically (order `Cancelled`, reserved
+stock released, customer notified by the shop bot, event in the audit trail):
+
+- **Customer self-cancel** — `POST /api/customer-orders/{id}/cancel` from the
+  Mini App, audited as `customer_order.cancelled` with `source: customer`.
+- **Staff reject** — `POST /api/orders/{id}/reject` from the sale terminal's
+  pending queue, for when the cashier rings the customer and learns they
+  never placed the order. Audited as `customer_order.rejected` with
+  `source: staff`, the acting employee, and the optional reason (the reason
+  is never sent to the customer).
+
+Both take a row lock and re-read the status inside the transaction, so the
+two can never double-process one order: whoever lands first wins and the
+other side gets a plain 409 (`This order has already been cancelled` /
+`This order was already cancelled — the customer cancelled it first`) instead
+of a crash or a second stock release. Once the order has been **accepted**,
+`/reject` is refused — it is an ordinary hold at that point and goes through
+`POST /api/orders/{id}/cancel`.
 
 ## Telegram order payment integrity
 

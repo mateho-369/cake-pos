@@ -77,12 +77,16 @@ function Harness() {
           <PendingOrdersPanel
             pending={ORDERS}
             shiftOpen
+            rate={4100}
             onPay={async (orderId, method, usdCents) => {
               window.__calls.push({
                 kind: 'pay',
                 orderId,
                 arg: { method, usdCents },
               })
+            }}
+            onAccept={async (orderId) => {
+              window.__calls.push({ kind: 'accept', orderId })
             }}
             onReject={async (orderId, reason) => {
               window.__calls.push({ kind: 'reject', orderId, arg: reason })
@@ -105,7 +109,9 @@ function Harness() {
             pending={[]}
             open
             shiftOpen
+            rate={4100}
             onPay={async () => {}}
+            onAccept={async () => {}}
             onReject={async () => {}}
             onMessage={async () => false}
             onNeedShift={(resume) => resume()}

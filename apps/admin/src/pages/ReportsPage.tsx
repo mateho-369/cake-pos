@@ -1,13 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
+  ChevronDown,
+  ChevronUp,
   Download,
   FileSpreadsheet,
   FileText,
   Lightbulb,
+  Send,
   ShieldAlert,
+  Store,
   TrendingUp,
   X,
 } from 'lucide-react'
@@ -15,6 +19,12 @@ import type { Order, Product, RevenuePoint } from '../data'
 import { useAdminData } from '../lib/data'
 import { apiRequest } from '../lib/api'
 import { translateCategory, useTranslation } from '../lib/i18n'
+import TablePagination, {
+  DEFAULT_PAGE_SIZE,
+  paginate,
+  pageCount,
+  type PageSize,
+} from '../components/TablePagination'
 import {
   downloadCsv,
   exportLossesExcel,
@@ -166,19 +176,19 @@ export default function ReportsPage({
                   inRange(shift.closedAt, rangeFrom, rangeTo),
               )
               .map((shift) => [
-              new Date(shift.openedAt).toLocaleString(),
-              shift.closedAt ? new Date(shift.closedAt).toLocaleString() : '',
-              shift.openedBy || '',
-              ((shift.openingCashUsdCents ?? 0) / 100).toFixed(2),
-              ((shift.expectedCashUsdCents ?? 0) / 100).toFixed(2),
-              shift.closedAt
-                ? ((shift.closingCashUsdCents ?? 0) / 100).toFixed(2)
-                : '',
-              shift.closedAt
-                ? ((shift.varianceUsdCents ?? 0) / 100).toFixed(2)
-                : '',
-              shift.status,
-            ]),
+                new Date(shift.openedAt).toLocaleString(),
+                shift.closedAt ? new Date(shift.closedAt).toLocaleString() : '',
+                shift.openedBy || '',
+                ((shift.openingCashUsdCents ?? 0) / 100).toFixed(2),
+                ((shift.expectedCashUsdCents ?? 0) / 100).toFixed(2),
+                shift.closedAt
+                  ? ((shift.closingCashUsdCents ?? 0) / 100).toFixed(2)
+                  : '',
+                shift.closedAt
+                  ? ((shift.varianceUsdCents ?? 0) / 100).toFixed(2)
+                  : '',
+                shift.status,
+              ]),
           )
           return
         case 'freshWaste':
@@ -193,9 +203,7 @@ export default function ReportsPage({
               'Recorded by',
             ],
             (freshness?.events ?? [])
-              .filter((event) =>
-                inRange(event.recordedAt, rangeFrom, rangeTo),
-              )
+              .filter((event) => inRange(event.recordedAt, rangeFrom, rangeTo))
               .map((event) => [
                 new Date(event.recordedAt).toLocaleString(),
                 event.productName,
@@ -400,6 +408,14 @@ export default function ReportsPage({
           )}
         </div>
       </section>
+      {DETAIL_TABLE_TABS.includes(tab) && (
+        <TransactionDetailTable
+          orders={selectedOrders}
+          from={from}
+          to={to}
+          tab={tab}
+        />
+      )}
       <PeriodComparison from={from} to={to} />
       <section className="report-bottom-grid">
         <div className="glass-panel category-report">
@@ -485,10 +501,7 @@ export default function ReportsPage({
         </div>
         <div className="report-library-grid">
           {libraries.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => setLibraryPicker(item)}
-            >
+            <button key={item.key} onClick={() => setLibraryPicker(item)}>
               <FileSpreadsheet size={19} />
               <span>
                 <strong>{t(item.label)}</strong>
@@ -531,12 +544,7 @@ function LibraryExportModal({
   defaultFrom: string
   defaultTo: string
   onClose: () => void
-  onExport: (
-    key: string,
-    label: string,
-    from: string,
-    to: string,
-  ) => void
+  onExport: (key: string, label: string, from: string, to: string) => void
 }) {
   const { t } = useTranslation()
   const [from, setFrom] = useState(defaultFrom)
@@ -607,15 +615,294 @@ const safeNumber = (value: number | null | undefined) =>
   Number.isFinite(value as number) ? (value as number) : 0
 const usd = (value: number | null | undefined) =>
   `$${safeNumber(value).toFixed(2)}`
-const inRange = (
-  iso: string | null | undefined,
-  from: string,
-  to: string,
-) => {
+const inRange = (iso: string | null | undefined, from: string, to: string) => {
   if (!iso) return false
   const day = new Date(iso).toISOString().slice(0, 10)
   return day >= from && day <= to
 }
+/**
+ * Tabs that get the shared transaction-detail table. Sales is the primary
+ * one; Products / Payments / Team read the same transactions from their own
+ * angle (which line items sold, how each order was tendered, who rang it
+ * up), so they share one drill-down list with a tab-appropriate default
+ * sort rather than three near-identical tables. Waste, Losses and Audit
+ * already have their own event-level detail, so they are left alone.
+ */
+const DETAIL_TABLE_TABS = ['sales', 'products', 'payments', 'team']
+
+type DetailSortKey =
+  'date' | 'id' | 'source' | 'who' | 'items' | 'payment' | 'total' | 'status'
+type SortDirection = 'asc' | 'desc'
+
+/** Default sort per tab — the column that tab is actually about. */
+const DETAIL_DEFAULT_SORT: Record<
+  string,
+  { key: DetailSortKey; direction: SortDirection }
+> = {
+  sales: { key: 'date', direction: 'desc' },
+  products: { key: 'items', direction: 'desc' },
+  payments: { key: 'payment', direction: 'asc' },
+  team: { key: 'who', direction: 'asc' },
+}
+
+const orderWho = (order: Order) => order.customer?.name || order.cashier || ''
+const orderItemsText = (order: Order) =>
+  (order.detail ?? []).join('; ') ||
+  (order.lineItems ?? [])
+    .map((line) => `${line.description ?? '—'} × ${line.quantity}`)
+    .join('; ')
+
+/**
+ * The transaction-detail (drill-down) table every professional reporting
+ * tool puts next to its summary rollups: one row per order in the date
+ * range the admin picked at the top of Reports, sortable by any column and
+ * paginated (25/50/100/All) so a busy month never dumps thousands of rows
+ * into the DOM. It reads the same `ordersInRange(orders, from, to)` slice
+ * the exports and KPIs use, so changing the preset moves this table with
+ * everything else on the page.
+ */
+function TransactionDetailTable({
+  orders,
+  from,
+  to,
+  tab,
+}: {
+  orders: Order[]
+  from: string
+  to: string
+  tab: string
+}) {
+  const { t } = useTranslation()
+  const initialSort = DETAIL_DEFAULT_SORT[tab] ?? DETAIL_DEFAULT_SORT.sales
+  const [sortKey, setSortKey] = useState<DetailSortKey>(initialSort.key)
+  const [direction, setDirection] = useState<SortDirection>(
+    initialSort.direction,
+  )
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE)
+  // A new tab means a new question: fall back to that tab's natural sort.
+  useEffect(() => {
+    const next = DETAIL_DEFAULT_SORT[tab] ?? DETAIL_DEFAULT_SORT.sales
+    setSortKey(next.key)
+    setDirection(next.direction)
+    setPage(1)
+  }, [tab])
+  // Range changes are a different dataset: never leave the admin stranded
+  // on page 7 of a shorter list.
+  useEffect(() => {
+    setPage(1)
+  }, [from, to])
+
+  const columns: Array<{
+    key: DetailSortKey
+    label: string
+    numeric?: boolean
+  }> = [
+    { key: 'date', label: t('reports.dateTimeCol') },
+    { key: 'id', label: t('orders.order') },
+    { key: 'source', label: t('orders.source') },
+    { key: 'who', label: t('orders.customerCashier') },
+    { key: 'items', label: t('orders.items') },
+    { key: 'payment', label: t('orders.payment') },
+    { key: 'total', label: t('orders.total'), numeric: true },
+    { key: 'status', label: t('orders.status') },
+  ]
+
+  const sorted = useMemo(() => {
+    const value = (order: Order): string | number => {
+      switch (sortKey) {
+        case 'date':
+          return new Date(order.createdAt).getTime() || 0
+        case 'id':
+          return order.id
+        case 'source':
+          return order.source
+        case 'who':
+          return orderWho(order).toLowerCase()
+        case 'items':
+          return safeNumber(order.items)
+        case 'payment':
+          return order.payment ?? ''
+        case 'total':
+          return safeNumber(order.total)
+        case 'status':
+          return order.status
+      }
+    }
+    const factor = direction === 'asc' ? 1 : -1
+    return [...orders].sort((a, b) => {
+      const left = value(a)
+      const right = value(b)
+      if (typeof left === 'number' && typeof right === 'number') {
+        return (left - right) * factor
+      }
+      return String(left).localeCompare(String(right)) * factor
+    })
+  }, [orders, sortKey, direction])
+
+  const pages = pageCount(sorted.length, pageSize)
+  const currentPage = Math.min(page, pages)
+  const visible = paginate(sorted, currentPage, pageSize)
+  const toggleSort = (key: DetailSortKey) => {
+    if (key === sortKey) {
+      setDirection(direction === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey(key)
+      // Dates and money read newest/biggest-first; text reads A→Z.
+      setDirection(
+        key === 'date' || key === 'total' || key === 'items' ? 'desc' : 'asc',
+      )
+    }
+    setPage(1)
+  }
+  const exportDetail = () =>
+    downloadCsv(
+      `transaction-detail-${from || 'all'}-${to || 'all'}.csv`,
+      [
+        'Date & time',
+        'Order',
+        'Source',
+        'Customer / cashier',
+        'Items',
+        'Item detail',
+        'Payment',
+        'Total (USD)',
+        'Status',
+      ],
+      sorted.map((order) => [
+        new Date(order.createdAt).toLocaleString(),
+        order.id,
+        order.source === 'telegram' ? 'Telegram' : 'Walk-in',
+        orderWho(order),
+        safeNumber(order.items),
+        orderItemsText(order),
+        order.payment || 'Not paid',
+        safeNumber(order.total).toFixed(2),
+        order.status,
+      ]),
+    )
+  return (
+    <section className="glass-panel report-detail-panel">
+      <div className="panel-heading">
+        <div>
+          <span className="section-kicker">{t('reports.detailKicker')}</span>
+          <h2>{t('reports.detailTitle')}</h2>
+          <small className="report-detail-note">
+            {t('reports.detailNote', { range: formatReportRange(from, to) })}
+          </small>
+        </div>
+        <button
+          className="text-button"
+          onClick={exportDetail}
+          disabled={!sorted.length}
+        >
+          <Download size={14} /> {t('common.export')}
+        </button>
+      </div>
+      {!sorted.length ? (
+        <div className="empty-state">
+          <span>{t('reports.noTransactions')}</span>
+        </div>
+      ) : (
+        <>
+          <div className="table-responsive">
+            <table className="report-detail-table">
+              <thead>
+                <tr>
+                  {columns.map((column) => (
+                    <th
+                      key={column.key}
+                      className={column.numeric ? 'numeric' : undefined}
+                      aria-sort={
+                        sortKey === column.key
+                          ? direction === 'asc'
+                            ? 'ascending'
+                            : 'descending'
+                          : 'none'
+                      }
+                    >
+                      <button
+                        type="button"
+                        className={`detail-sort ${sortKey === column.key ? 'active' : ''}`}
+                        onClick={() => toggleSort(column.key)}
+                      >
+                        {column.label}
+                        {sortKey === column.key &&
+                          (direction === 'asc' ? (
+                            <ChevronUp size={12} />
+                          ) : (
+                            <ChevronDown size={12} />
+                          ))}
+                      </button>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((order) => (
+                  <tr key={order.id}>
+                    <td>
+                      <span className="detail-datetime">
+                        {new Date(order.createdAt).toLocaleString()}
+                      </span>
+                    </td>
+                    <td>
+                      <strong>{order.id}</strong>
+                      {order.pickupCode && (
+                        <small className="block-note">{order.pickupCode}</small>
+                      )}
+                    </td>
+                    <td>
+                      <span className={`source-pill ${order.source}`}>
+                        {order.source === 'telegram' ? (
+                          <Send size={12} />
+                        ) : (
+                          <Store size={12} />
+                        )}
+                        <strong>
+                          {order.source === 'telegram'
+                            ? t('orders.telegram')
+                            : t('orders.walkIn')}
+                        </strong>
+                      </span>
+                    </td>
+                    <td>{orderWho(order) || '—'}</td>
+                    <td>
+                      <strong>{safeNumber(order.items)}</strong>
+                      <small className="block-note detail-items">
+                        {orderItemsText(order) || '—'}
+                      </small>
+                    </td>
+                    <td>{order.payment || t('orders.notPaid')}</td>
+                    <td className="numeric">
+                      <strong>{usd(order.total)}</strong>
+                    </td>
+                    <td>
+                      <span
+                        className={`status-badge order-status-${order.status.toLowerCase()}`}
+                      >
+                        <i />
+                        {order.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <TablePagination
+            total={sorted.length}
+            page={currentPage}
+            pageSize={pageSize}
+            onPage={setPage}
+            onPageSize={setPageSize}
+          />
+        </>
+      )}
+    </section>
+  )
+}
+
 function rangeProductSellThrough(rangeOrders: Order[], products: Product[]) {
   const sold = new Map<
     string,
@@ -650,10 +937,7 @@ function rangeProductSellThrough(rangeOrders: Order[], products: Product[]) {
   })
 }
 function rangeEmployeePerformance(rangeOrders: Order[]) {
-  const byCashier = new Map<
-    string,
-    { orders: number; totalUsd: number }
-  >()
+  const byCashier = new Map<string, { orders: number; totalUsd: number }>()
   for (const order of rangeOrders) {
     if (order.status !== 'Completed') continue
     const name = order.cashier || 'Unknown'
@@ -1091,13 +1375,17 @@ function describeDetails(details: Record<string, unknown>): string {
   money('expectedCashUsdCents', 'expected')
   money('closingCashUsdCents', 'counted')
   // Product deactivation / stock-zero reasons (accountability picklist).
-  if (typeof details.productName === 'string') parts.push(String(details.productName))
+  if (typeof details.productName === 'string')
+    parts.push(String(details.productName))
   if (details.activeBefore !== undefined || details.stockBefore !== undefined) {
     const activeBefore = details.activeBefore ? 'active' : 'off'
     const activeAfter = details.activeAfter ? 'active' : 'off'
-    parts.push(`${activeBefore}→${activeAfter}, ${details.stockBefore}→${details.stockAfter} units`)
+    parts.push(
+      `${activeBefore}→${activeAfter}, ${details.stockBefore}→${details.stockAfter} units`,
+    )
   }
-  if (typeof details.reasonCode === 'string') parts.push(`reason: ${details.reasonCode}`)
+  if (typeof details.reasonCode === 'string')
+    parts.push(`reason: ${details.reasonCode}`)
   if (typeof details.reasonNote === 'string' && details.reasonNote)
     parts.push(`“${details.reasonNote}”`)
   if (typeof details.pickupCode === 'string')

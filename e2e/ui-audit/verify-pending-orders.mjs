@@ -1,9 +1,9 @@
 /**
  * Targeted verification of the pending Telegram customer-order queue on
  * the sale terminal: the toolbar entry (paper-plane icon + live count,
- * always visible), the Reject action (confirmation first — it is
- * destructive: cancels the order and releases its reserved stock), and the
- * Telegram Message action next to the phone link.
+ * always visible), the Accept action, the staff Reject action (confirmation
+ * first — it is destructive: cancels the order and releases its reserved
+ * stock), and the Telegram Message action next to the phone link.
  *
  * Usage: node e2e/ui-audit/verify-pending-orders.mjs
  */
@@ -163,6 +163,20 @@ check(
 check(
   'Take payment is still offered',
   $$('.pending-card')[0].textContent.includes('Take payment'),
+)
+
+// -------------------- accept coexists with reject (both must be offered)
+check(
+  'Accept (park as held) is offered next to Reject',
+  $$('.pending-card')[0].querySelector('.pending-accept-button') !== null &&
+    $$('.pending-card')[0].querySelector('.pending-reject-button') !== null,
+)
+click($$('.pending-card')[0].querySelector('.pending-accept-button'))
+await sleep(200)
+check(
+  'Accept parks THAT order without any confirmation prompt',
+  window.__calls.find((c) => c.kind === 'accept')?.orderId === 'TG-31',
+  JSON.stringify(window.__calls.find((c) => c.kind === 'accept')),
 )
 
 // ------------------------------------------------- reject: confirm first

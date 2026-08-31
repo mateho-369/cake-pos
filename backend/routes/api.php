@@ -93,6 +93,11 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         'accept',
     ])->middleware('open-shift');
     Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
+    // Staff decline of a pending customer order the seller has NOT accepted
+    // yet (the customer says they never placed it). Accepted holds go
+    // through /cancel above; the customer's own Mini App path is
+    // /customer-orders/{order}/cancel.
+    Route::post('/orders/{order}/reject', [OrderController::class, 'reject']);
     // Quick manual note from staff to the order's customer over Telegram.
     Route::post('/orders/{order}/message', [OrderController::class, 'message']);
     Route::patch('/orders/{order}', [

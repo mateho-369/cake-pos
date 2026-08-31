@@ -15,7 +15,7 @@ use App\Models\OrderPayment;
 use App\Services\PaymentService;
 use App\Http\Resources\OrderResource;
 use App\Models\Order;
-use App\Services\{OrderService, ReceiptService};
+use App\Services\{CustomerOrderService, OrderService, ReceiptService};
 use Illuminate\Http\JsonResponse;
 
 class OrderController extends Controller
@@ -24,6 +24,7 @@ class OrderController extends Controller
         private readonly OrderService $orders,
         private readonly ReceiptService $receipts,
         private readonly PaymentService $payments,
+        private readonly CustomerOrderService $customerOrders,
     ) {}
 
     public function hold(HoldOrderRequest $request): JsonResponse
@@ -82,6 +83,24 @@ class OrderController extends Controller
         return response()->json(
             OrderResource::make($order->fresh())->resolve(),
         );
+    }
+    /**
+     * Staff reject of a pending, not-yet-accepted customer (Telegram)
+     * order: the cashier called the customer, who says they never placed
+     * it. Cancels the order, releases the reserved stock, notifies the
+     * customer and records who rejected it and why. Racing with the
+     * customer's own Mini App cancellation is safe — the loser gets a 409.
+     */
+    public function reject(
+        CancelOrderRequest $request,
+        Order $order,
+    ): JsonResponse {
+        $rejected = $this->customerOrders->rejectByStaff(
+            $order,
+            $request->user(),
+            $request->validated('reason'),
+        );
+        return response()->json(OrderResource::make($rejected)->resolve());
     }
     /**
      * Staff's quick manual note to the customer who placed this order,

@@ -306,10 +306,22 @@ export default function CustomerApp() {
       webApp?.HapticFeedback?.notificationOccurred?.('warning')
     } catch (reason) {
       setError(
-        reason instanceof Error
-          ? reason.message
-          : t('status.cancelFailed'),
+        reason instanceof Error ? reason.message : t('status.cancelFailed'),
       )
+      // The window may have closed while the sheet was open — the store
+      // accepted the order, or staff rejected it after calling. Re-read the
+      // real status straight away instead of waiting for the next poll, so
+      // the error message and the badge agree.
+      try {
+        setOrder(
+          await apiRequest<CustomerOrder>(
+            `/api/customer-orders/${order.id}/status`,
+            { method: 'POST', body: JSON.stringify({ initData }) },
+          ),
+        )
+      } catch {
+        /* keep last known status */
+      }
     } finally {
       setCancelling(false)
     }

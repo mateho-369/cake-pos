@@ -1338,8 +1338,8 @@ class ApiContractTest extends TestCase
             ->json('order.id');
         $this->assertSame(2, (int) $product->fresh()->reserved_stock);
 
-        // Staff cannot cancel before the seller accepts: that window belongs
-        // exclusively to the customer in the phone Mini App.
+        // /cancel is for accepted holds only: a not-yet-accepted customer
+        // order is declined through /reject (see the staff-reject test).
         $this->postJson(
             "/api/orders/$orderId/cancel",
             ['reason' => 'Customer says they never placed it'],
@@ -1409,6 +1409,155 @@ class ApiContractTest extends TestCase
             'items' => [['productId' => $product->id, 'quantity' => 1]],
             'requestedTotal' => '10.00',
         ])->assertCreated();
+    }
+
+    /**
+     * Staff-initiated rejection of a PENDING (not-yet-accepted) customer
+     * order, from the sale terminal's pending queue: the cashier rang the
+     * customer, who says they never placed it. Same effects as a customer
+     * self-cancel — reserved stock released, order Cancelled, customer
+     * notified — plus the acting employee and the reason in the audit
+     * trail. The two cancellation paths cannot double-process one order:
+     * whichever lands first wins, and the other side gets a clean 409.
+     */
+    public function test_staff_reject_of_a_pending_customer_order_never_double_processes_a_self_cancel(): void
+    {
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        config(['services.telegram.bot_token' => '123:test-token']);
+        $cashier = Employee::where('role', 'cashier')->first();
+        $this->openShiftIfNone($cashier);
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 78,
+            'first_name' => 'Dara',
+            'username' => 'dara',
+        ]);
+        Customer::where('telegram_user_id', '78')->update([
+            'phone' => '+855 92 333 444',
+        ]);
+        $place = fn(int $quantity) => $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => $quantity]],
+            'requestedTotal' => number_format($quantity * 10, 2, '.', ''),
+        ])
+            ->assertCreated()
+            ->json('order.id');
+
+        // ---------------------------------------------- staff rejects first
+        $orderId = $place(2);
+        $this->assertSame(2, (int) $product->fresh()->reserved_stock);
+        $this->postJson(
+            "/api/orders/$orderId/reject",
+            ['reason' => 'Called the customer — they never placed it'],
+            $this->auth($cashier),
+        )
+            ->assertOk()
+            ->assertJsonPath('status', 'Cancelled');
+        $order = Order::find($orderId);
+        $this->assertSame('Cancelled', $order->status);
+        $this->assertSame('Cancelled', $order->fulfillment_status);
+        // The hold is given back exactly once.
+        $this->assertSame(10, (int) $product->fresh()->stock);
+        $this->assertSame(0, (int) $product->fresh()->reserved_stock);
+        // Gone from the pending panel.
+        $this->assertNotContains(
+            $orderId,
+            collect(
+                $this->getJson(
+                    '/api/orders/pending',
+                    $this->auth($cashier),
+                )->json(),
+            )->pluck('id'),
+        );
+        // Audit trail: staff-initiated, names the employee and the reason.
+        $audit = AuditEvent::where('action', 'customer_order.rejected')
+            ->where('order_id', $orderId)
+            ->first();
+        $this->assertNotNull($audit, 'staff reject audit event missing');
+        $this->assertSame($cashier->id, $audit->employee_id);
+        $this->assertSame('staff', $audit->details_json['source']);
+        $this->assertSame(
+            'Called the customer — they never placed it',
+            $audit->details_json['reason'],
+        );
+        $this->assertSame(
+            'staff',
+            OrderStatusEvent::where('order_id', $orderId)
+                ->where('to_status', 'Cancelled')
+                ->value('metadata->source'),
+        );
+        // The customer is told on Telegram, same as a self-cancel.
+        Http::assertSent(
+            fn($request) => str_contains(
+                $request->url(),
+                'bot123:test-token/sendMessage',
+            ) &&
+                (string) $request['chat_id'] === '78' &&
+                str_contains((string) $request['text'], 'was cancelled'),
+        );
+        // The customer's Mini App now loses the race: a clear 409, no crash,
+        // and no second stock release.
+        $this->postJson("/api/customer-orders/$orderId/cancel", [
+            'initData' => $initData,
+        ])
+            ->assertStatus(409)
+            ->assertJsonPath(
+                'message',
+                'This order has already been cancelled',
+            );
+        // Rejecting twice is equally refused.
+        $this->postJson(
+            "/api/orders/$orderId/reject",
+            [],
+            $this->auth($cashier),
+        )->assertStatus(409);
+        $this->assertSame(0, (int) $product->fresh()->reserved_stock);
+
+        // ------------------------------------------- customer cancels first
+        $secondId = $place(3);
+        $this->assertSame(3, (int) $product->fresh()->reserved_stock);
+        $this->postJson("/api/customer-orders/$secondId/cancel", [
+            'initData' => $initData,
+        ])->assertOk();
+        $this->postJson(
+            "/api/orders/$secondId/reject",
+            ['reason' => 'Phantom order'],
+            $this->auth($cashier),
+        )
+            ->assertStatus(409)
+            ->assertJsonPath(
+                'message',
+                'This order was already cancelled — the customer cancelled it first',
+            );
+        $this->assertSame(0, (int) $product->fresh()->reserved_stock);
+        $this->assertSame(10, (int) $product->fresh()->stock);
+        $this->assertNull(
+            AuditEvent::where('action', 'customer_order.rejected')
+                ->where('order_id', $secondId)
+                ->first(),
+        );
+
+        // ------------------------- once accepted, /reject is the wrong door
+        $thirdId = $place(1);
+        $this->openShiftIfNone($cashier);
+        $this->postJson(
+            "/api/orders/$thirdId/accept",
+            [],
+            $this->auth($cashier),
+        )->assertOk();
+        $this->postJson(
+            "/api/orders/$thirdId/reject",
+            [],
+            $this->auth($cashier),
+        )->assertStatus(409);
+        // ...and the accepted hold is still cancellable the normal way.
+        $this->postJson(
+            "/api/orders/$thirdId/cancel",
+            [],
+            $this->auth($cashier),
+        )->assertOk();
+        $this->assertSame(0, (int) $product->fresh()->reserved_stock);
     }
 
     /**
@@ -2894,7 +3043,7 @@ class ApiContractTest extends TestCase
             ->json('order.id');
 
         $this->postJson(
-            \"/api/orders/$orderId/pay\",
+            "/api/orders/$orderId/pay",
             [
                 'method' => 'Cash',
                 'usdReceivedCents' => 900,
