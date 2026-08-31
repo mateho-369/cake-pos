@@ -121,6 +121,21 @@ const json = (res, obj) => {
 
 const routes = {
   '/healthz': (res) => json(res, { ok: true, service: 'preview-mock-api' }),
+  '/api/login': (res) =>
+    json(res, {
+      token: 'preview-token',
+      employee: {
+        id: 1,
+        name: 'Makara Piseth',
+        initials: 'MP',
+        email: 'owner@atelier.local',
+        role: 'admin',
+        status: 'Active',
+        shift: 'Morning',
+        sales: 0,
+        orders: 0,
+      },
+    }),
   '/api/orders': (res, url) => {
     const from = url.searchParams.get('from')
     const to = url.searchParams.get('to')
