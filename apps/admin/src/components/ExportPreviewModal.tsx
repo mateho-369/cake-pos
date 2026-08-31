@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Download, FileSpreadsheet, FileText, Table2, X } from 'lucide-react'
 import { useTranslation } from '../lib/i18n'
 import {
@@ -15,8 +16,6 @@ export type ExportRequest = {
   rows: Array<Array<string | number>>
   /** File name without extension. */
   filenameBase: string
-  /** Format the dialog opens on (the button the admin pressed). */
-  defaultFormat?: 'word' | 'excel' | 'csv'
 }
 
 const PREVIEW_ROWS = 8
@@ -44,9 +43,7 @@ export default function ExportPreviewModal({
   onDone: (message: string) => void
 }) {
   const { t } = useTranslation()
-  const [format, setFormat] = useState<'word' | 'excel' | 'csv'>(
-    request.defaultFormat ?? 'word',
-  )
+  const [format, setFormat] = useState<'word' | 'excel' | 'csv'>('word')
   const [busy, setBusy] = useState(false)
   const { meta, header, rows, filenameBase } = request
   const preview = rows.slice(0, PREVIEW_ROWS)
@@ -82,7 +79,7 @@ export default function ExportPreviewModal({
         onClose()
       })
   }
-  return (
+  return createPortal(
     <div className="modal-layer" role="dialog" aria-modal="true">
       <button
         className="modal-backdrop"
@@ -171,8 +168,10 @@ export default function ExportPreviewModal({
               <tbody>
                 {preview.map((row, index) => (
                   <tr key={index}>
-                    {header.map((_, column) => (
-                      <td key={column}>{row[column] ?? ''}</td>
+                    {header.map((label, column) => (
+                      <td key={column} data-label={label}>
+                        {row[column] ?? ''}
+                      </td>
                     ))}
                   </tr>
                 ))}
@@ -213,6 +212,7 @@ export default function ExportPreviewModal({
           </div>
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   )
 }

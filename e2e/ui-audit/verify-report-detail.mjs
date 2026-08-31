@@ -6,6 +6,11 @@
  * preset, sorts by column and paginates 25/50/100/All with an accurate
  * "Showing X–Y of Z" counter.
  *
+ * It also drives the filter redesign: a single "Filters (n)" trigger that
+ * opens a labelled-select popover, applied filters as removable chips, a
+ * filter-aware empty state (a stale filter can no longer masquerade as an
+ * empty period), and the single toolbar Export button.
+ *
  * Usage: node e2e/ui-audit/verify-report-detail.mjs
  */
 import { build } from 'esbuild'
@@ -124,12 +129,36 @@ window.sessionStorage.setItem(
 )
 window.sessionStorage.setItem('atelier.language', 'en')
 for (const key of [
-  'document', 'navigator', 'HTMLElement', 'HTMLAnchorElement', 'HTMLInputElement',
-  'HTMLSelectElement', 'Element', 'Node', 'SVGElement', 'CustomEvent', 'MouseEvent',
-  'KeyboardEvent', 'InputEvent', 'Event', 'EventTarget', 'getComputedStyle',
-  'requestAnimationFrame', 'cancelAnimationFrame', 'MessageChannel', 'localStorage',
-  'sessionStorage', 'Blob', 'File', 'FileReader', 'FormData', 'Headers',
-  'AbortController', 'ResizeObserver', 'IntersectionObserver', 'DOMParser',
+  'document',
+  'navigator',
+  'HTMLElement',
+  'HTMLAnchorElement',
+  'HTMLInputElement',
+  'HTMLSelectElement',
+  'Element',
+  'Node',
+  'SVGElement',
+  'CustomEvent',
+  'MouseEvent',
+  'KeyboardEvent',
+  'InputEvent',
+  'Event',
+  'EventTarget',
+  'getComputedStyle',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'MessageChannel',
+  'localStorage',
+  'sessionStorage',
+  'Blob',
+  'File',
+  'FileReader',
+  'FormData',
+  'Headers',
+  'AbortController',
+  'ResizeObserver',
+  'IntersectionObserver',
+  'DOMParser',
   'MutationObserver',
 ]) {
   if (window[key] !== undefined) {
@@ -156,7 +185,14 @@ window.fetch = async (url) => {
   if (p === '/api/reports/audit') return body([])
   if (p === '/api/orders/pending') return body([])
   if (p === '/api/reports/retention')
-    return body({ customersWithOrders: 0, newCustomers: 0, returningCustomers: 0, repeatRatePercent: 0, repeatCustomers: 0, customers: [] })
+    return body({
+      customersWithOrders: 0,
+      newCustomers: 0,
+      returningCustomers: 0,
+      repeatRatePercent: 0,
+      repeatCustomers: 0,
+      customers: [],
+    })
   if (p.endsWith('/products')) return body([])
   if (p.endsWith('/categories')) return body([])
   if (p.endsWith('/employees')) return body([])
@@ -164,7 +200,14 @@ window.fetch = async (url) => {
   if (p.endsWith('/shifts')) return body([])
   if (p.endsWith('/shifts/current')) return body(null)
   if (p === '/api/reports/summary')
-    return body({ todaySalesTotal: 0, todayOrdersCount: 0, netRevenueCents: 0, completedOrderCount: 0, revenueData: [], topProducts: [] })
+    return body({
+      todaySalesTotal: 0,
+      todayOrdersCount: 0,
+      netRevenueCents: 0,
+      completedOrderCount: 0,
+      revenueData: [],
+      topProducts: [],
+    })
   if (p === '/api/reports/freshness')
     return body({
       wasteThisWeekCents: 0,
@@ -190,7 +233,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 let failures = 0
 const check = (label, cond, extra = '') => {
-  console.log(`${cond ? 'PASS' : 'FAIL'}  ${label}${extra ? '  — ' + extra : ''}`)
+  console.log(
+    `${cond ? 'PASS' : 'FAIL'}  ${label}${extra ? '  — ' + extra : ''}`,
+  )
   if (!cond) failures++
 }
 const $ = (sel) => window.document.querySelector(sel)
@@ -239,6 +284,14 @@ check(
     'Status',
   ].every((label, index) => headers[index] === label),
   headers.join(' | '),
+)
+
+// ------------------------------------------------------- single Export button
+check(
+  'the toolbar has ONE Export button (no separate Word/Excel buttons)',
+  button('Export') !== undefined &&
+    button('Word') === undefined &&
+    button('Excel') === undefined,
 )
 
 // -------------------------------------------------------------- pagination
@@ -328,8 +381,7 @@ click(button('Last month'))
 await sleep(250)
 check(
   'switching to "Last month" reloads the detail table with that period only',
-  rows().length === 2 &&
-    rows().every((row) => cell(row, 1).startsWith('LM-')),
+  rows().length === 2 && rows().every((row) => cell(row, 1).startsWith('LM-')),
   rows()
     .map((row) => cell(row, 1))
     .join(','),
@@ -342,14 +394,22 @@ check(
 click(button('This month'))
 await sleep(250)
 check(
-  'switching back restores this month\'s 30 orders (page size is kept)',
+  "switching back restores this month's 30 orders (page size is kept)",
   $('.table-pagination-count').textContent.trim() === 'Showing 1–30 of 30',
   $('.table-pagination-count').textContent,
 )
 
-// ----------------------------------------------------- per-column filtering
-const filterSelect = (label) =>
-  $$('.report-detail-filter')
+// ------------------------------------------------------- the filter dropdown
+const trigger = () => $('.report-filter-trigger')
+const panelOpen = () => trigger()?.getAttribute('aria-expanded') === 'true'
+const openFilters = () => {
+  if (!panelOpen()) click(trigger())
+}
+const closeFilters = () => {
+  if (panelOpen()) click(trigger())
+}
+const panelSelect = (label) =>
+  $$('.report-filter-field')
     .find((wrap) => wrap.textContent.trim().startsWith(label))
     ?.querySelector('select')
 const setSelect = (select, value) => {
@@ -367,37 +427,150 @@ const typeSearch = (value) => {
   ).set.call(input, value)
   input.dispatchEvent(new window.Event('input', { bubbles: true }))
 }
+
 check(
-  'the record table offers per-column filters beyond the date range',
+  'filters sit behind ONE outlined trigger with an accurate count',
+  trigger() !== null &&
+    trigger().textContent.includes('Filters') &&
+    trigger().textContent.includes('(0)'),
+  trigger()?.textContent.replace(/\s+/g, ' ').trim(),
+)
+openFilters()
+await sleep(100)
+check('the trigger exposes aria-expanded while the panel is open', panelOpen())
+check(
+  'the popover offers labelled selects beyond the date range',
   ['Employee', 'Source', 'Payment', 'Status'].every((label) =>
-    Boolean(filterSelect(label)),
+    Boolean(panelSelect(label)),
   ),
-  $$('.report-detail-filter')
+  $$('.report-filter-field')
     .map((wrap) => wrap.textContent.trim().split('\n')[0])
     .join(' | '),
 )
-setSelect(filterSelect('Payment'), 'KHQR')
+check(
+  'the popover carries a Clear all action',
+  $$('.report-filter-panel-actions button').some((b) =>
+    b.textContent.includes('Clear all'),
+  ),
+)
+setSelect(panelSelect('Payment'), 'KHQR')
 await sleep(200)
 check(
   'filtering by payment method narrows the rows',
   rows().length === 15 && rows().every((row) => cell(row, 6) === 'KHQR'),
   `${rows().length} rows`,
 )
-setSelect(filterSelect('Source'), 'Telegram')
+setSelect(panelSelect('Source'), 'Telegram')
 await sleep(200)
 check(
   'filters combine (payment + source) instead of replacing each other',
   rows().length > 0 &&
-    rows().every((row) => cell(row, 6) === 'KHQR' && cell(row, 2).includes('Telegram')),
+    rows().every(
+      (row) => cell(row, 6) === 'KHQR' && cell(row, 2).includes('Telegram'),
+    ),
   `${rows().length} rows`,
 )
-click($('.report-detail-clear'))
+check(
+  'the trigger count follows the applied filters',
+  trigger().textContent.includes('(2)'),
+  trigger()?.textContent.replace(/\s+/g, ' ').trim(),
+)
+check(
+  'applied filters render as removable chips (Payment: KHQR)',
+  $$('.report-filter-chip').some(
+    (chip) =>
+      chip.textContent.includes('Payment') && chip.textContent.includes('KHQR'),
+  ),
+)
+window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }))
+await sleep(100)
+check(
+  'Escape closes the popover (and filters stay applied)',
+  !panelOpen() && rows().length === 5,
+  `${rows().length} rows`,
+)
+click(
+  $$('.report-filter-chip button').find((chipButton) =>
+    chipButton.closest('.report-filter-chip')?.textContent.includes('Payment'),
+  ),
+)
 await sleep(200)
 check(
-  'Clear restores the full period',
+  'removing a chip releases exactly that filter',
+  rows().length === 10 &&
+    rows().every((row) => cell(row, 2).includes('Telegram')),
+  `${rows().length} rows`,
+)
+check(
+  'the trigger count drops back to (1)',
+  trigger().textContent.includes('(1)'),
+)
+openFilters()
+await sleep(100)
+window.document.body.dispatchEvent(
+  new window.MouseEvent('mousedown', { bubbles: true }),
+)
+await sleep(100)
+check('a press outside the popover closes it', !panelOpen())
+
+// ------------------------------------ stale filters can no longer lie
+// (The original bug: switching presets kept the old filter and rendered the
+// generic "No orders in this period" over a non-empty range.)
+openFilters()
+await sleep(50)
+setSelect(panelSelect('Payment'), 'KHQR')
+await sleep(200)
+click(button('Last month'))
+await sleep(300)
+check(
+  'preset switch with an active filter shows the FILTER-aware empty state',
+  $('.report-detail-empty') !== null &&
+    $('.report-detail-empty span')?.textContent.trim() ===
+      'No records match these filters',
+  $('.report-detail-empty span')?.textContent,
+)
+check(
+  'the empty state says how many records the period really holds',
+  $('.report-detail-empty small')?.textContent.includes(
+    '2 records in this period',
+  ),
+  $('.report-detail-empty small')?.textContent,
+)
+check(
+  'the generic "No orders in this period" is NOT shown here',
+  !$('.report-detail-panel')?.textContent.includes('No orders in this period'),
+)
+click($('.report-detail-empty .report-detail-clear'))
+await sleep(250)
+check(
+  "Clear from the empty state restores the period's rows",
+  rows().length === 2 &&
+    $('.table-pagination-count').textContent.trim() === 'Showing 1–2 of 2',
+  `${rows().length} rows`,
+)
+click(button('This month'))
+await sleep(250)
+
+// ------------------------------------------------------- the full Clear all
+openFilters()
+await sleep(50)
+setSelect(panelSelect('Payment'), 'KHQR')
+await sleep(200)
+click(
+  $$('.report-filter-panel-actions button').find((b) =>
+    b.textContent.includes('Clear all'),
+  ),
+)
+await sleep(200)
+check(
+  'Clear all inside the popover restores the full period',
   $('.table-pagination-count').textContent.trim() === 'Showing 1–30 of 30',
   $('.table-pagination-count').textContent,
 )
+window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }))
+await sleep(100)
+
+// ----------------------------------------------------------- free-text search
 typeSearch('CS-110')
 await sleep(200)
 check(
@@ -427,9 +600,18 @@ check(
 )
 check(
   'Word / Excel / CSV and the en/km report language can be chosen here',
-  $$('.export-preview-formats button').map((b) => b.textContent.trim()).join(',') ===
-    'Word,Excel,CSV' && $$('.export-preview-language button').length === 2,
-  $$('.export-preview-formats button').map((b) => b.textContent.trim()).join(','),
+  $$('.export-preview-formats button')
+    .map((b) => b.textContent.trim())
+    .join(',') === 'Word,Excel,CSV' &&
+    $$('.export-preview-language button').length === 2,
+  $$('.export-preview-formats button')
+    .map((b) => b.textContent.trim())
+    .join(','),
+)
+check(
+  'the export dialog lives at the body root (portaled, cannot be trapped)',
+  $('.export-preview-card')?.parentElement?.parentElement ===
+    window.document.body,
 )
 click(button('Cancel'))
 await sleep(150)
@@ -457,7 +639,9 @@ check(
     .map((th) => th.textContent.trim())
     .join(',') ===
     'Date & time,Order,Product,Category,Units,Unit price (USD),Line total (USD),Status',
-  $$('.report-detail-table thead th').map((th) => th.textContent.trim()).join(','),
+  $$('.report-detail-table thead th')
+    .map((th) => th.textContent.trim())
+    .join(','),
 )
 click(tabButton('Waste'))
 await sleep(250)
@@ -467,13 +651,16 @@ check(
     $$('.report-detail-table thead th')[1].textContent.trim() === 'Product',
   `${rows().length} rows`,
 )
-setSelect(filterSelect('Reason'), 'Damaged')
+openFilters()
+await sleep(50)
+setSelect(panelSelect('Reason'), 'Damaged')
 await sleep(200)
 check(
   'waste records filter by reason',
   rows().length === 1 && cell(rows()[0], 4) === 'Damaged',
   `${rows().length} rows`,
 )
+window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }))
 click(tabButton('Audit log'))
 await sleep(250)
 check(

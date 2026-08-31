@@ -553,7 +553,7 @@
     "products": "មុខទំនិញ",
     "payments": "ការទូទាត់",
     "team": "ក្រុមការងារ",
-    "waste": "ការខាតបង់",
+    "waste": "ទំនិញខូច",
     "export": "នាំចេញរបាយការណ៍",
     "wasteTrend": "និន្នាការថ្លៃខាតបង់",
     "ownerInsight": "ព័ត៌មានសម្រាប់ម្ចាស់ហាង",
@@ -597,7 +597,7 @@
     "share": "ចំណែក",
     "confirmedPayments": "{{count}} ការទូទាត់បានបញ្ជាក់",
     "auditLog": "កំណត់ហេតុសវនកម្ម",
-    "ordersCol": "ការបញ្ជាទិញ",
+    "ordersCol": "ចំនួនបញ្ជាទិញ",
     "netRevenue": "ចំណូលសុទ្ធ",
     "discountsCol": "ការបញ្ចុះតម្លៃ",
     "voidsCol": "ការលុបវិក្កយបត្រ",
@@ -692,7 +692,11 @@
     "tenderedKhr": "បានបង់ (KHR)",
     "tenderedUsd": "បានបង់ (USD)",
     "unitPrice": "តម្លៃឯកតា (USD)",
-    "wasteRecords": "កំណត់ត្រាការខាតបង់"
+    "wasteRecords": "កំណត់ត្រាការខាតបង់",
+    "clearFilters": "សម្អាតតម្រងទាំងអស់",
+    "apply": "អនុវត្ត",
+    "noRecordsMatch": "គ្មានកំណត់ត្រាដែលត្រូវនឹងតម្រងទាំងនេះ",
+    "unfilteredCount": "{{count}} កំណត់ត្រាក្នុងអំឡុងពេលនេះ"
   },
   "settings": {
     "configuration": "ការកំណត់រចនា",

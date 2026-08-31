@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   AlertTriangle,
   Banknote,
@@ -349,7 +350,7 @@ function PayHeldOrderModal({
   const changeKhr = tender ? tender.changeKhr : 0
   const canConfirm =
     method === 'KHQR' || (usdCents > 0 || khr > 0)
-  return (
+  return createPortal(
     <div className="modal-layer" role="dialog" aria-modal="true">
       <button
         className="modal-backdrop"
@@ -457,7 +458,8 @@ function PayHeldOrderModal({
           </div>
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

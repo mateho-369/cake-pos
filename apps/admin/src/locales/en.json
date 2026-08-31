@@ -692,7 +692,11 @@
     "tenderedKhr": "Tendered (KHR)",
     "tenderedUsd": "Tendered (USD)",
     "unitPrice": "Unit price (USD)",
-    "wasteRecords": "Waste records"
+    "wasteRecords": "Waste records",
+    "clearFilters": "Clear all",
+    "apply": "Apply",
+    "noRecordsMatch": "No records match these filters",
+    "unfilteredCount": "{{count}} records in this period"
   },
   "settings": {
     "configuration": "Configuration",

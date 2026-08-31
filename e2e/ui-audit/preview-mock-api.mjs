@@ -181,6 +181,7 @@ const routes = {
         value: e.retailValue,
       })),
     }),
+  '/api/inventory/waste': (res) => json(res, wasteEvents),
   '/api/reports/cashiers': (res) =>
     json(
       res,

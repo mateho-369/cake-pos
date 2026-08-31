@@ -1,5 +1,12 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ChevronDown, ChevronUp, Download, Search, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  ChevronDown,
+  ChevronUp,
+  Download,
+  Search,
+  SlidersHorizontal,
+  X,
+} from 'lucide-react'
 import { useTranslation } from '../lib/i18n'
 import TablePagination, {
   DEFAULT_PAGE_SIZE,
@@ -22,6 +29,9 @@ export type DetailColumn<T> = {
   /** Sort key when the displayed value sorts badly (dates, money strings). */
   sort?: (row: T) => string | number
   render?: (row: T) => ReactNode
+  /** Hide the column in the condensed tablet layout (641–1024px). It stays
+      visible in the stacked mobile cards, so no data is lost. */
+  compact?: boolean
 }
 
 /** A dropdown filter built from the distinct values of one field. */
@@ -57,6 +67,20 @@ export type DetailTableProps<T> = {
   children?: ReactNode
 }
 
+/** Minimal matchMedia hook — jsdom-safe, desktop by default. */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia?.(query)
+    if (!mq) return
+    const update = () => setMatches(mq.matches)
+    update()
+    mq.addEventListener?.('change', update)
+    return () => mq.removeEventListener?.('change', update)
+  }, [query])
+  return matches
+}
+
 /**
  * The record-level ("database view") table used by every Reports tab that
  * has raw records worth browsing. It provides the three things the summary
@@ -65,6 +89,13 @@ export type DetailTableProps<T> = {
  * and pagination so a busy period never dumps thousands of rows at once.
  * Export always hands the CURRENT filtered+sorted rows upward, so what you
  * see is exactly what gets downloaded.
+ *
+ * Filters live in a single "Filters (n)" popover: the panel edits a draft,
+ * which applies immediately on desktop and behind an Apply button when the
+ * panel renders as a mobile bottom sheet. Applied filters appear as
+ * removable chips, and the empty state distinguishes "this period has no
+ * records" from "these filters match nothing", so a stale filter can never
+ * masquerade as an empty period again.
  */
 export default function ReportDetailTable<T>({
   title,
@@ -91,6 +122,13 @@ export default function ReportDetailTable<T>({
   const [selected, setSelected] = useState<Record<string, string>>({})
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE)
+  // Popover state: open flag plus the draft the panel edits. Desktop applies
+  // the draft live; the mobile bottom sheet only applies on the Apply press.
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [draft, setDraft] = useState<Record<string, string>>({})
+  const isMobile = useMediaQuery('(max-width: 640px)')
+  const panelRef = useRef<HTMLDivElement>(null)
+  const controlsRef = useRef<HTMLDivElement>(null)
 
   // A new tab/report is a new question: reset sort, filters and page.
   useEffect(() => {
@@ -99,11 +137,36 @@ export default function ReportDetailTable<T>({
     setQuery('')
     setSelected({})
     setPage(1)
+    setDraft({})
+    setFilterOpen(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title])
   useEffect(() => {
     setPage(1)
   }, [from, to, query, selected, pageSize])
+
+  // The popover closes on Escape and on any press outside trigger + panel.
+  useEffect(() => {
+    if (!filterOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFilterOpen(false)
+    }
+    const onDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (
+        panelRef.current?.contains(target) ||
+        controlsRef.current?.contains(target)
+      )
+        return
+      setFilterOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    document.addEventListener('mousedown', onDown)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.removeEventListener('mousedown', onDown)
+    }
+  }, [filterOpen])
 
   const options = useMemo(
     () =>
@@ -161,6 +224,10 @@ export default function ReportDetailTable<T>({
         value: selected[filter.key],
       })),
   ]
+  const activeFilterCount =
+    (query.trim() ? 1 : 0) +
+    filters.filter((filter) => selected[filter.key]).length
+  const hasActiveFilters = activeFilters.length > 0
   const toggleSort = (key: string) => {
     if (key === sortKey) {
       setDirection(direction === 'asc' ? 'desc' : 'asc')
@@ -177,6 +244,36 @@ export default function ReportDetailTable<T>({
       rows: sorted.map((row) => columns.map((column) => column.value(row))),
       filters: activeFilters,
     })
+  const openPanel = () => {
+    setDraft({ ...selected })
+    setFilterOpen(true)
+  }
+  const closePanel = () => setFilterOpen(false)
+  const updateDraft = (next: Record<string, string>) => {
+    setDraft(next)
+    if (!isMobile) setSelected(next)
+  }
+  const clearAllFilters = () => {
+    setQuery('')
+    setSelected({})
+    setDraft({})
+    setFilterOpen(false)
+  }
+  const applyDraft = () => {
+    setSelected(draft)
+    setFilterOpen(false)
+  }
+  const removeFilter = (key: string) => {
+    setSelected((current) => {
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
+  }
+  const cellClass = (column: DetailColumn<T>) =>
+    [column.numeric ? 'numeric' : '', column.compact ? 'compact' : '']
+      .filter(Boolean)
+      .join(' ') || undefined
 
   return (
     <section className="glass-panel report-detail-panel">
@@ -199,45 +296,139 @@ export default function ReportDetailTable<T>({
             placeholder={searchPlaceholder ?? t('reports.searchRecords')}
           />
         </label>
-        {options.map((filter) => (
-          <label key={filter.key} className="report-detail-filter">
-            <span>{filter.label}</span>
-            <select
-              value={selected[filter.key] ?? ''}
-              onChange={(event) =>
-                setSelected((current) => ({
-                  ...current,
-                  [filter.key]: event.target.value,
-                }))
-              }
-            >
-              <option value="">{t('common.all')}</option>
-              {filter.values.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
-        ))}
-        {activeFilters.length > 0 && (
+        <div className="report-detail-filter-controls" ref={controlsRef}>
           <button
             type="button"
-            className="text-button report-detail-clear"
-            onClick={() => {
-              setQuery('')
-              setSelected({})
-            }}
+            className="report-filter-trigger"
+            aria-haspopup="dialog"
+            aria-expanded={filterOpen}
+            onClick={() => (filterOpen ? closePanel() : openPanel())}
           >
-            <X size={13} /> {t('common.clear')}
+            <SlidersHorizontal size={14} />
+            {t('reports.filtersLabel')} ({activeFilterCount})
           </button>
+          {query.trim() !== '' && (
+            <span className="report-filter-chip">
+              {t('common.search')}: {query.trim()}
+              <button
+                type="button"
+                aria-label={`${t('common.clear')}: ${t('common.search')}`}
+                onClick={() => setQuery('')}
+              >
+                <X size={12} />
+              </button>
+            </span>
+          )}
+          {filters
+            .filter((filter) => selected[filter.key])
+            .map((filter) => (
+              <span className="report-filter-chip" key={filter.key}>
+                {filter.label}: {selected[filter.key]}
+                <button
+                  type="button"
+                  aria-label={`${t('common.clear')}: ${filter.label}`}
+                  onClick={() => removeFilter(filter.key)}
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          {hasActiveFilters && (
+            <button
+              type="button"
+              className="text-button report-detail-clear"
+              onClick={clearAllFilters}
+            >
+              <X size={13} /> {t('common.clear')}
+            </button>
+          )}
+        </div>
+        {filterOpen && (
+          <>
+            <div className="report-filter-backdrop" onClick={closePanel} />
+            <div
+              className="report-filter-panel"
+              role="dialog"
+              aria-label={t('reports.filtersLabel')}
+              ref={panelRef}
+            >
+              <div className="report-filter-panel-head">
+                <strong>{t('reports.filtersLabel')}</strong>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={closePanel}
+                  aria-label={t('modal.close')}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="report-filter-fields">
+                {options.map((filter) => (
+                  <label key={filter.key} className="report-filter-field">
+                    <span>{filter.label}</span>
+                    <select
+                      value={draft[filter.key] ?? ''}
+                      onChange={(event) =>
+                        updateDraft({
+                          ...draft,
+                          [filter.key]: event.target.value,
+                        })
+                      }
+                    >
+                      <option value="">{t('common.all')}</option>
+                      {filter.values.map((value) => (
+                        <option key={value} value={value}>
+                          {value}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+              <div className="report-filter-panel-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => updateDraft({})}
+                >
+                  {t('reports.clearFilters')}
+                </button>
+                {isMobile && (
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={applyDraft}
+                  >
+                    {t('reports.apply')}
+                  </button>
+                )}
+              </div>
+            </div>
+          </>
         )}
       </div>
       {children}
       {!sorted.length ? (
-        <div className="empty-state">
-          <span>{t('reports.noTransactions')}</span>
-        </div>
+        rows.length === 0 ? (
+          <div className="empty-state">
+            <span>{t('reports.noTransactions')}</span>
+          </div>
+        ) : (
+          <div className="empty-state report-detail-empty">
+            <span>{t('reports.noRecordsMatch')}</span>
+            <small>
+              {t('reports.unfilteredCount', { count: rows.length })}
+            </small>
+            <button
+              type="button"
+              className="text-button report-detail-clear"
+              onClick={clearAllFilters}
+            >
+              <X size={13} /> {t('common.clear')}
+            </button>
+          </div>
+        )
       ) : (
         <>
           <div className="table-responsive">
@@ -247,7 +438,7 @@ export default function ReportDetailTable<T>({
                   {columns.map((column) => (
                     <th
                       key={column.key}
-                      className={column.numeric ? 'numeric' : undefined}
+                      className={cellClass(column)}
                       aria-sort={
                         sortKey === column.key
                           ? direction === 'asc'
@@ -279,7 +470,8 @@ export default function ReportDetailTable<T>({
                     {columns.map((column) => (
                       <td
                         key={column.key}
-                        className={column.numeric ? 'numeric' : undefined}
+                        data-label={column.label}
+                        className={cellClass(column)}
                       >
                         {column.render
                           ? column.render(row)

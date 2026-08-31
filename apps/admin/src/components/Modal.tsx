@@ -1,5 +1,6 @@
 import { X } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from '../lib/i18n'
 export default function Modal({
   open,
@@ -19,8 +20,21 @@ export default function Modal({
   sheet?: boolean
 }) {
   const { t } = useTranslation()
+  // Escape dismisses the dialog, matching the backdrop click.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
   if (!open) return null
-  return (
+  // Portaled to <body>: the modal must never be a descendant of a page
+  // section with a transform animation or backdrop-filter, because either
+  // turns that ancestor into the containing block / stacking context and
+  // traps the fixed layer under the topbar, sidebar and other chrome.
+  return createPortal(
     <div
       className={`modal-layer ${sheet ? 'sheet-layer' : ''}`}
       role="dialog"
@@ -50,6 +64,7 @@ export default function Modal({
         </header>
         {children}
       </section>
-    </div>
+    </div>,
+    document.body,
   )
 }

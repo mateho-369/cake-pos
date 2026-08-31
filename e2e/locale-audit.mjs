@@ -117,5 +117,29 @@ for (const app of APPS) {
   }
 }
 
+// Tab-label collisions: two visible Reports tabs rendering the SAME string
+// (e.g. km waste = losses = "ការខាតបង់") makes the tabs indistinguishable.
+for (const app of APPS) {
+  const en = flatten(JSON.parse(readFileSync(join(root, 'apps', app, 'src/locales/en.json'), 'utf8')))
+  const km = flatten(JSON.parse(readFileSync(join(root, 'apps', app, 'src/locales/km.json'), 'utf8')))
+  const tabKeys = [
+    'reports.sales', 'reports.products', 'reports.payments', 'reports.team',
+    'reports.waste', 'reports.losses', 'reports.auditLog',
+    'reports.ordersCol', 'reports.ordersShort', // column header vs "N orders"
+  ].filter((key) => key in en && key in km)
+  const seenEn = new Map(); const seenKm = new Map()
+  for (const key of tabKeys) {
+    for (const [seen, dict] of [[seenEn, en], [seenKm, km]]) {
+      const value = dict[key]
+      const clash = seen.get(value)
+      if (clash) {
+        problems++
+        console.log(`DUPLICATE TAB LABEL ${key} === ${clash} ("${value}")`)
+      }
+      seen.set(value, key)
+    }
+  }
+}
+
 console.log(`\n${problems === 0 ? 'ALL LOCALE KEYS OK' : `${problems} LOCALE PROBLEM(S) FOUND`}`)
 process.exit(problems === 0 ? 0 : 1)

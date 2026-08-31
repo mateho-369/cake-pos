@@ -2082,7 +2082,8 @@ label > small {
   position: fixed;
   right: 24px;
   bottom: 24px;
-  z-index: 150;
+  /* Below modal layers (100): a toast must never float over an open dialog. */
+  z-index: 90;
   min-width: 280px;
   padding: 11px 12px;
   display: flex;
@@ -6779,6 +6780,7 @@ img.qr-placeholder {
    Reports → record-table filter bar + review-before-download dialog
    -------------------------------------------------------------------- */
 .report-detail-filters {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -6791,32 +6793,140 @@ img.qr-placeholder {
   flex: 1 1 220px;
   min-width: 180px;
 }
-.report-detail-filter {
+.report-detail-filter-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+/* One outlined trigger replaces the four always-visible pill selects. */
+.report-filter-trigger {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 6px 5px 12px;
-  border: 1px solid var(--line, rgba(79, 40, 58, 0.14));
+  padding: 8px 15px;
+  border: 1px solid var(--line, rgba(79, 40, 58, 0.2));
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.75);
+  background: #fff;
+  color: var(--ink, #2c2128);
+  font-size: calc(12.5px * var(--font-scale));
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+.report-filter-trigger:hover {
+  border-color: rgba(190, 24, 93, 0.4);
+  background: rgba(247, 232, 239, 0.4);
+}
+.report-filter-trigger[aria-expanded='true'] {
+  border-color: var(--pink, #e75480);
+  box-shadow: 0 0 0 3px rgba(231, 84, 128, 0.14);
+}
+/* Applied filters read as removable chips, matching the export dialog meta. */
+.report-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 6px 5px 12px;
+  border: 1px solid rgba(190, 24, 93, 0.22);
+  border-radius: 999px;
+  background: rgba(247, 232, 239, 0.65);
+  color: var(--pink-deep, #a92c36);
   font-size: calc(12px * var(--font-scale));
-  color: var(--muted, #7a6b74);
+  font-weight: 700;
   white-space: nowrap;
 }
-.report-detail-filter select {
-  max-width: 170px;
-  padding: 4px 6px;
+.report-filter-chip button {
+  width: 19px;
+  height: 19px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
   border: 0;
-  border-radius: 999px;
-  background: transparent;
-  font: inherit;
-  color: var(--ink, #2c2128);
-  font-weight: 600;
+  border-radius: 50%;
+  background: rgba(190, 24, 93, 0.1);
+  color: inherit;
   cursor: pointer;
 }
-.report-detail-filter:focus-within {
-  border-color: var(--pink, #e75480);
-  box-shadow: 0 0 0 3px rgba(231, 84, 128, 0.12);
+.report-filter-chip button:hover {
+  background: rgba(190, 24, 93, 0.22);
+}
+/* The popover panel: labelled native selects in a proper field style. */
+.report-filter-backdrop {
+  display: none;
+}
+.report-filter-panel {
+  position: absolute;
+  top: calc(100% - 6px);
+  left: 0;
+  z-index: 40;
+  width: min(560px, 100%);
+  padding: 14px 16px 16px;
+  border: 1px solid rgba(79, 40, 58, 0.14);
+  border-radius: 16px;
+  background: linear-gradient(150deg, #ffffff, #fff8fb);
+  box-shadow: 0 24px 60px rgba(45, 14, 29, 0.18);
+}
+.report-filter-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.report-filter-panel-head strong {
+  font-size: calc(13px * var(--font-scale));
+}
+.report-filter-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.report-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.report-filter-field > span {
+  color: var(--muted, #7a6b74);
+  font-size: calc(11px * var(--font-scale));
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.report-filter-field select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line, rgba(79, 40, 58, 0.2));
+  border-radius: 10px;
+  background: #fff;
+  font: inherit;
+  font-size: calc(13px * var(--font-scale));
+  color: var(--ink, #2c2128);
+  cursor: pointer;
+}
+.report-filter-field select:focus {
+  outline: 2px solid var(--pink, #e75480);
+  outline-offset: 1px;
+}
+.report-filter-panel-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line, rgba(79, 40, 58, 0.12));
+}
+.report-detail-empty {
+  gap: 8px;
+  padding: 22px 16px;
+}
+.report-detail-empty small {
+  color: var(--muted, #7a6b74);
 }
 .report-detail-clear {
   gap: 5px;
@@ -6928,7 +7038,257 @@ img.qr-placeholder {
     flex-direction: column;
     align-items: stretch;
   }
-  .report-detail-filter select {
-    max-width: 120px;
+}
+
+/* --------------------------------------------------------------------
+   Reports → responsive pass (record table, filters, export dialog)
+   -------------------------------------------------------------------- */
+
+/* Wide desktop: keep the first column pinned while the table scrolls. */
+@media (min-width: 641px) {
+  .report-detail-table th:first-child,
+  .report-detail-table td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: #fff;
+    box-shadow: inset -1px 0 rgba(79, 40, 58, 0.08);
+  }
+  .report-detail-table th:first-child {
+    z-index: 3;
+  }
+}
+
+/* Tablet: condensed padding, secondary columns collapse out of the grid
+   (they stay in the stacked mobile cards, so nothing is lost). */
+@media (min-width: 641px) and (max-width: 1024px) {
+  .report-detail-table th,
+  .report-detail-table td {
+    padding: 8px 9px;
+  }
+  .report-detail-table th.compact,
+  .report-detail-table td.compact {
+    display: none;
+  }
+  .report-filter-panel {
+    left: 0;
+    right: 0;
+    width: auto;
+  }
+}
+
+/* Phone: the record table becomes a stacked card list, the filter popover a
+   bottom sheet, and the export dialog a full-screen review. */
+@media (max-width: 640px) {
+  .report-detail-panel {
+    margin-top: 14px;
+    padding: 14px 12px 6px;
+  }
+  .report-detail-panel .panel-heading {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .report-detail-filters {
+    gap: 8px;
+  }
+  .report-detail-filters .inline-search {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .report-detail-filter-controls {
+    width: 100%;
+  }
+  .report-filter-trigger {
+    flex: 0 0 auto;
+  }
+  /* Filter bottom sheet with its own backdrop and an Apply action. */
+  .report-filter-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+    display: block;
+    border: 0;
+    background: rgba(40, 20, 29, 0.42);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+  }
+  .report-filter-panel {
+    position: fixed;
+    top: auto;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 200;
+    width: auto;
+    max-height: 78vh;
+    overflow-y: auto;
+    border-radius: 20px;
+  }
+  .report-filter-fields {
+    grid-template-columns: 1fr;
+  }
+  /* Stacked record cards: thead disappears, every td becomes a labelled
+     value pair, the first column doubles as the card header. */
+  .report-detail-table thead {
+    display: none;
+  }
+  .report-detail-table,
+  .report-detail-table tbody,
+  .report-detail-table tr,
+  .report-detail-table td {
+    display: block;
+    width: 100%;
+  }
+  .report-detail-table tbody tr {
+    margin-bottom: 10px;
+    padding: 10px 12px 12px;
+    border: 1px solid rgba(79, 40, 58, 0.12);
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: var(--shadow, 0 12px 30px rgba(74, 28, 49, 0.06));
+  }
+  .report-detail-table td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 6px 0;
+    border: 0;
+    text-align: left;
+    white-space: normal;
+  }
+  .report-detail-table td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: var(--muted, #7a6b74);
+    font-size: calc(10px * var(--font-scale));
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .report-detail-table tbody tr > td:first-child {
+    font-size: calc(13.5px * var(--font-scale));
+    font-weight: 700;
+    padding-bottom: 9px;
+    margin-bottom: 2px;
+    border-bottom: 1px solid var(--line, rgba(79, 40, 58, 0.12));
+  }
+  .report-detail-table td .block-note {
+    max-width: none;
+    white-space: normal;
+  }
+  .report-detail-table .detail-items {
+    max-width: none;
+  }
+  .table-pagination {
+    gap: 8px;
+  }
+  .table-pagination-size {
+    width: 100%;
+    justify-content: space-between;
+  }
+  /* The export review dialog goes edge-to-edge; its preview uses the same
+     stacked cards because it shares .report-detail-table. */
+  .export-preview-card {
+    max-width: none;
+    max-height: calc(100dvh - 16px);
+  }
+  .export-preview-body {
+    display: flex;
+    flex-direction: column;
+  }
+  .export-preview-meta {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 12px;
+  }
+  .export-preview-table-wrap {
+    max-height: none;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .export-preview-table-wrap .report-detail-table {
+    font-size: calc(12px * var(--font-scale));
+  }
+  /* Toolbar: tabs and presets scroll as strips, dates span the row, the
+     single Export button goes full width. */
+  .report-tabs,
+  .report-presets {
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+  .report-presets {
+    width: 100%;
+  }
+  .reports-header .report-export-actions {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .reports-header .report-export-actions label {
+    flex: 1 1 130px;
+    min-width: 0;
+  }
+  .reports-header .report-export-actions input {
+    width: 100%;
+    min-width: 0;
+  }
+  .reports-header .report-export-actions .primary-button {
+    width: 100%;
+    justify-content: center;
+  }
+  /* The import review table scrolls instead of squeezing its six columns. */
+  .import-preview-table {
+    overflow-x: auto;
+  }
+  .import-row {
+    min-width: 520px;
+  }
+  /* Rollup tables keep their label/value shapes without overflow. */
+  .report-tab-table {
+    padding: 4px 8px 12px;
+  }
+  .report-tab-table--3col .table-row {
+    grid-template-columns: minmax(120px, 2fr) minmax(70px, 1fr) minmax(
+        54px,
+        0.8fr
+      );
+  }
+  .report-tab-table--4col .table-row {
+    grid-template-columns: 34px minmax(92px, 1.6fr) minmax(34px, 0.7fr) minmax(
+        56px,
+        0.9fr
+      );
+  }
+  /* Accountability keeps its seven columns: it scrolls instead of mangling. */
+  .report-tab-table .table-row.accountability-head {
+    min-width: 640px;
+  }
+  .report-tab-table .table-row.variance-row {
+    min-width: 460px;
+  }
+  .report-comparison-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .audit-filters {
+    flex-wrap: wrap;
+  }
+  .audit-head,
+  .audit-row {
+    min-width: 640px;
+  }
+  .report-kpi {
+    min-height: 0;
+    padding: 13px 14px;
+  }
+  .report-chart-card .panel-heading {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .dual-legend {
+    width: 100%;
   }
 }

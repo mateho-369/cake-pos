@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
   Download,
   FileSpreadsheet,
-  FileText,
   Lightbulb,
   Send,
   ShieldAlert,
@@ -149,7 +149,7 @@ export default function ReportsPage({
     inRange(event.recordedAt, from, to),
   )
   /** The whole selected period as one order table, staged for review. */
-  const ordersExportRequest = (format: 'word' | 'excel'): ExportRequest => ({
+  const ordersExportRequest = (): ExportRequest => ({
     meta: {
       title: t('reports.ordersInPeriod'),
       from,
@@ -171,7 +171,6 @@ export default function ReportsPage({
     header: orderExportHeader,
     rows: selectedOrders.map(orderExportRow),
     filenameBase: `orders-${from || 'all'}-${to || 'all'}`,
-    defaultFormat: format,
   })
   const selectedOrders = ordersInRange(orders, from, to)
   const applyPreset = (preset: string) => {
@@ -393,16 +392,10 @@ export default function ReportsPage({
             />
           </label>
           <button
-            className="secondary-button"
-            onClick={() => stageExport(ordersExportRequest('word'))}
-          >
-            <FileText size={16} /> Word
-          </button>
-          <button
             className="primary-button"
-            onClick={() => stageExport(ordersExportRequest('excel'))}
+            onClick={() => stageExport(ordersExportRequest())}
           >
-            <FileSpreadsheet size={16} /> Excel
+            <Download size={16} /> {t('common.export')}
           </button>
         </div>
       </section>
@@ -692,7 +685,7 @@ function LibraryExportModal({
   const { t } = useTranslation()
   const [from, setFrom] = useState(defaultFrom)
   const [to, setTo] = useState(defaultTo)
-  return (
+  return createPortal(
     <div className="modal-layer" role="dialog" aria-modal="true">
       <button
         className="modal-backdrop"
@@ -750,7 +743,8 @@ function LibraryExportModal({
           </div>
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   )
 }
 /** The order-table shape shared by the toolbar export and the library. */
@@ -1027,6 +1021,7 @@ function TabDetailSection({
             key: 'category',
             label: t('catalog.category'),
             value: (row) => row.category || '—',
+            compact: true,
           },
           {
             key: 'quantity',
@@ -1110,6 +1105,7 @@ function TabDetailSection({
             key: 'category',
             label: t('catalog.category'),
             value: (row) => row.category,
+            compact: true,
           },
           {
             key: 'quantity',
@@ -1203,6 +1199,7 @@ function TabDetailSection({
             key: 'tenderUsd',
             label: t('reports.tenderedUsd'),
             numeric: true,
+            compact: true,
             value: (row) =>
               row.tenderedUsdCents === null
                 ? ''
@@ -1212,12 +1209,14 @@ function TabDetailSection({
             key: 'tenderKhr',
             label: t('reports.tenderedKhr'),
             numeric: true,
+            compact: true,
             value: (row) => row.tenderedKhr ?? '',
           },
           {
             key: 'change',
             label: t('reports.changeGiven'),
             numeric: true,
+            compact: true,
             value: (row) =>
               row.changeUsdCents === null
                 ? ''
@@ -1305,6 +1304,7 @@ function TabDetailSection({
           key: 'who',
           label: t('orders.customerCashier'),
           value: (row) => orderWho(row) || '—',
+          compact: true,
         },
         {
           key: 'items',
