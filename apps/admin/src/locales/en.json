@@ -719,7 +719,22 @@
     "openingCash": "Opening cash (USD)",
     "expectedCash": "Expected cash (USD)",
     "countedCash": "Counted cash (USD)",
-    "varianceCol": "Variance"
+    "varianceCol": "Variance",
+    "viewBy": "View by",
+    "viewDay": "Day",
+    "viewHour": "Hour",
+    "viewCategory": "Category",
+    "viewCustomer": "Customer",
+    "viewProduct": "Product",
+    "viewMethod": "Method",
+    "viewEmployee": "Employee",
+    "viewReason": "Reason",
+    "eventsCol": "Events",
+    "netSales": "Net sales",
+    "refresh": "Refresh",
+    "backToSummary": "Back to summary",
+    "exportShownNote": "Exports exactly what is shown — current view, filters and sort.",
+    "dateRange": "Date range"
   },
   "settings": {
     "configuration": "Configuration",

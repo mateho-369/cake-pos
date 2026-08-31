@@ -240,6 +240,145 @@ const routes = {
       })),
     })
   },
+  '/api/reports/revenue-trend': (res, url) => {
+    const byDay = new Map()
+    for (const order of ordersIn(
+      url.searchParams.get('from'),
+      url.searchParams.get('to'),
+    )) {
+      if (order.status !== 'Completed') continue
+      const day = iso(new Date(order.createdAt))
+      const bucket = byDay.get(day) ?? { period: day, netRevenueCents: 0 }
+      bucket.netRevenueCents += Math.round(order.total * 100)
+      byDay.set(day, bucket)
+    }
+    json(
+      res,
+      [...byDay.values()].sort((a, b) => a.period.localeCompare(b.period)),
+    )
+  },
+  '/api/reports/peak-hours': (res, url) => {
+    const byHour = new Map()
+    for (const order of ordersIn(
+      url.searchParams.get('from'),
+      url.searchParams.get('to'),
+    )) {
+      if (order.status !== 'Completed') continue
+      const hour = new Date(order.createdAt).getHours()
+      const bucket = byHour.get(hour) ?? {
+        hour,
+        orders: 0,
+        revenueCents: 0,
+      }
+      bucket.orders += 1
+      bucket.revenueCents += Math.round(order.total * 100)
+      byHour.set(hour, bucket)
+    }
+    json(
+      res,
+      [...byHour.values()].sort((a, b) => a.hour - b.hour),
+    )
+  },
+  '/api/reports/categories': (res, url) => {
+    const byCategory = new Map()
+    for (const order of ordersIn(
+      url.searchParams.get('from'),
+      url.searchParams.get('to'),
+    )) {
+      if (order.status !== 'Completed') continue
+      const counted = new Set()
+      for (const line of order.lineItems ?? []) {
+        const product = products.find((p) => p.id === line.productId)
+        const category = product?.category ?? 'Unknown / archived'
+        const bucket = byCategory.get(category) ?? {
+          category,
+          units: 0,
+          netRevenueCents: 0,
+          orders: 0,
+        }
+        bucket.units += line.quantity
+        bucket.netRevenueCents += line.lineTotalCents
+        if (!counted.has(category)) {
+          bucket.orders += 1
+          counted.add(category)
+        }
+        byCategory.set(category, bucket)
+      }
+    }
+    json(res, [...byCategory.values()])
+  },
+  '/api/reports/customers': (res, url) => {
+    const byCustomer = new Map()
+    for (const order of ordersIn(
+      url.searchParams.get('from'),
+      url.searchParams.get('to'),
+    )) {
+      if (order.status !== 'Completed' || !order.customer) continue
+      const key = order.customer.name
+      const id = Number(key.replace(/\D/g, '')) || 1
+      const bucket = byCustomer.get(key) ?? {
+        customer_id: id,
+        orders: 0,
+        netRevenueCents: 0,
+        lastOrderAt: order.createdAt,
+      }
+      bucket.orders += 1
+      bucket.netRevenueCents += Math.round(order.total * 100)
+      if (new Date(order.createdAt) > new Date(bucket.lastOrderAt))
+        bucket.lastOrderAt = order.createdAt
+      byCustomer.set(key, bucket)
+    }
+    json(
+      res,
+      [...byCustomer.values()].sort(
+        (a, b) => b.netRevenueCents - a.netRevenueCents,
+      ),
+    )
+  },
+  '/api/reports/products': (res, url) => {
+    const byProduct = new Map()
+    for (const order of ordersIn(
+      url.searchParams.get('from'),
+      url.searchParams.get('to'),
+    )) {
+      if (order.status !== 'Completed') continue
+      for (const line of order.lineItems ?? []) {
+        const bucket = byProduct.get(line.description) ?? {
+          product_id: line.productId,
+          snapshotName: line.description,
+          quantity: 0,
+          netRevenueCents: 0,
+        }
+        bucket.quantity += line.quantity
+        bucket.netRevenueCents += line.lineTotalCents
+        byProduct.set(line.description, bucket)
+      }
+    }
+    json(
+      res,
+      [...byProduct.values()].sort(
+        (a, b) => b.netRevenueCents - a.netRevenueCents,
+      ),
+    )
+  },
+  '/api/reports/payments': (res, url) => {
+    const byMethod = new Map()
+    for (const order of ordersIn(
+      url.searchParams.get('from'),
+      url.searchParams.get('to'),
+    )) {
+      if (order.status !== 'Completed' || !order.payment) continue
+      const bucket = byMethod.get(order.payment) ?? {
+        method: order.payment,
+        transactions: 0,
+        amount_usd_cents: 0,
+      }
+      bucket.transactions += 1
+      bucket.amount_usd_cents += Math.round(order.total * 100)
+      byMethod.set(order.payment, bucket)
+    }
+    json(res, [...byMethod.values()])
+  },
   '/api/reports/freshness': (res) =>
     json(res, {
       wasteThisWeekCents: sum(

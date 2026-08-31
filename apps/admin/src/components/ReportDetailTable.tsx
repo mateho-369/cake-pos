@@ -3,6 +3,8 @@ import {
   ChevronDown,
   ChevronUp,
   Download,
+  FileSpreadsheet,
+  FileText,
   Search,
   SlidersHorizontal,
   X,
@@ -58,7 +60,8 @@ export type DetailTableProps<T> = {
   /** Range currently selected at the top of Reports (for the export meta). */
   from: string
   to: string
-  /** Called with the filtered/sorted rows when the admin asks to export. */
+  /** Called with the filtered/sorted rows when the admin asks to export.
+      `format` is the choice from the Export button's Word/Excel menu. */
   onExport: (payload: {
     header: string[]
     rows: Array<Array<string | number>>
@@ -66,7 +69,11 @@ export type DetailTableProps<T> = {
     title: string
     /** Extra rollup lines printed under the table (e.g. losses total). */
     totals?: Array<{ label: string; value: string }>
+    format: 'word' | 'excel'
   }) => void
+  /** 'toolbar' keeps the Export button in the panel header (record tables);
+      'below' renders it under the table (the summary breakdown tables). */
+  exportPlacement?: 'toolbar' | 'below'
   /** Anything extra to show between the filters and the table. */
   children?: ReactNode
 }
@@ -114,6 +121,7 @@ export default function ReportDetailTable<T>({
   from,
   to,
   onExport,
+  exportPlacement = 'toolbar',
   children,
 }: DetailTableProps<T>) {
   const { t } = useTranslation()
@@ -134,6 +142,26 @@ export default function ReportDetailTable<T>({
   const isMobile = useMediaQuery('(max-width: 640px)')
   const panelRef = useRef<HTMLDivElement>(null)
   const controlsRef = useRef<HTMLDivElement>(null)
+  // The Export button opens a Word/Excel menu (review happens live in the
+  // table itself, so nothing downloads until a format is picked).
+  const [exportOpen, setExportOpen] = useState(false)
+  const exportRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!exportOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setExportOpen(false)
+    }
+    const onDown = (event: MouseEvent) => {
+      if (!exportRef.current?.contains(event.target as Node))
+        setExportOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    document.addEventListener('mousedown', onDown)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.removeEventListener('mousedown', onDown)
+    }
+  }, [exportOpen])
 
   // A new tab/report is a new question: reset sort, filters and page.
   useEffect(() => {
@@ -242,12 +270,13 @@ export default function ReportDetailTable<T>({
     setSortKey(key)
     setDirection(column?.numeric || key === 'date' ? 'desc' : 'asc')
   }
-  const requestExport = () =>
+  const requestExport = (format: 'word' | 'excel') =>
     onExport({
       title,
       header: columns.map((column) => column.label),
       rows: sorted.map((row) => columns.map((column) => column.value(row))),
       filters: activeFilters,
+      format,
     })
   // `totals` comes from the caller: ReportDetailTable itself never invents
   // rollups — the tab that owns the data does.
@@ -290,9 +319,44 @@ export default function ReportDetailTable<T>({
           <h2>{title}</h2>
           {subtitle && <small className="report-detail-note">{subtitle}</small>}
         </div>
-        <button className="text-button" onClick={requestExport}>
-          <Download size={14} /> {t('reports.reviewAndExport')}
-        </button>
+        {exportPlacement === 'toolbar' && (
+          <div className="export-menu" ref={exportRef}>
+            <button
+              type="button"
+              className="text-button"
+              aria-haspopup="menu"
+              aria-expanded={exportOpen}
+              onClick={() => setExportOpen((open) => !open)}
+            >
+              <Download size={14} /> {t('common.export')}
+              <ChevronDown size={13} />
+            </button>
+            {exportOpen && (
+              <div className="export-menu-list" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setExportOpen(false)
+                    requestExport('word')
+                  }}
+                >
+                  <FileText size={14} /> Word
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setExportOpen(false)
+                    requestExport('excel')
+                  }}
+                >
+                  <FileSpreadsheet size={14} /> Excel
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <div className="report-detail-filters">
         <label className="inline-search">
@@ -498,6 +562,49 @@ export default function ReportDetailTable<T>({
             onPageSize={setPageSize}
           />
         </>
+      )}
+      {exportPlacement === 'below' && (
+        <div className="report-export-row" ref={exportRef}>
+          <span className="report-export-note">
+            {t('reports.exportShownNote')}
+          </span>
+          <div className="export-menu">
+            <button
+              type="button"
+              className="primary-button"
+              aria-haspopup="menu"
+              aria-expanded={exportOpen}
+              onClick={() => setExportOpen((open) => !open)}
+            >
+              <Download size={15} /> {t('common.export')}
+              <ChevronDown size={14} />
+            </button>
+            {exportOpen && (
+              <div className="export-menu-list" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setExportOpen(false)
+                    requestExport('word')
+                  }}
+                >
+                  <FileText size={14} /> Word
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setExportOpen(false)
+                    requestExport('excel')
+                  }}
+                >
+                  <FileSpreadsheet size={14} /> Excel
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </section>
   )

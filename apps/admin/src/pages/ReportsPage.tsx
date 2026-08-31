@@ -1,28 +1,38 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   ArrowDownRight,
+  ArrowLeft,
   ArrowUpRight,
-  CalendarRange,
-  ChevronDown,
-  Download,
   Lightbulb,
+  RefreshCw,
   Send,
   ShieldAlert,
   Store,
   TrendingUp,
-  X,
 } from 'lucide-react'
 import type { Order, Product, RevenuePoint, Shift, WasteEvent } from '../data'
 import { useAdminData } from '../lib/data'
 import { apiRequest } from '../lib/api'
 import { statusLabel, translateCategory, useTranslation } from '../lib/i18n'
 import ReportDetailTable from '../components/ReportDetailTable'
-import ExportPreviewModal, {
-  type ExportRequest,
-} from '../components/ExportPreviewModal'
-import { ordersInRange, type LossesReport } from '../lib/exports'
+import {
+  BreakdownTable,
+  buildBreakdown,
+  DEFAULT_VIEWS,
+  VIEWS_BY_TAB,
+  ViewByDropdown,
+  type BreakdownData,
+  type BreakdownDrill,
+  type BreakdownRow,
+  type CashierBreakdownRow,
+} from '../components/ReportBreakdown'
+import {
+  exportTableExcel,
+  exportTableWord,
+  ordersInRange,
+  type LossesReport,
+} from '../lib/exports'
 import { REPORT_TABS } from '../lib/reportNav'
 import {
   defaultBranding,
@@ -40,6 +50,7 @@ export default function ReportsPage({
   onOpenEmployee,
   onOpenCustomer,
   onOpenShift,
+  onOpenCategory,
 }: {
   onToast: (message: string) => void
   /** Tab id arriving from the sidebar dropdown (REPORT_TABS). */
@@ -53,6 +64,7 @@ export default function ReportsPage({
   onOpenEmployee?: (employeeId: number) => void
   onOpenCustomer?: (customerId: number) => void
   onOpenShift?: () => void
+  onOpenCategory?: () => void
 }) {
   const { t } = useTranslation()
   const {
@@ -65,6 +77,7 @@ export default function ReportsPage({
     shifts,
     employees,
     customers,
+    refresh,
   } = useAdminData()
   const kpiNetSales = summary?.todaySalesTotal ?? 0
   const kpiAverageOrder = (summary?.averageOrderValueCents ?? 0) / 100
@@ -107,29 +120,97 @@ export default function ReportsPage({
   const [branding, setBranding] = useState<ReportBranding>(defaultBranding)
   const [language, setLanguage] = useState<ReportLanguage>('en')
   const [posRules, setPosRules] = useState<Record<string, unknown> | null>(null)
-  // Nothing downloads on click: the request is staged here and the review
-  // dialog is what actually generates the file.
-  const [exportRequest, setExportRequest] = useState<ExportRequest | null>(null)
-  const [presetOpen, setPresetOpen] = useState(false)
-  const presetRef = useRef<HTMLDivElement>(null)
+  // The View-by selection and the current QuickZoom drill (a summary row
+  // whose transactions are being shown) are per-tab questions: switching
+  // tabs starts each report fresh.
+  const [viewBy, setViewBy] = useState<string>(DEFAULT_VIEWS.sales)
+  const [drill, setDrill] = useState<BreakdownDrill | null>(null)
   useEffect(() => {
-    if (!presetOpen) return
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setPresetOpen(false)
-    }
-    const onDown = (event: MouseEvent) => {
-      if (!presetRef.current?.contains(event.target as Node))
-        setPresetOpen(false)
-    }
-    window.addEventListener('keydown', onKey)
-    document.addEventListener('mousedown', onDown)
+    setViewBy(DEFAULT_VIEWS[tab] ?? 'day')
+    setDrill(null)
+  }, [tab])
+  // Breakdown endpoints, re-fetched whenever the range or the refresh
+  // control changes. One fetch per range so the tables never lag the
+  // preset pills above them.
+  const [breakdown, setBreakdown] = useState<BreakdownData | null>(null)
+  const [dataNonce, setDataNonce] = useState(0)
+  useEffect(() => {
+    let alive = true
+    const range = `from=${from}&to=${to}`
+    const get = <T,>(path: string): Promise<T | null> =>
+      apiRequest<T>(path).catch(() => null)
+    void (async () => {
+      const [
+        trend,
+        peakHours,
+        categories,
+        customers,
+        products,
+        payments,
+        cashiers,
+      ] = await Promise.all([
+        get<Array<{ period: string; netRevenueCents: number }>>(
+          `/api/reports/revenue-trend?${range}`,
+        ),
+        get<Array<{ hour: number; orders: number; revenueCents: number }>>(
+          `/api/reports/peak-hours?${range}`,
+        ),
+        get<
+          Array<{
+            category: string
+            units: number
+            netRevenueCents: number
+            orders?: number
+          }>
+        >(`/api/reports/categories?${range}`),
+        get<
+          Array<{
+            customer_id: number
+            orders: number
+            netRevenueCents: number
+            lastOrderAt: string
+          }>
+        >(`/api/reports/customers?${range}`),
+        get<
+          Array<{
+            product_id: number | null
+            snapshotName: string
+            quantity: number
+            netRevenueCents: number
+          }>
+        >(`/api/reports/products?${range}`),
+        get<
+          Array<{
+            method: string
+            transactions: number
+            amount_usd_cents: number
+          }>
+        >(`/api/reports/payments?${range}`),
+        get<CashierBreakdownRow[]>(`/api/reports/cashiers?${range}`),
+      ])
+      if (!alive) return
+      setBreakdown({
+        trend: trend ?? [],
+        peakHours: peakHours ?? [],
+        categories: categories ?? [],
+        customers: customers ?? [],
+        products: products ?? [],
+        payments: payments ?? [],
+        cashiers,
+      })
+    })()
     return () => {
-      window.removeEventListener('keydown', onKey)
-      document.removeEventListener('mousedown', onDown)
+      alive = false
     }
-  }, [presetOpen])
-  // A sidebar dropdown pick lands here as an intent: switch to the tab or
-  // open the library export dialog, then hand the intent back up.
+  }, [from, to, dataNonce])
+  // Manual retry: re-runs the current view+filter exactly as-is — the
+  // admin's selection is never touched, only the data behind it.
+  const refreshAll = () => {
+    void refresh()
+    setDataNonce((nonce) => nonce + 1)
+  }
+  // A sidebar dropdown pick lands here as an intent: switch to the tab,
+  // then hand the intent back up.
   useEffect(() => {
     if (!initialTab) return
     if (REPORT_TABS.some((item) => item.id === initialTab)) {
@@ -186,21 +267,52 @@ export default function ReportsPage({
       cancelled = true
     }
   }, [])
-  // Remember the language with the rest of the POS rules so the choice
-  // survives a reload and applies to every terminal, not just this tab.
-  const changeLanguage = (next: ReportLanguage) => {
-    setLanguage(next)
-    if (!posRules) return
-    const payload = { ...posRules, reportLanguage: next }
-    setPosRules(payload)
-    void apiRequest('/api/settings/pos-rules', {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    }).catch(() => {
-      /* A failed save must not block the download in front of the admin. */
-    })
+  /**
+   * The one download path for every Reports table. The review happens live
+   * on screen (presets, View-by and per-column filters all update the table
+   * immediately); picking Word or Excel exports exactly the rows currently
+   * shown, stamped with the active filters so the file is self-describing.
+   */
+  const runExport = (payload: {
+    header: string[]
+    rows: Array<Array<string | number>>
+    filters: Array<{ label: string; value: string }>
+    title: string
+    totals?: Array<{ label: string; value: string }>
+    format: 'word' | 'excel'
+  }) => {
+    const meta = {
+      title: payload.title,
+      from,
+      to,
+      branding,
+      language,
+      filters: payload.filters,
+      totals: payload.totals,
+    }
+    const base =
+      payload.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '') || 'report'
+    const save = (error: unknown) =>
+      onToast(error instanceof Error ? error.message : 'Export failed')
+    if (payload.format === 'excel') {
+      void exportTableExcel(
+        meta,
+        payload.header,
+        payload.rows,
+        `${base}.xlsx`,
+      ).catch(save)
+    } else {
+      void exportTableWord(
+        meta,
+        payload.header,
+        payload.rows,
+        `${base}.docx`,
+      ).catch(save)
+    }
   }
-  const stageExport = (request: ExportRequest) => setExportRequest(request)
   const wasteInRange = (freshness?.events ?? []).filter((event) =>
     inRange(event.recordedAt, from, to),
   )
@@ -225,30 +337,6 @@ export default function ReportsPage({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to])
-  /** The whole selected period as one order table, staged for review. */
-  const ordersExportRequest = (): ExportRequest => ({
-    meta: {
-      title: t('reports.ordersInPeriod'),
-      from,
-      to,
-      branding,
-      language,
-      totals: [
-        {
-          label: t('orders.total'),
-          value: usd(
-            selectedOrders.reduce(
-              (sum, order) => sum + safeNumber(order.total),
-              0,
-            ),
-          ),
-        },
-      ],
-    },
-    header: orderExportHeader,
-    rows: selectedOrders.map(orderExportRow),
-    filenameBase: `orders-${from || 'all'}-${to || 'all'}`,
-  })
   const selectedOrders = ordersInRange(orders, from, to)
   const applyPreset = (preset: string) => {
     const range = rangeForPreset(preset)
@@ -264,59 +352,78 @@ export default function ReportsPage({
     { id: 'last_month', label: 'reports.lastMonth' },
     { id: 'this_year', label: 'reports.thisYear' },
   ]
+  // The five summary tabs render a View-by breakdown; the other three are
+  // record tables already. Drilling a summary row swaps in the record table
+  // behind that number (QuickZoom), with a back chip to return.
+  const drillOrders = useMemo(() => {
+    if (!drill) return selectedOrders
+    const kind = drill.kind
+    if (kind === 'date')
+      return selectedOrders.filter(
+        (order) => localDayOf(order.createdAt) === drill.value,
+      )
+    if (kind === 'hour')
+      return selectedOrders.filter(
+        (order) => String(new Date(order.createdAt).getHours()) === drill.value,
+      )
+    if (kind === 'method')
+      return selectedOrders.filter((order) => order.payment === drill.value)
+    return selectedOrders
+  }, [drill, selectedOrders])
+  const drillWaste = useMemo(() => {
+    if (!drill) return wasteInRange
+    if (drill.kind === 'date')
+      return wasteInRange.filter(
+        (event) => localDayOf(event.recordedAt) === drill.value,
+      )
+    if (drill.kind === 'reason')
+      return wasteInRange.filter((event) => event.reason === drill.value)
+    return wasteInRange
+  }, [drill, wasteInRange])
+  const handleBreakdownClick = (row: BreakdownRow) => {
+    if (!row.drill) return
+    const { kind, value, label } = row.drill
+    if (kind === 'category') {
+      onOpenCategory?.()
+      return
+    }
+    if (kind === 'customer') {
+      onOpenCustomer?.(Number(value))
+      return
+    }
+    if (kind === 'product') {
+      onOpenProduct?.(Number(value))
+      return
+    }
+    setDrill({ kind, value, label })
+  }
   return (
     <div className="page-content">
       <section className="reports-header">
-        <div className="toolbar-actions report-export-actions">
-          <div className="report-date-dropdown" ref={presetRef}>
+        <div
+          className="report-presets"
+          role="group"
+          aria-label={t('reports.dateRange')}
+        >
+          {presets.map((preset) => (
             <button
+              key={preset.id}
               type="button"
-              className="report-date-trigger"
-              aria-haspopup="menu"
-              aria-expanded={presetOpen}
-              onClick={() => setPresetOpen((open) => !open)}
+              className={`text-button ${activePreset === preset.id ? 'active' : ''}`}
+              onClick={() => applyPreset(preset.id)}
             >
-              <CalendarRange size={15} />
-              {activePreset === 'none'
-                ? t('reports.allTime')
-                : activePreset
-                  ? t(
-                      presets.find((preset) => preset.id === activePreset)
-                        ?.label || 'reports.customRange',
-                    )
-                  : t('reports.customRange')}
-              <ChevronDown size={14} />
+              {t(preset.label)}
             </button>
-            {presetOpen && (
-              <div className="report-date-menu" role="menu">
-                {presets.map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    role="menuitem"
-                    className={activePreset === preset.id ? 'active' : ''}
-                    onClick={() => {
-                      applyPreset(preset.id)
-                      setPresetOpen(false)
-                    }}
-                  >
-                    {t(preset.label)}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={activePreset === 'none' ? 'active' : ''}
-                  onClick={() => {
-                    applyPreset('none')
-                    setPresetOpen(false)
-                  }}
-                >
-                  {t('reports.noPreset')}
-                </button>
-              </div>
-            )}
-          </div>
+          ))}
+          <button
+            type="button"
+            className={`text-button ${activePreset === 'none' ? 'active' : ''}`}
+            onClick={() => applyPreset('none')}
+          >
+            {t('reports.noPreset')}
+          </button>
+        </div>
+        <div className="toolbar-actions report-export-actions">
           <label>
             {t('reports.from')}
             <input
@@ -340,10 +447,13 @@ export default function ReportsPage({
             />
           </label>
           <button
-            className="primary-button"
-            onClick={() => stageExport(ordersExportRequest())}
+            type="button"
+            className="icon-button report-refresh"
+            aria-label={t('reports.refresh')}
+            title={t('reports.refresh')}
+            onClick={refreshAll}
           >
-            <Download size={16} /> {t('common.export')}
+            <RefreshCw size={16} />
           </button>
         </div>
       </section>
@@ -460,7 +570,77 @@ export default function ReportsPage({
           )}
         </div>
       </section>
-      {DETAIL_TABLE_TABS.includes(tab) && (
+      {VIEWBY_TABS.includes(tab) && (
+        <section className="report-viewby-section">
+          <div className="report-viewby-bar">
+            <ViewByDropdown
+              value={viewBy}
+              options={VIEWS_BY_TAB[tab]}
+              onChange={(next) => {
+                setViewBy(next)
+                setDrill(null)
+              }}
+            />
+            {drill && (
+              <button
+                type="button"
+                className="drill-back"
+                onClick={() => setDrill(null)}
+              >
+                <ArrowLeft size={14} />
+                <span>{drill.label}</span>
+                <small>{t('reports.backToSummary')}</small>
+              </button>
+            )}
+          </div>
+          {drill ? (
+            drill.kind === 'cashier' ? (
+              <TeamAccountability
+                from={from}
+                to={to}
+                rows={breakdown?.cashiers ?? []}
+                onlyEmployee={drill.value}
+              />
+            ) : (
+              <TabDetailSection
+                tab={tab}
+                orders={drillOrders}
+                products={products}
+                waste={drillWaste}
+                from={from}
+                to={to}
+                drillLabel={drill.label}
+                onOpenProduct={onOpenProduct}
+                onOpenOrder={onOpenOrder}
+                onOpenEmployee={onOpenEmployee}
+                onOpenCustomer={onOpenCustomer}
+                onOpenShift={onOpenShift}
+                lossesData={lossesData}
+                auditRows={auditRows}
+                employees={employees}
+                customers={customers}
+                shifts={shifts}
+                onExport={runExport}
+              />
+            )
+          ) : (
+            <BreakdownView
+              tab={tab}
+              view={viewBy}
+              breakdown={breakdown}
+              orders={selectedOrders}
+              waste={wasteInRange}
+              customers={customers}
+              products={products}
+              from={from}
+              to={to}
+              onExport={runExport}
+              onRowClick={handleBreakdownClick}
+            />
+          )}
+        </section>
+      )}
+      {RECORD_TABS.includes(tab) && (
         <TabDetailSection
           tab={tab}
           orders={selectedOrders}
@@ -478,17 +658,7 @@ export default function ReportsPage({
           employees={employees}
           customers={customers}
           shifts={shifts}
-          onExport={({ header, rows, filters, title, totals }) =>
-            stageExport({
-              meta: { title, from, to, branding, language, filters, totals },
-              header,
-              rows,
-              filenameBase: `${title
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, '-')
-                .replace(/^-|-$/g, '')}-${from || 'all'}-${to || 'all'}`,
-            })
-          }
+          onExport={runExport}
         />
       )}
       <PeriodComparison from={from} to={to} />
@@ -571,49 +741,94 @@ export default function ReportsPage({
           })}
         </div>
       </section>
-      {exportRequest && (
-        <ExportPreviewModal
-          request={exportRequest}
-          language={language}
-          onLanguage={changeLanguage}
-          onClose={() => setExportRequest(null)}
-          onDone={onToast}
-        />
-      )}
     </div>
   )
 }
 
-/** The order-table shape shared by the toolbar export and the library. */
-const orderExportHeader = [
-  'Order ID',
-  'Date',
-  'Time',
-  'Source',
-  'Customer / Cashier',
-  'Items',
-  'Details',
-  'Subtotal (USD)',
-  'Discount (USD)',
-  'Payment',
-  'Status',
-  'Total (USD)',
-]
+/** What every table's Export menu hands the download runner. */
+type ExportPayload = {
+  header: string[]
+  rows: Array<Array<string | number>>
+  filters: Array<{ label: string; value: string }>
+  title: string
+  totals?: Array<{ label: string; value: string }>
+  format: 'word' | 'excel'
+}
 
-const orderExportRow = (order: Order): Array<string | number> => [
-  order.id,
-  new Date(order.createdAt).toLocaleDateString('en-CA'),
-  order.time,
-  order.source,
-  order.customer?.name || order.cashier || '',
-  safeNumber(order.items),
-  (order.detail ?? []).join('; '),
-  Number(safeNumber(order.subtotal ?? order.total).toFixed(2)),
-  Number(safeNumber(order.discountAmount).toFixed(2)),
-  order.payment || '',
-  order.status,
-  Number(safeNumber(order.total).toFixed(2)),
-]
+const EMPTY_BREAKDOWN: BreakdownData = {
+  trend: [],
+  peakHours: [],
+  categories: [],
+  customers: [],
+  products: [],
+  payments: [],
+  cashiers: null,
+}
+
+/**
+ * The tab's View-by table: the breakdown built from the per-range report
+ * endpoints, paginated, with the Export row below it. While the endpoints
+ * are still loading (or the manual refresh re-runs them) the table shows
+ * the loading empty state — never stale numbers.
+ */
+function BreakdownView({
+  tab,
+  view,
+  breakdown,
+  orders,
+  waste,
+  customers,
+  products,
+  from,
+  to,
+  onExport,
+  onRowClick,
+}: {
+  tab: string
+  view: string
+  breakdown: BreakdownData | null
+  orders: Order[]
+  waste: WasteEvent[]
+  customers: Array<{ id: number; name: string }>
+  products: Product[]
+  from: string
+  to: string
+  onExport: (payload: ExportPayload) => void
+  onRowClick: (row: BreakdownRow) => void
+}) {
+  const { t } = useTranslation()
+  const built = buildBreakdown({
+    tab,
+    view,
+    data: breakdown ?? EMPTY_BREAKDOWN,
+    orders,
+    waste,
+    customers,
+    products,
+    t,
+  })
+  const viewLabel = VIEWS_BY_TAB[tab]?.find(
+    (option) => option.id === view,
+  )?.labelKey
+  return (
+    <BreakdownTable
+      title={tabTitle(t, tab)}
+      subtitle={
+        viewLabel ? `${t('reports.viewBy')}: ${t(viewLabel)}` : undefined
+      }
+      rows={breakdown ? built.rows : []}
+      columns={built.columns}
+      defaultSort={built.defaultSort}
+      from={from}
+      to={to}
+      emptyText={
+        breakdown ? t('reports.noTransactions') : t('reports.loadingData')
+      }
+      onExport={onExport}
+      onRowClick={onRowClick}
+    />
+  )
+}
 
 /** Top sellers appended under the daily-summary KPI rows. */
 const summaryTopProductRows = (
@@ -642,16 +857,17 @@ const inRange = (iso: string | null | undefined, from: string, to: string) => {
  * and the Audit log (already an event list with its own filters) do not get
  * a second table.
  */
-const DETAIL_TABLE_TABS = [
-  'sales',
-  'products',
-  'payments',
-  'team',
-  'waste',
-  'losses',
-  'shifts',
-  'audit',
-]
+/** Tabs whose default view is a View-by breakdown table. */
+const VIEWBY_TABS = ['sales', 'products', 'payments', 'team', 'waste']
+/** Tabs that are record tables already (no View-by dropdown). */
+const RECORD_TABS = ['losses', 'shifts', 'audit']
+
+const localDayOf = (iso: string): string => {
+  const date = new Date(iso)
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
 
 const orderWho = (order: Order) => order.customer?.name || order.cashier || ''
 const orderItemsText = (order: Order) =>
@@ -936,6 +1152,7 @@ function TabDetailSection({
   employees,
   customers,
   shifts,
+  drillLabel,
 }: {
   tab: string
   orders: Order[]
@@ -953,19 +1170,15 @@ function TabDetailSection({
   employees: Array<{ id: number; name: string }>
   customers: Array<{ id: number; name: string }>
   shifts: Shift[]
-  onExport: (payload: {
-    header: string[]
-    rows: Array<Array<string | number>>
-    filters: Array<{ label: string; value: string }>
-    title: string
-    totals?: Array<{ label: string; value: string }>
-  }) => void
+  /** QuickZoom context line shown under the title when drilled. */
+  drillLabel?: string
+  onExport: (payload: ExportPayload) => void
 }) {
   const { t } = useTranslation()
   const rangeLabel = t('reports.detailNote', {
     range: formatReportRange(from, to),
   })
-  const shared = { from, to, onExport, subtitle: rangeLabel }
+  const shared = { from, to, onExport, subtitle: drillLabel ?? rangeLabel }
 
   if (tab === 'losses') {
     const data = lossesData
@@ -1008,12 +1221,13 @@ function TabDetailSection({
             render: (row) => <strong>{cents(row.valueCents)}</strong>,
           },
         ]}
-        onExport={({ header, rows: exportRows, filters, title }) =>
+        onExport={({ header, rows: exportRows, filters, title, format }) =>
           onExport({
             header,
             rows: exportRows,
             filters,
             title,
+            format,
             totals: [
               {
                 label: t('reports.totalLost'),
@@ -1887,56 +2101,51 @@ function PaymentsBreakdown() {
   )
 }
 
-type CashierAccountability = {
-  cashier_id: number
-  name: string
-  completedOrderCount: number
-  netRevenueCents: number
-  discountsCents: number
-  discountCount: number
-  voidCount: number
-  voidAmountCents: number
-  refundCount: number
-  refundAmountCents: number
-  shiftsClosed: number
-  shortfallCount: number
-  repeatedShortfall: boolean
-  varianceHistory: Array<{
-    closedAt: string | null
-    openingCashUsdCents: number
-    expectedCashUsdCents: number
-    closingCashUsdCents: number
-    varianceUsdCents: number
-  }>
-}
-
 /**
  * Employee accountability: normal sales numbers next to the anti-theft
  * signals (discounts, voids, refunds, cash-variance history). Rows with a
  * repeated negative-variance pattern are flagged for the owner.
  */
-function TeamAccountability({ from, to }: { from: string; to: string }) {
+function TeamAccountability({
+  from,
+  to,
+  rows,
+  onlyEmployee,
+}: {
+  from: string
+  to: string
+  /** Pre-fetched rows (the page fetches them for the By-employee view);
+      when omitted the component fetches its own, as before. */
+  rows?: CashierBreakdownRow[] | null
+  /** When set, only this employee's block renders (drill-down view). */
+  onlyEmployee?: string
+}) {
   const { t } = useTranslation()
-  const [rows, setRows] = useState<CashierAccountability[] | null>(null)
+  const [fetched, setFetched] = useState<CashierBreakdownRow[] | null>(null)
   const [expanded, setExpanded] = useState<number | null>(null)
   useEffect(() => {
+    if (rows !== undefined) return
     let alive = true
-    apiRequest<CashierAccountability[]>(
+    apiRequest<CashierBreakdownRow[]>(
       `/api/reports/cashiers?from=${from}&to=${to}`,
     )
-      .then((data) => alive && setRows(data))
-      .catch(() => alive && setRows([]))
+      .then((data) => alive && setFetched(data))
+      .catch(() => alive && setFetched([]))
     return () => {
       alive = false
     }
-  }, [from, to])
-  if (!rows)
+  }, [from, to, rows])
+  const all = rows ?? fetched
+  const visible = onlyEmployee
+    ? (all ?? []).filter((row) => row.name === onlyEmployee)
+    : (all ?? [])
+  if (!all)
     return (
       <div className="empty-state">
         <span>{t('reports.loadingData')}</span>
       </div>
     )
-  if (!rows.length)
+  if (!visible.length)
     return (
       <div className="empty-state">
         <span>{t('reports.noChartData')}</span>
@@ -1953,7 +2162,7 @@ function TeamAccountability({ from, to }: { from: string; to: string }) {
         <span>{t('reports.cashVariance')}</span>
         <span />
       </div>
-      {rows.map((row) => (
+      {visible.map((row) => (
         <div key={row.cashier_id} className="accountability-row-wrap">
           <div
             className={`table-row accountability-head ${

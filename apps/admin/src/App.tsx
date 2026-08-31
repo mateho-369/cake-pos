@@ -195,6 +195,9 @@ export default function App() {
   const openShiftDetail = () => {
     navigate('shifts')
   }
+  const openCategoryDetail = () => {
+    navigate('categories')
+  }
   const addProduct = async (
     event: React.FormEvent<HTMLFormElement>,
     categoryId: number | null,
@@ -304,6 +307,7 @@ export default function App() {
             onOpenEmployee={openEmployeeDetail}
             onOpenCustomer={openCustomerDetail}
             onOpenShift={openShiftDetail}
+            onOpenCategory={openCategoryDetail}
           />
         )}
         {page === 'settings' && (

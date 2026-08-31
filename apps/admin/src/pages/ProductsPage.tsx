@@ -184,9 +184,7 @@ export default function ProductsPage({
         employee: string
         at: string
       }>
-    >(
-      `/api/reports/audit?productId=${product.id}`,
-    )
+    >(`/api/reports/audit?productId=${product.id}`)
       .then((rows) => {
         const latest = rows[0]
         if (latest?.details?.reasonCode) {
@@ -224,7 +222,11 @@ export default function ProductsPage({
       } else {
         images[images.length - 1] = { ...images[images.length - 1], url }
       }
-      return { ...current, images, imageUrl: images[0]?.url || current.imageUrl }
+      return {
+        ...current,
+        images,
+        imageUrl: images[0]?.url || current.imageUrl,
+      }
     })
   }
 
@@ -361,7 +363,12 @@ export default function ProductsPage({
       // (the API rejects the change without one). Prompt first, then save.
       setReasonPrompt({
         pending: input,
-        action: deactivating && zeroing ? 'both' : deactivating ? 'deactivate' : 'stock-zero',
+        action:
+          deactivating && zeroing
+            ? 'both'
+            : deactivating
+              ? 'deactivate'
+              : 'stock-zero',
       })
       setReasonCode(DEACTIVATION_REASONS[0].id)
       setReasonNote('')
@@ -1046,7 +1053,10 @@ export default function ProductsPage({
  * level only — the API enforces that when saving).
  */
 function categorySelectGroups(categories: ProductsPageCategory[]) {
-  type Group = { parent: ProductsPageCategory | null; children: ProductsPageCategory[] }
+  type Group = {
+    parent: ProductsPageCategory | null
+    children: ProductsPageCategory[]
+  }
   const parents = categories.filter((item) => !item.parentId)
   const groups: Group[] = []
   for (const parent of parents) {
@@ -1070,11 +1080,9 @@ function reasonLabel(
   t: (key: string, variables?: Record<string, string | number>) => string,
   code: string,
 ) {
-  return (
-    DEACTIVATION_REASONS.find((reason) => reason.id === code)
-      ? t(DEACTIVATION_REASONS.find((reason) => reason.id === code)!.key)
-      : code
-  )
+  return DEACTIVATION_REASONS.find((reason) => reason.id === code)
+    ? t(DEACTIVATION_REASONS.find((reason) => reason.id === code)!.key)
+    : code
 }
 
 type ProductsPageCategory = {

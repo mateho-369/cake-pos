@@ -719,7 +719,22 @@
     "openingCash": "សាច់ប្រាក់បើក (USD)",
     "expectedCash": "សាច់ប្រាក់រំពឹងទុក (USD)",
     "countedCash": "សាច់ប្រាក់រាប់បាន (USD)",
-    "varianceCol": "គម្លាត"
+    "varianceCol": "គម្លាត",
+    "viewBy": "មើលតាម",
+    "viewDay": "ថ្ងៃ",
+    "viewHour": "ម៉ោង",
+    "viewCategory": "ប្រភេទ",
+    "viewCustomer": "អតិថិជន",
+    "viewProduct": "ផលិតផល",
+    "viewMethod": "វិធីបង់ប្រាក់",
+    "viewEmployee": "បុគ្គលិក",
+    "viewReason": "មូលហេតុ",
+    "eventsCol": "ចំនួនព្រឹត្តិការណ៍",
+    "netSales": "ការលក់សុទ្ធ",
+    "refresh": "ធ្វើឱ្យស្រស់",
+    "backToSummary": "ត្រឡប់ទៅសង្ខេប",
+    "exportShownNote": "នាំចេញតាមអ្វីដែលកំពុងបង្ហាញ — ទិដ្ឋភាព តម្រង និងការតម្រៀបបច្ចុប្បន្ន។",
+    "dateRange": "ចន្លោះកាលបរិច្ឆេទ"
   },
   "settings": {
     "configuration": "ការកំណត់រចនា",

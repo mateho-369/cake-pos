@@ -76,8 +76,8 @@ export async function exportTableWord(
   const strings = reportStrings(language)
   const branding = meta.branding ?? defaultBranding
   const logo = branding?.logoUrl
-      ? await customLogoPng(branding.logoUrl)
-      : await brandLogoPng()
+    ? await customLogoPng(branding.logoUrl)
+    : await brandLogoPng()
   const run = (text: string, options: Record<string, unknown> = {}) =>
     new TextRun({ text, font: REPORT_FONT, ...options })
   const cell = (
@@ -253,8 +253,8 @@ export async function exportTableExcel(
   workbook.created = new Date()
   const sheet = workbook.addWorksheet(meta.title.slice(0, 28) || 'Report')
   const logo = branding?.logoUrl
-      ? await customLogoPng(branding.logoUrl)
-      : await brandLogoPng()
+    ? await customLogoPng(branding.logoUrl)
+    : await brandLogoPng()
   if (logo) {
     try {
       const id = workbook.addImage({ buffer: logo as never, extension: 'png' })

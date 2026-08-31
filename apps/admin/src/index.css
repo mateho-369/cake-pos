@@ -6941,113 +6941,6 @@ img.qr-placeholder {
   color: var(--pink-deep, #a92c36);
 }
 
-.export-preview-card {
-  max-width: 900px;
-}
-.export-preview-lead {
-  margin: 0;
-  color: var(--muted, #7a6b74);
-}
-.export-preview-meta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-  margin: 0;
-  padding: 14px 16px;
-  border: 1px solid var(--line, rgba(79, 40, 58, 0.12));
-  border-radius: 14px;
-  background: rgba(253, 242, 246, 0.6);
-}
-.export-preview-meta dt {
-  margin-bottom: 4px;
-  font-size: calc(11px * var(--font-scale));
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--muted, #7a6b74);
-}
-.export-preview-meta dd {
-  margin: 0;
-  font-size: calc(13px * var(--font-scale));
-  color: var(--ink, #2c2128);
-  overflow-wrap: anywhere;
-}
-.export-preview-choices {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.export-preview-formats,
-.export-preview-language {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px;
-  border: 1px solid var(--line, rgba(79, 40, 58, 0.14));
-  border-radius: 999px;
-  background: rgba(247, 232, 239, 0.45);
-}
-.export-preview-language > span {
-  padding: 0 8px;
-  font-size: calc(11px * var(--font-scale));
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--muted, #7a6b74);
-}
-.export-preview-formats button,
-.export-preview-language button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: transparent;
-  font: inherit;
-  font-size: calc(13px * var(--font-scale));
-  font-weight: 600;
-  color: var(--muted, #7a6b74);
-  cursor: pointer;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease,
-    box-shadow 0.15s ease;
-}
-.export-preview-formats button:hover,
-.export-preview-language button:hover {
-  color: var(--ink, #2c2128);
-  background: rgba(255, 255, 255, 0.8);
-}
-.export-preview-formats button.active,
-.export-preview-language button.active {
-  background: var(--pink, #e75480);
-  border-color: var(--pink, #e75480);
-  color: #fff;
-  box-shadow: 0 4px 12px rgba(231, 84, 128, 0.24);
-}
-.export-preview-table-wrap {
-  max-height: 320px;
-  overflow: auto;
-  border: 1px solid var(--line, rgba(79, 40, 58, 0.12));
-  border-radius: 14px;
-}
-.export-preview-table {
-  font-size: calc(12px * var(--font-scale));
-}
-.export-preview-table th {
-  background: #fff;
-}
-.export-preview-more {
-  color: var(--muted, #7a6b74);
-}
-@media (max-width: 820px) {
-  .export-preview-choices {
-    flex-direction: column;
-    align-items: stretch;
-  }
-}
-
 /* --------------------------------------------------------------------
    Reports → responsive pass (record table, filters, export dialog)
    -------------------------------------------------------------------- */
@@ -7194,29 +7087,6 @@ img.qr-placeholder {
   .table-pagination-size {
     width: 100%;
     justify-content: space-between;
-  }
-  /* The export review dialog goes edge-to-edge; its preview uses the same
-     stacked cards because it shares .report-detail-table. */
-  .export-preview-card {
-    max-width: none;
-    max-height: calc(100dvh - 16px);
-  }
-  .export-preview-body {
-    display: flex;
-    flex-direction: column;
-  }
-  .export-preview-meta {
-    grid-template-columns: 1fr;
-    gap: 10px;
-    padding: 12px;
-  }
-  .export-preview-table-wrap {
-    max-height: none;
-    flex: 1 1 auto;
-    min-height: 0;
-  }
-  .export-preview-table-wrap .report-detail-table {
-    font-size: calc(12px * var(--font-scale));
   }
   /* Toolbar: tabs and presets scroll as strips, dates span the row, the
      single Export button goes full width. */
@@ -7536,72 +7406,6 @@ button.location-card:focus-visible .location-edit {
   background: rgba(255, 255, 255, 0.76);
 }
 
-/* Date presets collapsed into one dropdown (Reports toolbar). */
-.report-date-dropdown {
-  position: relative;
-  display: inline-flex;
-}
-.report-date-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 15px;
-  border: 1px solid var(--line, rgba(79, 40, 58, 0.2));
-  border-radius: 999px;
-  background: #fff;
-  color: var(--ink, #2c2128);
-  font-size: calc(12.5px * var(--font-scale));
-  font-weight: 700;
-  cursor: pointer;
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
-}
-.report-date-trigger:hover {
-  border-color: rgba(190, 24, 93, 0.4);
-}
-.report-date-trigger[aria-expanded='true'] {
-  border-color: var(--pink, #e75480);
-  box-shadow: 0 0 0 3px rgba(231, 84, 128, 0.14);
-}
-.report-date-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 40;
-  min-width: 210px;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  border: 1px solid rgba(79, 40, 58, 0.14);
-  border-radius: 14px;
-  background: #fff;
-  box-shadow: 0 24px 60px rgba(45, 14, 29, 0.18);
-}
-.report-date-menu button {
-  padding: 9px 12px;
-  display: flex;
-  align-items: center;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  font: inherit;
-  font-size: calc(13px * var(--font-scale));
-  font-weight: 600;
-  color: var(--muted, #7a6b74);
-  text-align: left;
-  cursor: pointer;
-}
-.report-date-menu button:hover {
-  color: var(--ink, #2c2128);
-  background: rgba(247, 232, 239, 0.6);
-}
-.report-date-menu button.active {
-  color: var(--pink-deep, #a92c36);
-  background: rgba(190, 24, 93, 0.08);
-}
-
 /* A product name in Reports that jumps to the product's detail page. */
 .product-link {
   padding: 0;
@@ -7666,4 +7470,157 @@ button.location-card:focus-visible .location-edit {
 .record-link:hover {
   color: var(--pink-deep, #a92c36);
   text-decoration-color: var(--pink, #e75480);
+}
+
+/* --------------------------------------------------------------------
+   Reports → View-by dropdown, QuickZoom drill chip, below-table export
+   -------------------------------------------------------------------- */
+
+/* The per-tab "View by: X" dropdown. */
+.report-viewby-section {
+  margin: 4px 0 14px;
+}
+.report-viewby-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.view-by-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+.view-by-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 15px;
+  border: 1px solid var(--line, rgba(79, 40, 58, 0.2));
+  border-radius: 12px;
+  background: #fff;
+  color: var(--muted, #7a6b74);
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.view-by-trigger strong {
+  color: var(--ink, #2c2128);
+}
+.view-by-trigger:hover {
+  border-color: rgba(190, 24, 93, 0.4);
+}
+.view-by-trigger[aria-expanded='true'] {
+  border-color: var(--pink, #e75480);
+  box-shadow: 0 0 0 3px rgba(231, 84, 128, 0.14);
+}
+.view-by-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  min-width: 190px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid rgba(79, 40, 58, 0.14);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(45, 14, 29, 0.18);
+}
+.view-by-menu button {
+  padding: 9px 12px;
+  display: flex;
+  align-items: center;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font: inherit;
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 600;
+  color: var(--muted, #7a6b74);
+  text-align: left;
+  cursor: pointer;
+}
+.view-by-menu button:hover {
+  color: var(--ink, #2c2128);
+  background: rgba(247, 232, 239, 0.6);
+}
+.view-by-menu button.active {
+  color: var(--pink-deep, #a92c36);
+  background: rgba(190, 24, 93, 0.08);
+}
+
+/* QuickZoom: the chip that says which summary row's records are shown. */
+.drill-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 13px;
+  border: 1px solid rgba(190, 24, 93, 0.22);
+  border-radius: 999px;
+  background: rgba(190, 24, 93, 0.06);
+  color: var(--pink-deep, #a92c36);
+  font-size: calc(12.5px * var(--font-scale));
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.drill-back:hover {
+  background: rgba(190, 24, 93, 0.12);
+}
+.drill-back small {
+  color: var(--subtle, #a99ca4);
+  font-weight: 600;
+}
+
+/* The Export row under a breakdown table: exports exactly what is shown. */
+.report-export-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  padding: 4px 2px 0;
+  flex-wrap: wrap;
+}
+.report-export-note {
+  color: var(--subtle, #a99ca4);
+  font-size: calc(11.5px * var(--font-scale));
+  text-align: right;
+  max-width: 320px;
+}
+
+/* Manual refresh next to the date inputs: re-runs the current view+filter. */
+.report-refresh {
+  border: 1px solid var(--line, rgba(79, 40, 58, 0.2));
+}
+.report-refresh:hover {
+  border-color: var(--pink, #e75480);
+  color: var(--pink-deep, #a92c36);
+}
+
+/* Preset pills keep their own row; allow them to wrap + scroll on mobile. */
+.reports-header {
+  flex-wrap: wrap;
+}
+.report-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+@media (max-width: 680px) {
+  .report-export-note {
+    display: none;
+  }
+  .report-export-row {
+    justify-content: stretch;
+  }
+  .report-export-row .export-menu,
+  .report-export-row .export-menu > button {
+    width: 100%;
+  }
 }

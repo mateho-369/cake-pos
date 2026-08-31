@@ -165,7 +165,10 @@ final class ReportingService
     public function products(array $input): array
     {
         $r = DateRange::from($input);
-        $limit = $input['limit'] ?? 10;
+        // No hardcoded default cap: the admin UI paginates the full set.
+        // A caller may still pass `limit` (ReportFilterRequest caps it at
+        // 50) for a deliberate slice.
+        $limit = $input['limit'] ?? null;
         return OrderItem::join(
             'orders',
             'orders.id',
@@ -188,7 +191,10 @@ final class ReportingService
                 'order_items.category_snapshot',
             )
             ->orderByDesc('netRevenueCents')
-            ->limit($limit)
+            ->when(
+                $limit !== null,
+                fn ($query) => $query->limit($limit),
+            )
             ->get()
             ->toArray();
     }
@@ -204,7 +210,7 @@ final class ReportingService
             ->where('orders.status', 'Completed')
             ->whereBetween('orders.created_at', [$r->from, $r->to])
             ->selectRaw(
-                "COALESCE(NULLIF(category_snapshot,''),'Unknown / archived') category,SUM(quantity) units,SUM(line_total_cents) netRevenueCents",
+                "COALESCE(NULLIF(category_snapshot,''),'Unknown / archived') category,SUM(quantity) units,SUM(line_total_cents) netRevenueCents,COUNT(DISTINCT orders.id) orders",
             )
             ->groupBy('category_snapshot')
             ->get()
@@ -670,7 +676,10 @@ final class ReportingService
             )
             ->groupBy('orders.customer_id')
             ->orderByDesc('netRevenueCents')
-            ->limit($input['limit'] ?? 25)
+            ->when(
+                ($input['limit'] ?? null) !== null,
+                fn ($query) => $query->limit($input['limit']),
+            )
             ->get()
             ->toArray();
     }
