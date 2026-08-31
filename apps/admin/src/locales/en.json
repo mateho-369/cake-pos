@@ -331,7 +331,16 @@
     "order": "Order",
     "cancelPendingConfirm": "Cancel held order {{id}}? The customer will be notified.",
     "pendingPaid": "Order {{id}} completed and paid",
-    "paymentConfirmedShort": "Confirm payment"
+    "paymentConfirmedShort": "Confirm payment",
+    "statusPending": "Pending",
+    "statusConfirmed": "Confirmed",
+    "statusPaid": "Paid",
+    "statusReady": "Ready",
+    "statusHeld": "Held",
+    "statusCompleted": "Completed",
+    "statusRefunded": "Refunded",
+    "statusCancelled": "Cancelled",
+    "statusReleased": "Released"
   },
   "freshness": {
     "fefo": "FEFO CONTROL",

@@ -5190,9 +5190,13 @@ img.qr-placeholder {
   .freshness-hero-copy h2 {
     font-size: calc(20px * var(--font-scale));
   }
-  .reports-header .toolbar-actions,
-  .catalog-toolbar .toolbar-actions {
+  .reports-header .toolbar-actions {
     overflow-x: auto;
+  }
+  /* The catalog-style toolbars (Orders, Products, Customers) wrap instead
+     of scrolling: a scroll container would clip the export dropdown menu. */
+  .catalog-toolbar .toolbar-actions {
+    flex-wrap: wrap;
   }
   .report-library-grid {
     grid-template-columns: 1fr;
@@ -7290,5 +7294,149 @@ img.qr-placeholder {
   }
   .dual-legend {
     width: 100%;
+  }
+}
+
+/* --------------------------------------------------------------------
+   Orders → toolbar export menu + phone card layout for the order rows
+   -------------------------------------------------------------------- */
+
+/* On desktop the meta wrapper is transparent: its children still occupy
+   their own grid columns, so the 8-column row is byte-identical to before.
+   On phones the wrapper becomes one groupable grid item (see below). */
+.order-full-row > .order-row-meta {
+  display: contents;
+}
+/* One Export button; the format lives in the dropdown (same files as the
+   old Word/Excel buttons, contents unchanged). */
+.export-menu {
+  position: relative;
+  display: inline-flex;
+}
+.export-menu-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 190px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid rgba(79, 40, 58, 0.14);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(45, 14, 29, 0.18);
+}
+.export-menu-list button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font: inherit;
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 600;
+  color: var(--ink, #2c2128);
+  text-align: left;
+  cursor: pointer;
+}
+.export-menu-list button:hover {
+  background: rgba(247, 232, 239, 0.6);
+}
+
+@media (max-width: 640px) {
+  /* Each order becomes a card: id + total header, who/date under it, then
+     source, items · payment, and the status pill. No horizontal scrolling. */
+  .orders-full-table.table-responsive {
+    overflow-x: visible;
+  }
+  .orders-full-table .table-head {
+    display: none;
+  }
+  .order-full-row.phase2-order-row {
+    min-width: 0;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'id total'
+      'who total'
+      'src src'
+      'meta meta'
+      'status status';
+    gap: 4px 12px;
+    padding: 11px 13px;
+    margin-bottom: 9px;
+    border: 1px solid rgba(79, 40, 58, 0.12);
+    border-top: 1px solid rgba(79, 40, 58, 0.12);
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: var(--shadow, 0 12px 30px rgba(74, 28, 49, 0.06));
+  }
+  .order-full-row.phase2-order-row:hover {
+    background: #fff;
+  }
+  .order-full-row.phase2-order-row > strong:first-child {
+    grid-area: id;
+  }
+  .order-full-row.phase2-order-row > .source-pill {
+    grid-area: src;
+    justify-self: start;
+  }
+  .order-full-row.phase2-order-row > span:nth-child(3) {
+    grid-area: who;
+  }
+  .order-full-row.phase2-order-row > .order-row-meta {
+    grid-area: meta;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .order-full-row.phase2-order-row > .status-badge {
+    grid-area: status;
+    justify-self: start;
+  }
+  .order-full-row.phase2-order-row > strong.numeric {
+    grid-area: total;
+    align-self: start;
+    justify-self: end;
+  }
+  .order-full-row.phase2-order-row > svg {
+    display: none;
+  }
+  /* Toolbar: dates share the row, the Export button goes full width and its
+     menu spans the button. */
+  .catalog-toolbar .report-export-actions {
+    width: 100%;
+  }
+  .catalog-toolbar .report-export-actions label {
+    flex: 1 1 130px;
+    min-width: 0;
+  }
+  .catalog-toolbar .report-export-actions input {
+    width: 100%;
+    min-width: 0;
+  }
+  .catalog-toolbar .export-menu {
+    flex: 1 1 100%;
+  }
+  .catalog-toolbar .export-menu > .primary-button {
+    width: 100%;
+    justify-content: center;
+  }
+  .catalog-toolbar .export-menu-list {
+    left: 0;
+    right: 0;
+  }
+  /* Status tabs stay a horizontally scrollable strip (no wrap, no overflow). */
+  .page-toolbar .filter-tabs {
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
   }
 }

@@ -89,6 +89,29 @@ export function useTranslation() {
   return context
 }
 
+/** Order-status names come from the API as English words; map them to
+ * locale keys so the tabs, pills and lists read in the chosen language. */
+const STATUS_LABEL_KEYS: Record<string, string> = {
+  Pending: 'orders.statusPending',
+  Confirmed: 'orders.statusConfirmed',
+  Paid: 'orders.statusPaid',
+  Ready: 'orders.statusReady',
+  Held: 'orders.statusHeld',
+  Completed: 'orders.statusCompleted',
+  Refunded: 'orders.statusRefunded',
+  Cancelled: 'orders.statusCancelled',
+  Released: 'orders.statusReleased',
+}
+
+export function statusLabelKey(status: string): string {
+  return STATUS_LABEL_KEYS[status] ?? ''
+}
+
+export function statusLabel(t: TranslationFunction, status: string): string {
+  const key = statusLabelKey(status)
+  return key ? t(key) : status
+}
+
 export function translateCategory(t: TranslationFunction, category: string) {
   const keys: Record<string, string> = {
     'Signature Cakes': 'catalog.signature',

@@ -16,7 +16,7 @@ import {
 import type { Order, Product, RevenuePoint, WasteEvent } from '../data'
 import { useAdminData } from '../lib/data'
 import { apiRequest } from '../lib/api'
-import { translateCategory, useTranslation } from '../lib/i18n'
+import { statusLabel, translateCategory, useTranslation } from '../lib/i18n'
 import ReportDetailTable from '../components/ReportDetailTable'
 import ExportPreviewModal, {
   type ExportRequest,
@@ -824,10 +824,10 @@ const sourcePill = (t: TranslationFn, order: Order) => (
     <strong>{sourceLabel(t, order)}</strong>
   </span>
 )
-const statusPill = (status: string) => (
+const statusPill = (t: TranslationFn, status: string) => (
   <span className={`status-badge order-status-${status.toLowerCase()}`}>
     <i />
-    {status}
+    {statusLabel(t, status)}
   </span>
 )
 
@@ -1131,7 +1131,7 @@ function TabDetailSection({
             key: 'status',
             label: t('orders.status'),
             value: (row) => row.order.status,
-            render: (row) => statusPill(row.order.status),
+            render: (row) => statusPill(t, row.order.status),
           },
         ]}
       />
@@ -1336,7 +1336,7 @@ function TabDetailSection({
           key: 'status',
           label: t('orders.status'),
           value: (row) => row.status,
-          render: (row) => statusPill(row.status),
+          render: (row) => statusPill(t, row.status),
         },
       ]}
     />

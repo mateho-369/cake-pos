@@ -331,7 +331,16 @@
     "order": "ការបញ្ជាទិញ",
     "cancelPendingConfirm": "លុបការបញ្ជាទិញ {{id}} ដែលកំពុងរង់ចាំ? អតិថិជននឹងត្រូវបានជូនដំណឹង។",
     "pendingPaid": "ការបញ្ជាទិញ {{id}} បានបញ្ចប់ និងបង់ប្រាក់",
-    "paymentConfirmedShort": "បញ្ជាក់ការទូទាត់"
+    "paymentConfirmedShort": "បញ្ជាក់ការទូទាត់",
+    "statusPending": "រង់ចាំ",
+    "statusConfirmed": "បានបញ្ជាក់",
+    "statusPaid": "បានបង់",
+    "statusReady": "រួចរាល់",
+    "statusHeld": "រក្សាទុក",
+    "statusCompleted": "បានបញ្ចប់",
+    "statusRefunded": "បានសងប្រាក់",
+    "statusCancelled": "បានលុបចោល",
+    "statusReleased": "បានប្រគល់"
   },
   "freshness": {
     "fefo": "ការគ្រប់គ្រង FEFO",
