@@ -705,7 +705,21 @@
     "clearFilters": "Clear all",
     "apply": "Apply",
     "noRecordsMatch": "No records match these filters",
-    "unfilteredCount": "{{count}} records in this period"
+    "unfilteredCount": "{{count}} records in this period",
+    "views": "Views",
+    "customRange": "Custom",
+    "allTime": "All time",
+    "noPreset": "None",
+    "shifts": "Shifts",
+    "shiftRecords": "Shift records",
+    "openShift": "Open shift",
+    "openRecord": "Open",
+    "shiftCol": "Shift",
+    "openedBy": "Opened by",
+    "openingCash": "Opening cash (USD)",
+    "expectedCash": "Expected cash (USD)",
+    "countedCash": "Counted cash (USD)",
+    "varianceCol": "Variance"
   },
   "settings": {
     "configuration": "Configuration",

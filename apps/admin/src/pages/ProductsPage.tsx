@@ -38,8 +38,17 @@ export const DEACTIVATION_REASONS = [
 type ProductsPageProps = {
   onAdd: () => void
   onToast: (message: string) => void
+  /** A product id coming from elsewhere (e.g. a report link): open its
+      edit modal once the catalog has loaded. */
+  editId?: number | null
+  onEditConsumed?: () => void
 }
-export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
+export default function ProductsPage({
+  onAdd,
+  onToast,
+  editId = null,
+  onEditConsumed,
+}: ProductsPageProps) {
   const { t } = useTranslation()
   const { products, categories, updateProduct, deleteProduct, refresh } =
     useAdminData()
@@ -192,6 +201,17 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
       })
       .catch(() => undefined)
   }
+
+  // A product picked from a report (or anywhere else) opens its edit modal
+  // as soon as the catalog has loaded, then hands the intent back.
+  useEffect(() => {
+    if (editId == null) return
+    const product = products.find((item) => item.id === editId)
+    if (!product) return
+    beginEdit(product)
+    onEditConsumed?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editId, products, onEditConsumed])
 
   const applyPickedImage = (url: string, slotIndex: number) => {
     setEditing((current) => {

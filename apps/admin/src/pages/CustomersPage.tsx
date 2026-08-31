@@ -26,7 +26,14 @@ type Retention = {
   repeatRatePercent: number
 }
 
-export default function CustomersPage() {
+export default function CustomersPage({
+  selectId = null,
+  onSelectConsumed,
+}: {
+  /** A customer id coming from a report row: open their detail panel. */
+  selectId?: number | null
+  onSelectConsumed?: () => void
+}) {
   const { t } = useTranslation()
   const { customers, customerOrders } = useAdminData()
   const [query, setQuery] = useState('')
@@ -34,6 +41,14 @@ export default function CustomersPage() {
   const [history, setHistory] = useState<Order[]>([])
   const [loading, setLoading] = useState(false)
   const [retention, setRetention] = useState<Retention | null>(null)
+  // A report row drilled into this customer: open their detail panel.
+  useEffect(() => {
+    if (selectId == null) return
+    const customer = customers.find((item) => item.id === selectId)
+    if (!customer) return
+    setSelected(customer)
+    onSelectConsumed?.()
+  }, [selectId, customers, onSelectConsumed])
   useEffect(() => {
     let alive = true
     apiRequest<Retention>('/api/reports/retention?preset=this_month')

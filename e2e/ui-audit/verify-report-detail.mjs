@@ -182,7 +182,48 @@ window.fetch = async (url) => {
     })
   if (p === '/api/orders') return body(ordersPayload)
   if (p === '/api/reports/cashiers') return body([])
-  if (p === '/api/reports/audit') return body([])
+  if (p === '/api/reports/audit')
+    return body([
+      {
+        id: 1,
+        at: at(now.getFullYear(), now.getMonth(), now.getDate(), 10, 0),
+        employee: 'Sophea Chan',
+        employeeId: 1,
+        action: 'order.discount',
+        orderId: 'CS-110',
+        details: { discountAmountCents: 50 },
+        ip: null,
+      },
+      {
+        id: 2,
+        at: at(now.getFullYear(), now.getMonth(), now.getDate(), 11, 0),
+        employee: 'Vibol Sok',
+        employeeId: 2,
+        action: 'order.voided',
+        orderId: 'CS-101',
+        details: {},
+        ip: null,
+      },
+      {
+        id: 3,
+        at: at(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0),
+        employee: 'Sophea Chan',
+        employeeId: 1,
+        action: 'shift',
+        orderId: null,
+        details: { varianceUsdCents: -1000 },
+        ip: null,
+      },
+    ])
+  if (p === '/api/reports/losses')
+    return body({
+      wasteCents: 4200,
+      discountsCents: 3100,
+      voidsCents: 900,
+      refundsCents: 0,
+      cashShortagesCents: 1000,
+      totalLostCents: 9200,
+    })
   if (p === '/api/orders/pending') return body([])
   if (p === '/api/reports/retention')
     return body({
@@ -195,8 +236,48 @@ window.fetch = async (url) => {
     })
   if (p.endsWith('/products')) return body([])
   if (p.endsWith('/categories')) return body([])
+  if (p === '/api/employees')
+    return body([
+      { id: 1, name: 'Sophea Chan', role: 'cashier' },
+      { id: 2, name: 'Vibol Sok', role: 'cashier' },
+    ])
   if (p.endsWith('/employees')) return body([])
   if (p.endsWith('/customers')) return body([])
+  if (p === '/api/shifts')
+    return body([
+      {
+        id: 1,
+        employeeId: 1,
+        openingCash: 100,
+        openingCashUsdCents: 10000,
+        openingCashKhr: 0,
+        openedAt: at(now.getFullYear(), now.getMonth(), now.getDate(), 7, 30),
+        closedAt: at(now.getFullYear(), now.getMonth(), now.getDate(), 15, 0),
+        expectedCashUsdCents: 20800,
+        expectedCashKhr: 0,
+        closingCashUsdCents: 20600,
+        closingCashKhr: 0,
+        varianceUsdCents: -200,
+        openedBy: 'Sophea Chan',
+        status: 'Closed',
+      },
+      {
+        id: 2,
+        employeeId: 2,
+        openingCash: 100,
+        openingCashUsdCents: 10000,
+        openingCashKhr: 0,
+        openedAt: at(now.getFullYear(), now.getMonth(), now.getDate(), 15, 0),
+        closedAt: at(now.getFullYear(), now.getMonth(), now.getDate(), 21, 30),
+        expectedCashUsdCents: 31500,
+        expectedCashKhr: 0,
+        closingCashUsdCents: 31500,
+        closingCashKhr: 0,
+        varianceUsdCents: 0,
+        openedBy: 'Vibol Sok',
+        status: 'Closed',
+      },
+    ])
   if (p.endsWith('/shifts')) return body([])
   if (p.endsWith('/shifts/current')) return body(null)
   if (p === '/api/reports/summary')
@@ -255,7 +336,49 @@ const cell = (row, index) => row.children[index].textContent.trim()
 
 await sleep(500)
 nav('Reports')
+await sleep(200)
+// The sidebar Reports item is now a dropdown: pick the Sales view to enter
+// the page (the old always-visible tab strip is gone).
+const openReportTab = (label) => {
+  const navBtn = $$('.sidebar-nav .nav-item').find((b) =>
+    b.textContent.includes('Reports'),
+  )
+  if (navBtn && navBtn.getAttribute('aria-expanded') !== 'true') click(navBtn)
+  const item = $$('.nav-submenu-item').find(
+    (b) => b.textContent.trim() === label,
+  )
+  if (item) click(item)
+  return Boolean(item)
+}
+openReportTab('Sales')
 await sleep(350)
+
+// ------------------------------------------ the sidebar dropdown is the hub
+check(
+  'the Reports nav item expands ONE dropdown with all 8 report views',
+  [
+    'Sales',
+    'Products',
+    'Payments',
+    'Team',
+    'Waste',
+    'Losses',
+    'Shifts',
+    'Audit log',
+  ].every((label) =>
+    $$('.nav-submenu-item').some((b) => b.textContent.trim() === label),
+  ),
+  $$('.nav-submenu-item')
+    .map((b) => b.textContent.trim())
+    .join(','),
+)
+check(
+  'the download library is gone: no library section, no download items',
+  $('.report-library') === null &&
+    !$$('.nav-submenu-item').some((b) =>
+      b.textContent.trim().includes('summary'),
+    ),
+)
 
 // ------------------------------------------------ the table actually exists
 check(
@@ -376,8 +499,62 @@ check(
   cell(rows()[0], 2),
 )
 
+// --------------------------------------------- date presets live in ONE dropdown
+check(
+  'date presets are a single dropdown (the old strip is gone)',
+  $('.report-date-trigger') !== null && $('.report-presets') === null,
+  $('.report-date-trigger')?.textContent.replace(/\s+/g, ' ').trim(),
+)
+const openPresetMenu = () => {
+  const trigger = $('.report-date-trigger')
+  if (trigger && trigger.getAttribute('aria-expanded') !== 'true')
+    click(trigger)
+}
+openPresetMenu()
+await sleep(100)
+check(
+  'the preset dropdown lists all six presets plus None',
+  $$('.report-date-menu button')
+    .map((b) => b.textContent.trim())
+    .join(',') ===
+    'Today,Yesterday,This week,This month,Last month,This year,None',
+  $$('.report-date-menu button')
+    .map((b) => b.textContent.trim())
+    .join(','),
+)
+click(
+  $$('.report-date-menu button').find((b) => b.textContent.trim() === 'None'),
+)
+await sleep(250)
+check(
+  'None clears the date filter: every order in the store shows (32 here)',
+  $('.table-pagination-count')?.textContent.trim() === 'Showing 1–32 of 32',
+  $('.table-pagination-count')?.textContent,
+)
+openPresetMenu()
+await sleep(100)
+click(
+  $$('.report-date-menu button').find(
+    (b) => b.textContent.trim() === 'This month',
+  ),
+)
+await sleep(250)
+check(
+  'picking This month restores the period',
+  $('.table-pagination-count')?.textContent.trim() === 'Showing 1–30 of 30',
+  $('.table-pagination-count')?.textContent,
+)
+
 // -------------------------------------------- follows the Reports date range
-click(button('Last month'))
+const pickPreset = async (label) => {
+  openPresetMenu()
+  await sleep(80)
+  const item = $$('.report-date-menu button').find(
+    (b) => b.textContent.trim() === label,
+  )
+  if (item) click(item)
+}
+await pickPreset('Last month')
 await sleep(250)
 check(
   'switching to "Last month" reloads the detail table with that period only',
@@ -391,7 +568,7 @@ check(
   $('.table-pagination-count').textContent.trim() === 'Showing 1–2 of 2',
   $('.table-pagination-count').textContent,
 )
-click(button('This month'))
+await pickPreset('This month')
 await sleep(250)
 check(
   "switching back restores this month's 30 orders (page size is kept)",
@@ -520,7 +697,7 @@ openFilters()
 await sleep(50)
 setSelect(panelSelect('Payment'), 'KHQR')
 await sleep(200)
-click(button('Last month'))
+await pickPreset('Last month')
 await sleep(300)
 check(
   'preset switch with an active filter shows the FILTER-aware empty state',
@@ -548,7 +725,7 @@ check(
     $('.table-pagination-count').textContent.trim() === 'Showing 1–2 of 2',
   `${rows().length} rows`,
 )
-click(button('This month'))
+await pickPreset('This month')
 await sleep(250)
 
 // ------------------------------------------------------- the full Clear all
@@ -623,15 +800,13 @@ typeSearch('')
 await sleep(200)
 
 // ------------------------------------------ shared across the analysis tabs
-const tabButton = (label) =>
-  $$('.report-tabs button').find((b) => b.textContent.trim() === label)
-click(tabButton('Payments'))
+openReportTab('Payments')
 await sleep(250)
 check(
   'the Payments tab gets the same drill-down list',
   $('.report-detail-table') !== null,
 )
-click(tabButton('Products'))
+openReportTab('Products')
 await sleep(250)
 check(
   'the Products tab browses individual sold line items, not orders',
@@ -643,7 +818,7 @@ check(
     .map((th) => th.textContent.trim())
     .join(','),
 )
-click(tabButton('Waste'))
+openReportTab('Waste')
 await sleep(250)
 check(
   'the Waste tab browses recorded waste events',
@@ -661,11 +836,55 @@ check(
   `${rows().length} rows`,
 )
 window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }))
-click(tabButton('Audit log'))
-await sleep(250)
+openReportTab('Losses')
+await sleep(300)
 check(
-  'event-level tabs (Audit log) keep their own detail view instead',
-  $('.report-detail-table') === null,
+  'Losses reuses the same paginated table style (5 money rows)',
+  rows().length === 5 &&
+    $('.table-pagination-count')?.textContent.trim() === 'Showing 1–5 of 5',
+  `${rows().length} rows / ${$('.table-pagination-count')?.textContent}`,
+)
+check(
+  'the losses rows are the five loss categories',
+  ['Waste', 'Discounts', 'Voids', 'Refunds', 'Cash shortages'].every((label) =>
+    rows().some((row) => cell(row, 0) === label),
+  ),
+  rows()
+    .map((row) => cell(row, 0))
+    .join(','),
+)
+openReportTab('Shifts')
+await sleep(300)
+check(
+  'Shifts reuses the same table style with the closed shifts of the range',
+  rows().length === 2 &&
+    $('.table-pagination-count')?.textContent.trim() === 'Showing 1–2 of 2',
+  `${rows().length} rows`,
+)
+check(
+  'shift rows drill through to the Shifts page and their employees',
+  $$('.report-detail-table .record-link').length === 4,
+  String($$('.report-detail-table .record-link').length),
+)
+openReportTab('Audit log')
+await sleep(300)
+check(
+  'the Audit log reuses the same paginated table style',
+  rows().length === 3 &&
+    $('.table-pagination-count')?.textContent.trim() === 'Showing 1–3 of 3',
+  `${rows().length} rows / ${$('.table-pagination-count')?.textContent}`,
+)
+check(
+  'audit rows link to their order and employee records',
+  $$('.report-detail-table .record-link').length === 5,
+  String($$('.report-detail-table .record-link').length),
+)
+openReportTab('Sales')
+await sleep(300)
+check(
+  'order ids in the Sales table drill through to the order',
+  $$('.report-detail-table .record-link').length > 0,
+  String($$('.report-detail-table .record-link').length),
 )
 
 console.log(

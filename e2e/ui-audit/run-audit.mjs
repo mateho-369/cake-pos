@@ -351,7 +351,18 @@ async function navigate(label) {
   const item = $$('.sidebar-nav .nav-item').find((b) => b.textContent.includes(label))
   if (!item) throw new Error(`nav item not found: ${label}`)
   item.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
-  await settle(220)
+  await settle(120)
+  // The Reports nav item opens a dropdown instead of navigating: enter the
+  // page through its first view (Sales), like an admin would.
+  if (item.textContent.includes('Reports')) {
+    const sales = $$('.nav-submenu-item').find(
+      (b) => b.textContent.trim() === 'Sales',
+    )
+    if (sales) {
+      sales.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+      await settle(220)
+    }
+  }
 }
 
 async function clickAndObserve(btn) {
@@ -543,13 +554,22 @@ async function main() {
     return window.document.body.textContent || ''
   }
 
-  // 1. Reason codes surface in the reports audit log (#7).
+  // 1. Reason codes surface in the reports audit log (#7). The Audit log is
+  // a report view now: it lives in the sidebar Reports dropdown and renders
+  // through the same paginated table as every other report.
   await navigate('Reports')
-  const auditTab = $$('.page-content button').find((b) =>
-    b.textContent.includes('Audit log'),
+  const reportsNav = $$('.sidebar-nav .nav-item').find((b) =>
+    b.textContent.includes('Reports'),
+  )
+  if (reportsNav && reportsNav.getAttribute('aria-expanded') !== 'true') {
+    reportsNav.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+    await settle(60)
+  }
+  const auditTab = $$('.nav-submenu-item').find(
+    (b) => b.textContent.trim() === 'Audit log',
   )
   if (auditTab) {
-    auditTab.click()
+    auditTab.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
     await settle(300)
     const txt = $('.page-content')?.textContent || ''
     if (!txt.includes('seasonal_return'))
@@ -557,7 +577,7 @@ async function main() {
     if (!/product\.deactivated|Deactivated/.test(txt))
       errors.push('audit log does not show product.deactivated row')
   } else {
-    errors.push('reports page has no Audit log tab')
+    errors.push('reports page has no Audit log view in the sidebar dropdown')
   }
 
   // 2. Category hierarchy renders parent context on subcategories (#2).

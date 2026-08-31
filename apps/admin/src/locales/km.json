@@ -705,7 +705,21 @@
     "clearFilters": "សម្អាតតម្រងទាំងអស់",
     "apply": "អនុវត្ត",
     "noRecordsMatch": "គ្មានកំណត់ត្រាដែលត្រូវនឹងតម្រងទាំងនេះ",
-    "unfilteredCount": "{{count}} កំណត់ត្រាក្នុងអំឡុងពេលនេះ"
+    "unfilteredCount": "{{count}} កំណត់ត្រាក្នុងអំឡុងពេលនេះ",
+    "views": "ទិដ្ឋភាព",
+    "customRange": "ផ្ទាល់ខ្លួន",
+    "allTime": "គ្រប់ពេល",
+    "noPreset": "គ្មាន",
+    "shifts": "វេន",
+    "shiftRecords": "កំណត់ត្រាវេន",
+    "openShift": "បើកវេន",
+    "openRecord": "បើក",
+    "shiftCol": "វេន",
+    "openedBy": "បើកដោយ",
+    "openingCash": "សាច់ប្រាក់បើក (USD)",
+    "expectedCash": "សាច់ប្រាក់រំពឹងទុក (USD)",
+    "countedCash": "សាច់ប្រាក់រាប់បាន (USD)",
+    "varianceCol": "គម្លាត"
   },
   "settings": {
     "configuration": "ការកំណត់រចនា",

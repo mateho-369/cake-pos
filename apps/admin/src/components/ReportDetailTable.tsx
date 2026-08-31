@@ -53,6 +53,8 @@ export type DetailTableProps<T> = {
   /** Column key + direction the table opens on. */
   defaultSort?: { key: string; direction: 'asc' | 'desc' }
   searchPlaceholder?: string
+  /** Empty-state message when the period has no records at all. */
+  emptyText?: string
   /** Range currently selected at the top of Reports (for the export meta). */
   from: string
   to: string
@@ -62,6 +64,8 @@ export type DetailTableProps<T> = {
     rows: Array<Array<string | number>>
     filters: Array<{ label: string; value: string }>
     title: string
+    /** Extra rollup lines printed under the table (e.g. losses total). */
+    totals?: Array<{ label: string; value: string }>
   }) => void
   /** Anything extra to show between the filters and the table. */
   children?: ReactNode
@@ -106,6 +110,7 @@ export default function ReportDetailTable<T>({
   rowKey,
   defaultSort,
   searchPlaceholder,
+  emptyText,
   from,
   to,
   onExport,
@@ -244,6 +249,8 @@ export default function ReportDetailTable<T>({
       rows: sorted.map((row) => columns.map((column) => column.value(row))),
       filters: activeFilters,
     })
+  // `totals` comes from the caller: ReportDetailTable itself never invents
+  // rollups — the tab that owns the data does.
   const openPanel = () => {
     setDraft({ ...selected })
     setFilterOpen(true)
@@ -412,7 +419,7 @@ export default function ReportDetailTable<T>({
       {!sorted.length ? (
         rows.length === 0 ? (
           <div className="empty-state">
-            <span>{t('reports.noTransactions')}</span>
+            <span>{emptyText ?? t('reports.noTransactions')}</span>
           </div>
         ) : (
           <div className="empty-state report-detail-empty">

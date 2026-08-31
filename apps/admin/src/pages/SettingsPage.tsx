@@ -70,12 +70,18 @@ const defaultBusinessProfile: BusinessProfile = {
 }
 export default function SettingsPage({
   onToast,
+  initialSection,
 }: {
   onToast: (message: string) => void
+  /** Which settings section to open when arriving from elsewhere. */
+  initialSection?: string
 }) {
   const { t } = useTranslation()
   const { orders } = useAdminData()
   const [tab, setTab] = useState('business')
+  useEffect(() => {
+    if (initialSection) setTab(initialSection)
+  }, [initialSection])
   const [receipt, setReceipt] = useState<ReceiptConfig>(defaultReceipt)
   const [business, setBusiness] = useState<BusinessProfile>(
     defaultBusinessProfile,

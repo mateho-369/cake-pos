@@ -1376,10 +1376,12 @@ kbd {
 }
 .payment-pill {
   width: fit-content;
+  max-width: 100%;
   padding: 4px 7px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
   color: #5d4e58;
   border-radius: 7px;
   background: #f1edef;
@@ -2612,14 +2614,14 @@ label > small {
   overflow: hidden;
 }
 .order-full-row {
-  min-width: 880px;
-  min-height: 59px;
+  min-width: 900px;
+  min-height: 66px;
   width: 100%;
-  padding: 0 14px;
+  padding: 0 18px;
   display: grid;
   grid-template-columns: 90px 110px 1fr 55px 90px 95px 80px 20px;
   align-items: center;
-  gap: 10px;
+  gap: 16px;
   text-align: left;
   border: 0;
   border-top: 1px solid var(--line);
@@ -5576,7 +5578,9 @@ img.qr-placeholder {
 
 /* Phase 2: Telegram customers and order workflow */
 .phase2-order-row {
-  grid-template-columns: 78px 82px minmax(125px, 1fr) 45px 92px 92px 72px 18px;
+  grid-template-columns:
+    96px 104px minmax(170px, 1fr) 60px 132px 136px 100px
+    24px;
 }
 .source-pill {
   display: inline-flex !important;
@@ -7439,4 +7443,227 @@ img.qr-placeholder {
     scrollbar-width: thin;
     -webkit-overflow-scrolling: touch;
   }
+}
+
+/* --------------------------------------------------------------------
+   Sidebar → Reports dropdown, editable location card, preset dropdown,
+   product links
+   -------------------------------------------------------------------- */
+
+/* The location card is now a button: clicking it edits the store profile
+   in Settings. The pencil appears on hover to say "this is editable". */
+button.location-card {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+button.location-card:hover {
+  border-color: rgba(190, 24, 93, 0.28);
+  background: rgba(255, 255, 255, 0.9);
+}
+button.location-card > div {
+  flex: 1;
+  min-width: 0;
+}
+button.location-card strong,
+button.location-card span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.location-edit {
+  opacity: 0;
+  color: var(--pink-deep, #a92c36);
+  transition: opacity 0.18s ease;
+}
+button.location-card:hover .location-edit,
+button.location-card:focus-visible .location-edit {
+  opacity: 1;
+}
+
+/* Reports nav item: the chevron flips into the dropdown arrow, and the
+   submenu lists every report view + download under it. */
+.nav-item-group {
+  width: 100%;
+}
+.nav-item .nav-chev {
+  flex: 0 0 auto;
+  opacity: 0.7;
+  transition: transform 0.18s ease;
+}
+.nav-item-group.open .nav-chev {
+  transform: rotate(180deg);
+}
+.nav-submenu {
+  margin: 1px 0 7px 24px;
+  padding: 4px 0 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-left: 2px solid rgba(190, 24, 93, 0.18);
+}
+.nav-submenu-label {
+  padding: 7px 10px 3px;
+  color: var(--subtle, #a99ca4);
+  font-size: calc(10px * var(--font-scale));
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.nav-submenu-item {
+  min-height: 34px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #6e606a;
+  font-size: calc(12px * var(--font-scale));
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.nav-submenu-item:hover {
+  color: var(--ink, #2c2128);
+  background: rgba(255, 255, 255, 0.76);
+}
+
+/* Date presets collapsed into one dropdown (Reports toolbar). */
+.report-date-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+.report-date-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 15px;
+  border: 1px solid var(--line, rgba(79, 40, 58, 0.2));
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink, #2c2128);
+  font-size: calc(12.5px * var(--font-scale));
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.report-date-trigger:hover {
+  border-color: rgba(190, 24, 93, 0.4);
+}
+.report-date-trigger[aria-expanded='true'] {
+  border-color: var(--pink, #e75480);
+  box-shadow: 0 0 0 3px rgba(231, 84, 128, 0.14);
+}
+.report-date-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  min-width: 210px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid rgba(79, 40, 58, 0.14);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(45, 14, 29, 0.18);
+}
+.report-date-menu button {
+  padding: 9px 12px;
+  display: flex;
+  align-items: center;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font: inherit;
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 600;
+  color: var(--muted, #7a6b74);
+  text-align: left;
+  cursor: pointer;
+}
+.report-date-menu button:hover {
+  color: var(--ink, #2c2128);
+  background: rgba(247, 232, 239, 0.6);
+}
+.report-date-menu button.active {
+  color: var(--pink-deep, #a92c36);
+  background: rgba(190, 24, 93, 0.08);
+}
+
+/* A product name in Reports that jumps to the product's detail page. */
+.product-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink, #2c2128);
+  font-size: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: rgba(190, 24, 93, 0.45);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.product-link:hover {
+  color: var(--pink-deep, #a92c36);
+  text-decoration-color: var(--pink, #e75480);
+}
+
+/* --------------------------------------------------------------------
+   Reports → summary cards (Losses / Audit / Shifts chart slot) + links
+   -------------------------------------------------------------------- */
+
+/* A big-number card replaces the chart when a tab has no series. */
+.report-summary-card {
+  padding: 26px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.report-summary-card > strong {
+  font-size: calc(34px * var(--font-scale));
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.report-summary-card > span {
+  color: var(--muted, #7a6b74);
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 700;
+}
+.report-summary-card > small {
+  color: var(--subtle, #a99ca4);
+  font-size: calc(12px * var(--font-scale));
+}
+
+/* QuickZoom drill-through links: a report row opens its real record. */
+.record-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink, #2c2128);
+  font-size: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: rgba(190, 24, 93, 0.45);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.record-link:hover {
+  color: var(--pink-deep, #a92c36);
+  text-decoration-color: var(--pink, #e75480);
 }

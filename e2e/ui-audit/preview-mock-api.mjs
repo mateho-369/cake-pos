@@ -151,8 +151,65 @@ const routes = {
     ]),
   '/api/employees': (res) =>
     json(res, cashiers.map((name, i) => ({ id: i + 1, name, role: 'cashier' }))),
-  '/api/customers': (res) => json(res, []),
-  '/api/shifts': (res) => json(res, []),
+  '/api/customers': (res) =>
+    json(res, [
+      { id: 1, name: 'Telegram customer 1', phone: '+855 12 000 001' },
+      { id: 2, name: 'Telegram customer 4', phone: '+855 12 000 004' },
+    ]),
+  '/api/shifts': (res) =>
+    json(
+      res,
+      [
+        {
+          id: 1,
+          employeeId: 1,
+          openingCash: 100,
+          openingCashUsdCents: 10000,
+          openingCashKhr: 0,
+          openedAt: at(now, 7, 30),
+          closedAt: at(now, 15, 0),
+          expectedCashUsdCents: 20800,
+          expectedCashKhr: 0,
+          closingCashUsdCents: 20600,
+          closingCashKhr: 0,
+          varianceUsdCents: -200,
+          closingCash: 206,
+          expectedCash: 208,
+          variance: -2,
+          openedBy: 'Sophea Chan',
+          status: 'Closed',
+        },
+        {
+          id: 2,
+          employeeId: 2,
+          openingCash: 100,
+          openingCashUsdCents: 10000,
+          openingCashKhr: 0,
+          openedAt: at(now, 15, 0),
+          closedAt: at(now, 21, 30),
+          expectedCashUsdCents: 31500,
+          expectedCashKhr: 0,
+          closingCashUsdCents: 31500,
+          closingCashKhr: 0,
+          varianceUsdCents: 0,
+          closingCash: 315,
+          expectedCash: 315,
+          variance: 0,
+          openedBy: 'Vibol Sok',
+          status: 'Closed',
+        },
+        {
+          id: 3,
+          employeeId: 3,
+          openingCash: 100,
+          openingCashUsdCents: 10000,
+          openingCashKhr: 0,
+          openedAt: at(now, 21, 30),
+          openedBy: 'Makara Piseth',
+          status: 'Open',
+        },
+      ],
+    ),
   '/api/shifts/current': (res) => json(res, null),
   '/api/reports/summary': (res, url) => {
     const range = ordersIn(
@@ -267,6 +324,15 @@ const routes = {
     }),
   '/api/settings/pos-rules': (res) =>
     json(res, { defaultShelfLifeDays: 3, maxCashierDiscountPercent: 10 }),
+  '/api/settings/receipt-template': (res) =>
+    json(res, {
+      paperSize: '80mm',
+      language: 'en',
+      businessName: 'G-Cake',
+      address: '12 Street 315, Phnom Penh',
+      logoUrl: '',
+      footerMessage: 'Thank you — G-Cake',
+    }),
 }
 
 createServer((req, res) => {
