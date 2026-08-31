@@ -735,7 +735,6 @@ function SaleTerminal() {
         onClose={() => {
           setShiftModal(false)
           setPendingAction(null)
-          setShiftResume(null)
         }}
         onConfirm={confirmShift}
       />
