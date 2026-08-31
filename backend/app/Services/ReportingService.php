@@ -11,6 +11,7 @@ use App\Models\{
     Product,
     Shift,
 };
+use App\Support\ExchangeRate;
 use Illuminate\Support\Facades\DB;
 use Carbon\CarbonImmutable;
 final class ReportingService
@@ -44,9 +45,7 @@ final class ReportingService
         $net = (int) $x->net;
         $yesterday = DateRange::from(['preset' => 'yesterday']);
         $y = $this->paid($yesterday)
-            ->selectRaw(
-                'COALESCE(SUM(total_cents),0) net,COUNT(*) count',
-            )
+            ->selectRaw('COALESCE(SUM(total_cents),0) net,COUNT(*) count')
             ->first();
         $itemsSold = OrderItem::join(
             'orders',
@@ -91,10 +90,7 @@ final class ReportingService
             'yesterdaySalesTotal' => (int) ($y->net ?? 0) / 100,
             'yesterdayOrdersCount' => (int) ($y->count ?? 0),
             'itemsSold' => (int) $itemsSold,
-            'qrPaymentCount' => OrderPayment::where(
-                'method',
-                'qr_manual',
-            )
+            'qrPaymentCount' => OrderPayment::where('method', 'qr_manual')
                 ->where('status', 'confirmed')
                 ->whereBetween('confirmed_at', [$r->from, $r->to])
                 ->count(),
@@ -482,11 +478,31 @@ final class ReportingService
         $refundsCents = (int) Order::where('status', 'Refunded')
             ->whereBetween('created_at', [$r->from, $r->to])
             ->sum(DB::raw('-total_cents'));
-        $cashShortagesCents = (int) Shift::where('status', 'Closed')
-            ->whereBetween('closed_at', [$r->from, $r->to])
-            ->where('variance_usd_cents', '<', 0)
-            ->selectRaw('COALESCE(SUM(-variance_usd_cents), 0) as amt')
-            ->value('amt');
+        // A drawer can come up short in EITHER currency, and a riel-only
+        // shortfall is still money lost. Convert the riel variance at the
+        // shop's configured rate (the same source every mixed-currency
+        // total uses) and add it to the USD shortfall. Surpluses are not
+        // netted off: a $5 over on Monday does not pay for a 20,000៛ short
+        // on Tuesday, and each currency is judged on its own.
+        $rate = max(1, ExchangeRate::current());
+        $cashShortagesCents = 0;
+        foreach (
+            Shift::where('status', 'Closed')
+                ->whereBetween('closed_at', [$r->from, $r->to])
+                ->get(['variance_usd_cents', 'variance_khr'])
+            as $shift
+        ) {
+            $usdShort = min(0, (int) $shift->variance_usd_cents);
+            $khrShort = min(0, (int) $shift->variance_khr);
+            $cashShortagesCents += -$usdShort;
+            if ($khrShort < 0) {
+                // Riel → cents, rounded to the nearest cent.
+                $cashShortagesCents += intdiv(
+                    -$khrShort * 100 + intdiv($rate, 2),
+                    $rate,
+                );
+            }
+        }
         return [
             'wasteCents' => $wasteCents,
             'discountsCents' => $discountsCents,

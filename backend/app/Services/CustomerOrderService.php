@@ -1,7 +1,15 @@
 <?php
 namespace App\Services;
 use App\Jobs\SendCustomerStatusNotification;
-use App\Models\{Customer, Order, OrderItem, OrderStatusEvent, Product, Shift};
+use App\Models\{
+    Customer,
+    Employee,
+    Order,
+    OrderItem,
+    OrderStatusEvent,
+    Product,
+    Shift,
+};
 use App\Support\Money;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\{DB, Http};
@@ -174,7 +182,10 @@ class CustomerOrderService
                 ->firstOrFail();
             // A null price must never become a silent $0 customer order.
             if ($product->price_cents === null) {
-                abort(409, "{$product->name} has no price and cannot be ordered");
+                abort(
+                    409,
+                    "{$product->name} has no price and cannot be ordered",
+                );
             }
             // Reserved units belong to other open orders — they are not
             // available for a new hold.
@@ -227,6 +238,12 @@ class CustomerOrderService
      * seller has accepted (status Held), staff owns the order and this
      * window is closed. Reserved stock is returned, the order is marked
      * Cancelled, and the customer is told through the shop bot.
+     *
+     * Staff can reject the same not-yet-accepted order from the terminal
+     * (see rejectByStaff). Both paths take a row lock and re-read the
+     * status inside the transaction, so whichever lands first wins and the
+     * loser gets a plain 409 explaining what happened — never a crash or a
+     * double release of the reserved stock.
      */
     public function cancel(Customer $customer, Order $order): void
     {
@@ -246,31 +263,13 @@ class CustomerOrderService
             if (!$cancellable) {
                 throw new HttpResponseException(
                     response()->json(
-                        [
-                            'message' =>
-                                'This order can no longer be cancelled — it has already been accepted by the store',
-                        ],
+                        ['message' => $this->closedWindowMessage($order)],
                         409,
                     ),
                 );
             }
             $from = $order->status;
-            foreach ($order->orderItems()->lockForUpdate()->get() as $item) {
-                if ($item->product_id) {
-                    $product = Product::whereKey($item->product_id)
-                        ->lockForUpdate()
-                        ->first();
-                    if ($product && $product->reserved_stock > 0) {
-                        $product->decrement(
-                            'reserved_stock',
-                            min(
-                                $product->reserved_stock,
-                                (int) $item->quantity,
-                            ),
-                        );
-                    }
-                }
-            }
+            $this->releaseReservations($order);
             $order->update([
                 'status' => 'Cancelled',
                 'fulfillment_status' => 'Cancelled',
@@ -281,19 +280,146 @@ class CustomerOrderService
                 'to_status' => 'Cancelled',
                 'metadata' => ['source' => 'customer'],
             ]);
-            $this->audit->log(
-                null,
-                'customer_order.cancelled',
-                $order->id,
-                [
-                    'customerId' => $customer->id,
-                    'fromStatus' => $from,
-                    'totalCents' => $order->total_cents,
-                    'source' => 'customer',
-                ],
-            );
+            $this->audit->log(null, 'customer_order.cancelled', $order->id, [
+                'customerId' => $customer->id,
+                'fromStatus' => $from,
+                'totalCents' => $order->total_cents,
+                'source' => 'customer',
+            ]);
         });
         SendCustomerStatusNotification::dispatch($order->id);
+    }
+
+    /**
+     * Staff-initiated rejection of a pending, NOT-yet-accepted customer
+     * order, from the sale terminal's pending queue.
+     *
+     * The counterpart of cancel(): after ringing the customer to confirm a
+     * Telegram order, staff sometimes learn the customer never placed it.
+     * They cannot always get that customer to self-cancel in the Mini App,
+     * so they decline it here. Same effects as a self-cancel — reserved
+     * stock released, order Cancelled, customer notified by the shop bot —
+     * plus the acting employee and the optional reason in the audit trail.
+     *
+     * Only Pending/Confirmed/Ready unpaid Telegram orders: once the order
+     * has been accepted it is a normal held order and goes through
+     * OrderService::cancel instead.
+     */
+    public function rejectByStaff(
+        Order $order,
+        Employee $employee,
+        ?string $reason = null,
+    ): Order {
+        $reason = $reason !== null ? (trim($reason) ?: null) : null;
+        $rejected = DB::transaction(function () use (
+            $order,
+            $employee,
+            $reason,
+        ) {
+            // Row lock + re-read: if the customer cancelled this order a
+            // moment ago in the Mini App, we see the Cancelled status here
+            // and stop with a 409 instead of releasing the stock twice.
+            $order = Order::whereKey($order->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $rejectable =
+                $order->source === 'telegram' &&
+                $order->payment_status !== 'paid' &&
+                in_array(
+                    $order->status,
+                    ['Pending', 'Confirmed', 'Ready'],
+                    true,
+                );
+            if (!$rejectable) {
+                throw new HttpResponseException(
+                    response()->json(
+                        ['message' => $this->staffRejectMessage($order)],
+                        409,
+                    ),
+                );
+            }
+            $from = $order->status;
+            $this->releaseReservations($order);
+            $order->update([
+                'status' => 'Cancelled',
+                'fulfillment_status' => 'Cancelled',
+            ]);
+            OrderStatusEvent::create([
+                'order_id' => $order->id,
+                'from_status' => $from,
+                'to_status' => 'Cancelled',
+                'employee_id' => $employee->id,
+                'metadata' => [
+                    'source' => 'staff',
+                    ...$reason ? ['reason' => $reason] : [],
+                ],
+            ]);
+            $this->audit->log(
+                $employee,
+                'customer_order.rejected',
+                $order->id,
+                [
+                    'customerId' => $order->customer_id,
+                    'fromStatus' => $from,
+                    'totalCents' => $order->total_cents,
+                    'source' => 'staff',
+                    ...$reason ? ['reason' => $reason] : [],
+                ],
+            );
+            return $order;
+        });
+        SendCustomerStatusNotification::dispatch($rejected->id);
+        return $rejected->refresh();
+    }
+
+    /**
+     * Give the held units back to sellable stock. Never drives another
+     * order's reservation negative: stock can be edited while an order
+     * waits in the pending queue.
+     */
+    private function releaseReservations(Order $order): void
+    {
+        foreach ($order->orderItems()->lockForUpdate()->get() as $item) {
+            if (!$item->product_id) {
+                continue;
+            }
+            $product = Product::whereKey($item->product_id)
+                ->lockForUpdate()
+                ->first();
+            if ($product && $product->reserved_stock > 0) {
+                $product->decrement(
+                    'reserved_stock',
+                    min($product->reserved_stock, (int) $item->quantity),
+                );
+            }
+        }
+    }
+
+    /** Why the customer's self-cancel window is closed, in plain words. */
+    private function closedWindowMessage(Order $order): string
+    {
+        if ($order->status === 'Cancelled') {
+            return 'This order has already been cancelled';
+        }
+        if ($order->payment_status === 'paid') {
+            return 'This order has already been paid and can no longer be cancelled';
+        }
+        return 'This order can no longer be cancelled — it has already been accepted by the store';
+    }
+
+    /** Why staff cannot reject this order, in plain words. */
+    private function staffRejectMessage(Order $order): string
+    {
+        if ($order->status === 'Cancelled') {
+            return 'This order was already cancelled — the customer cancelled it first';
+        }
+        if ($order->payment_status === 'paid') {
+            return 'This order has already been paid and can no longer be rejected';
+        }
+        if ($order->source !== 'telegram') {
+            return 'Only customer (Telegram) orders can be rejected from the pending queue';
+        }
+        return 'This order was already accepted — cancel it from the held orders queue instead';
     }
 
     /** Short human-readable lookup code, unique among open orders. */
@@ -336,10 +462,7 @@ class CustomerOrderService
             number_format(Money::toDecimal($order->total_cents), 2) .
             "\nStatus: HELD — unpaid until the customer arrives.";
         try {
-            $base = rtrim(
-                (string) config('services.telegram.api_base'),
-                '/',
-            );
+            $base = rtrim((string) config('services.telegram.api_base'), '/');
             return Http::timeout(8)
                 ->post("{$base}/bot{$token}/sendMessage", [
                     'chat_id' => $chat,

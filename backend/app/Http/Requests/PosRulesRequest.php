@@ -47,6 +47,7 @@ class PosRulesRequest extends FormRequest
                 'max:30',
             ],
             'warningDays' => ['sometimes', 'integer', 'min:0', 'max:7'],
+            'reportLanguage' => ['sometimes', 'string', 'in:en,km'],
         ];
     }
 }

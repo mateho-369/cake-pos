@@ -82,12 +82,18 @@ function useQueueShift() {
         resume()
       }
     } catch (reason) {
-      setToast(
-        reason instanceof Error ? reason.message : t('sale.shiftFailed'),
-      )
+      setToast(reason instanceof Error ? reason.message : t('sale.shiftFailed'))
     }
   }
-  return { shift, requestShiftThen, confirmShift, modal, setModal, toast, setToast }
+  return {
+    shift,
+    requestShiftThen,
+    confirmShift,
+    modal,
+    setModal,
+    toast,
+    setToast,
+  }
 }
 
 /** Dedicated route (a real page, not the inline overlay). */
@@ -275,6 +281,25 @@ export function PendingOrdersPage() {
       )
     }
   }
+  /**
+   * Staff reject of a not-yet-accepted customer order. No shift is needed:
+   * declining a phantom order is bookkeeping, not a sale. If the customer
+   * self-cancelled it a moment ago the API answers 409 and the message is
+   * surfaced as a toast, then the queue is refreshed so the stale card goes
+   * away.
+   */
+  const rejectPending = async (orderId: string, reason?: string) => {
+    try {
+      await apiRequest(`/api/orders/${orderId}/reject`, {
+        method: 'POST',
+        body: JSON.stringify(reason ? { reason } : {}),
+      })
+      await Promise.all([loadPending(), refresh()])
+    } catch (reason_) {
+      await loadPending()
+      throw reason_
+    }
+  }
   const messagePending = async (orderId: string, text: string) => {
     const result = await apiRequest<{ delivered: boolean }>(
       `/api/orders/${orderId}/message`,
@@ -291,6 +316,7 @@ export function PendingOrdersPage() {
         rate={exchangeRateKhrPerUsd}
         onPay={payPending}
         onAccept={acceptPending}
+        onReject={rejectPending}
         onMessage={messagePending}
         onNeedShift={shiftGate.requestShiftThen}
         onToast={setToast}

@@ -1,4 +1,344 @@
 import type { Order } from '../data'
+import {
+  brandLogoPng,
+  defaultBranding,
+  REPORT_FONT,
+  reportStrings,
+  type ReportBranding,
+  type ReportLanguage,
+} from './reportBranding'
+
+/**
+ * Everything the letterhead of a generated report needs: who the shop is,
+ * what the report is, which slice of data it covers and which filters were
+ * applied when the admin pressed Download. Passed by the export-preview
+ * dialog so the file always matches exactly what was reviewed on screen.
+ */
+export type ExportMeta = {
+  title: string
+  subtitle?: string
+  from: string
+  to: string
+  branding?: ReportBranding
+  language?: ReportLanguage
+  /** Active filter chips, reproduced on the document so it is self-describing. */
+  filters?: Array<{ label: string; value: string }>
+  /** Optional footer figures (totals, counts) printed under the table. */
+  totals?: Array<{ label: string; value: string }>
+}
+
+const metaLines = (meta: ExportMeta, rowCount: number) => {
+  const t = reportStrings(meta.language ?? 'en')
+  const filters = meta.filters?.length
+    ? meta.filters.map((f) => `${f.label}: ${f.value}`).join(' · ')
+    : t.noFilters
+  return [
+    `${t.period}: ${meta.from || t.allDates} → ${meta.to || t.present}`,
+    `${t.records}: ${rowCount}`,
+    `${t.filters}: ${filters}`,
+    `${t.generated}: ${new Date().toLocaleString()}`,
+  ]
+}
+
+const brandingLines = (branding: ReportBranding) =>
+  [branding.locationName, branding.address, branding.phone].filter(Boolean)
+
+/**
+ * Branded Word export of ANY report table (the on-screen detail table, a
+ * library report, the sales summary). Letterhead first — logo, shop name,
+ * contact block — then the report title, the period/filters/record count,
+ * then the data as a real Word table. Labels follow the selected report
+ * language; the Khmer font is applied to every run so the script renders.
+ */
+export async function exportTableWord(
+  meta: ExportMeta,
+  header: string[],
+  rows: Array<Array<string | number>>,
+  filename: string,
+) {
+  const {
+    AlignmentType,
+    BorderStyle,
+    Document,
+    HeadingLevel,
+    ImageRun,
+    Packer,
+    Paragraph,
+    ShadingType,
+    Table,
+    TableCell,
+    TableRow,
+    TextRun,
+    WidthType,
+  } = await import('docx')
+  const language = meta.language ?? 'en'
+  const strings = reportStrings(language)
+  const branding = meta.branding ?? defaultBranding
+  const logo = await brandLogoPng()
+  const run = (text: string, options: Record<string, unknown> = {}) =>
+    new TextRun({ text, font: REPORT_FONT, ...options })
+  const cell = (
+    text: string | number,
+    options: { bold?: boolean; fill?: string; align?: boolean } = {},
+  ) =>
+    new TableCell({
+      shading: options.fill
+        ? { type: ShadingType.CLEAR, fill: options.fill, color: 'auto' }
+        : undefined,
+      margins: { top: 60, bottom: 60, left: 90, right: 90 },
+      children: [
+        new Paragraph({
+          alignment: options.align ? AlignmentType.RIGHT : undefined,
+          children: [
+            run(String(text), {
+              bold: options.bold,
+              color: options.fill ? 'FFFFFF' : undefined,
+              size: 19,
+            }),
+          ],
+        }),
+      ],
+    })
+  const numericColumn = rows.length
+    ? header.map((_, index) =>
+        rows.every((row) => {
+          const value = String(row[index] ?? '').replace(/[$,\s]/g, '')
+          return value === '' || !Number.isNaN(Number(value))
+        }),
+      )
+    : header.map(() => false)
+
+  const letterhead: InstanceType<typeof Paragraph>[] = []
+  if (logo) {
+    letterhead.push(
+      new Paragraph({
+        children: [
+          new ImageRun({
+            type: 'png',
+            data: logo,
+            transformation: { width: 56, height: 56 },
+          }),
+        ],
+      }),
+    )
+  }
+  letterhead.push(
+    new Paragraph({
+      spacing: { before: logo ? 60 : 0 },
+      children: [
+        run(branding.businessName || defaultBranding.businessName, {
+          bold: true,
+          size: 34,
+          color: 'BE185D',
+        }),
+      ],
+    }),
+  )
+  for (const line of brandingLines(branding)) {
+    letterhead.push(
+      new Paragraph({ children: [run(line, { size: 18, color: '6B6B6B' })] }),
+    )
+  }
+
+  const doc = new Document({
+    styles: { default: { document: { run: { font: REPORT_FONT, size: 21 } } } },
+    sections: [
+      {
+        properties: {},
+        children: [
+          ...letterhead,
+          new Paragraph({
+            border: {
+              bottom: { style: BorderStyle.SINGLE, size: 12, color: 'BE185D' },
+            },
+            spacing: { after: 200 },
+            children: [],
+          }),
+          new Paragraph({ text: meta.title, heading: HeadingLevel.HEADING_1 }),
+          ...(meta.subtitle
+            ? [
+                new Paragraph({
+                  children: [run(meta.subtitle, { color: '666666' })],
+                }),
+              ]
+            : []),
+          ...metaLines(meta, rows.length).map(
+            (line) =>
+              new Paragraph({
+                children: [run(line, { size: 18, color: '666666' })],
+              }),
+          ),
+          new Paragraph({ text: '', spacing: { after: 120 } }),
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+              new TableRow({
+                tableHeader: true,
+                children: header.map((text) =>
+                  cell(text, { bold: true, fill: 'BE185D' }),
+                ),
+              }),
+              ...(rows.length
+                ? rows.map(
+                    (row, rowIndex) =>
+                      new TableRow({
+                        children: header.map((_, index) =>
+                          cell(row[index] ?? '', {
+                            align: numericColumn[index],
+                            fill: rowIndex % 2 === 1 ? 'FDF2F6' : undefined,
+                          }),
+                        ),
+                      }),
+                  )
+                : [
+                    new TableRow({
+                      children: [
+                        new TableCell({
+                          columnSpan: header.length,
+                          children: [
+                            new Paragraph({
+                              children: [run('—', { color: '999999' })],
+                            }),
+                          ],
+                        }),
+                      ],
+                    }),
+                  ]),
+            ],
+          }),
+          ...(meta.totals ?? []).map(
+            (total) =>
+              new Paragraph({
+                spacing: { before: 120 },
+                children: [
+                  run(`${total.label}: `, { bold: true }),
+                  run(total.value, { bold: true, color: 'BE185D' }),
+                ],
+              }),
+          ),
+          new Paragraph({
+            spacing: { before: 420 },
+            children: [
+              run(
+                `${strings.confidential} · ${branding.businessName || defaultBranding.businessName}`,
+                { size: 16, color: '999999' },
+              ),
+            ],
+          }),
+        ],
+      },
+    ],
+  })
+  download(await Packer.toBlob(doc), filename)
+}
+
+/**
+ * Branded Excel export of the same table: a letterhead block (logo + shop
+ * details + period/filters) above a frozen, auto-filtered data grid, so the
+ * workbook is presentable as-is instead of a bare dump.
+ */
+export async function exportTableExcel(
+  meta: ExportMeta,
+  header: string[],
+  rows: Array<Array<string | number>>,
+  filename: string,
+) {
+  const { default: ExcelJS } = await import('exceljs')
+  const branding = meta.branding ?? defaultBranding
+  const workbook = new ExcelJS.Workbook()
+  workbook.creator = branding.businessName || defaultBranding.businessName
+  workbook.created = new Date()
+  const sheet = workbook.addWorksheet(meta.title.slice(0, 28) || 'Report')
+  const logo = await brandLogoPng()
+  if (logo) {
+    try {
+      const id = workbook.addImage({ buffer: logo as never, extension: 'png' })
+      sheet.addImage(id, {
+        tl: { col: 0.15, row: 0.15 },
+        ext: { width: 46, height: 46 },
+      })
+    } catch {
+      /* An unsupported image pipeline must never fail the download. */
+    }
+  }
+  sheet.getColumn(1).width = 26
+  header.slice(1).forEach((_, index) => {
+    sheet.getColumn(index + 2).width = 20
+  })
+  const titleRow = sheet.addRow([
+    `        ${branding.businessName || defaultBranding.businessName}`,
+  ])
+  titleRow.height = 22
+  titleRow.font = { bold: true, size: 15, color: { argb: 'FFBE185D' } }
+  for (const line of brandingLines(branding)) {
+    sheet.addRow([`        ${line}`]).font = {
+      size: 10,
+      color: { argb: 'FF6B6B6B' },
+    }
+  }
+  sheet.addRow([meta.title]).font = { bold: true, size: 12 }
+  if (meta.subtitle) sheet.addRow([meta.subtitle]).font = { size: 10 }
+  for (const line of metaLines(meta, rows.length)) {
+    sheet.addRow([line]).font = { size: 10, color: { argb: 'FF6B6B6B' } }
+  }
+  sheet.addRow([])
+  const headerRowIndex = sheet.rowCount + 1
+  const headerRow = sheet.addRow(header)
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+  headerRow.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFBE185D' },
+  }
+  // Money columns keep a real currency number format (and stay right
+  // aligned) so the workbook can be summed in Excel instead of holding
+  // pre-formatted strings.
+  const moneyColumns = header
+    .map((label, index) => (/usd|\$|khr/i.test(label) ? index + 1 : 0))
+    .filter(Boolean)
+  rows.forEach((row) => {
+    const added = sheet.addRow(row)
+    for (const column of moneyColumns) {
+      const cell = added.getCell(column)
+      if (typeof cell.value === 'number') {
+        cell.numFmt = /khr/i.test(header[column - 1]) ? '#,##0' : '$0.00'
+      }
+      cell.alignment = { horizontal: 'right' }
+    }
+  })
+  const lastColumn = String.fromCharCode(64 + Math.min(26, header.length || 1))
+  sheet.autoFilter = {
+    from: `A${headerRowIndex}`,
+    to: `${lastColumn}${headerRowIndex}`,
+  }
+  sheet.views = [{ state: 'frozen', ySplit: headerRowIndex }]
+  for (const total of meta.totals ?? []) {
+    const row = sheet.addRow([total.label, total.value])
+    row.font = { bold: true }
+  }
+  const buffer = await workbook.xlsx.writeBuffer()
+  download(
+    new Blob([buffer as BlobPart], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    }),
+    filename,
+  )
+}
+
+/** CSV of exactly the reviewed rows (letterhead lines included as comments). */
+export function exportTableCsv(
+  meta: ExportMeta,
+  header: string[],
+  rows: Array<Array<string | number>>,
+  filename: string,
+) {
+  const branding = meta.branding ?? defaultBranding
+  downloadCsv(filename, header, rows, [
+    branding.businessName || defaultBranding.businessName,
+    meta.title,
+    ...metaLines(meta, rows.length),
+  ])
+}
 
 export type LossesReport = {
   wasteCents: number
@@ -25,10 +365,15 @@ export function downloadCsv(
   filename: string,
   header: string[],
   rows: Array<Array<string | number>>,
+  /** Optional letterhead lines written above the table. */
+  preamble: string[] = [],
 ) {
   const escape = (cell: string | number) =>
     `"${String(cell).replace(/"/g, '""')}"`
-  const content = [header, ...rows].map((row) => row.map(escape).join(','))
+  const content = [
+    ...preamble.map((line) => escape(line)),
+    ...[header, ...rows].map((row) => row.map(escape).join(',')),
+  ]
   download(
     new Blob(['\uFEFF' + content.join('\n')], {
       type: 'text/csv;charset=utf-8;',
@@ -46,87 +391,88 @@ export function ordersInRange(orders: Order[], from: string, to: string) {
   })
 }
 
+/**
+ * Every order in the range as a branded Excel workbook — the full record
+ * table, on the shared letterhead, with the same columns the on-screen
+ * transaction-detail table shows plus the money breakdown.
+ */
 export async function exportOrdersExcel(
   orders: Order[],
   from: string,
   to: string,
+  options: {
+    branding?: ReportBranding
+    language?: ReportLanguage
+    filters?: Array<{ label: string; value: string }>
+    title?: string
+  } = {},
 ) {
-  const { default: ExcelJS } = await import('exceljs')
-  const workbook = new ExcelJS.Workbook()
-  workbook.creator = 'G-Cake POS'
-  workbook.created = new Date()
-  const sheet = workbook.addWorksheet('Orders', {
-    views: [{ state: 'frozen', ySplit: 1 }],
-  })
-  sheet.columns = [
-    { header: 'Order ID', key: 'id', width: 16 },
-    { header: 'Date', key: 'date', width: 14 },
-    { header: 'Time', key: 'time', width: 13 },
-    { header: 'Source', key: 'source', width: 12 },
-    { header: 'Customer / Cashier', key: 'person', width: 25 },
-    { header: 'Items', key: 'items', width: 10 },
-    { header: 'Details', key: 'details', width: 45 },
-    { header: 'Subtotal (USD)', key: 'subtotal', width: 16 },
-    { header: 'Discount Type', key: 'discountType', width: 16 },
-    { header: 'Discount Value', key: 'discountValue', width: 16 },
-    { header: 'Discount (USD)', key: 'discountAmount', width: 16 },
-    { header: 'Payment', key: 'payment', width: 12 },
-    { header: 'Status', key: 'status', width: 14 },
-    { header: 'Total (USD)', key: 'total', width: 15 },
+  const header = [
+    'Order ID',
+    'Date',
+    'Time',
+    'Source',
+    'Customer / Cashier',
+    'Items',
+    'Details',
+    'Subtotal (USD)',
+    'Discount Type',
+    'Discount Value',
+    'Discount (USD)',
+    'Payment',
+    'Status',
+    'Total (USD)',
   ]
-  orders.forEach((order) =>
-    sheet.addRow({
-      id: order.id,
-      date: new Date(order.createdAt).toLocaleDateString('en-CA'),
-      time: order.time,
-      source: order.source,
-      person: order.customer?.name || order.cashier,
-      items: order.items,
-      details: order.detail.join('; '),
-      subtotal: order.subtotal ?? order.total,
-      discountType: order.discountType || '',
-      discountValue: order.discountValue ?? '',
-      discountAmount: order.discountAmount ?? 0,
-      payment: order.payment || '',
-      status: order.status,
-      total: order.total,
-    }),
-  )
-  sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
-  sheet.getRow(1).fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFBE185D' },
-  }
-  sheet.getColumn('subtotal').numFmt = '$0.00'
-  sheet.getColumn('discountAmount').numFmt = '$0.00'
-  sheet.getColumn('total').numFmt = '$0.00'
-  sheet.autoFilter = { from: 'A1', to: 'N1' }
-  const buffer = await workbook.xlsx.writeBuffer()
-  download(
-    new Blob([buffer as BlobPart], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    }),
+  const rows = orders.map((order) => [
+    order.id,
+    new Date(order.createdAt).toLocaleDateString('en-CA'),
+    order.time,
+    order.source,
+    order.customer?.name || order.cashier,
+    order.items,
+    order.detail.join('; '),
+    Number((order.subtotal ?? order.total).toFixed(2)),
+    order.discountType || '',
+    order.discountValue ?? '',
+    Number((order.discountAmount ?? 0).toFixed(2)),
+    order.payment || '',
+    order.status,
+    Number(order.total.toFixed(2)),
+  ])
+  const revenue = orders.reduce((sum, order) => sum + order.total, 0)
+  await exportTableExcel(
+    {
+      title: options.title ?? 'Orders',
+      from,
+      to,
+      branding: options.branding,
+      language: options.language,
+      filters: options.filters,
+      totals: [{ label: 'Total (USD)', value: `$${revenue.toFixed(2)}` }],
+    },
+    header,
+    rows,
     `orders-${from || 'all'}-${to || 'all'}.xlsx`,
   )
 }
 
+/**
+ * The Sales-summary report as a branded Word document: KPI block first, then
+ * the top-selling products, on the shared letterhead. Language follows the
+ * shop's report-language setting (en/km) instead of being hardcoded Khmer.
+ */
 export async function exportSummaryWord(
   orders: Order[],
   from: string,
   to: string,
+  options: {
+    branding?: ReportBranding
+    language?: ReportLanguage
+    filters?: Array<{ label: string; value: string }>
+  } = {},
 ) {
-  const {
-    Document,
-    HeadingLevel,
-    Packer,
-    Paragraph,
-    Table,
-    TableCell,
-    TableRow,
-    TextRun,
-    WidthType,
-  } = await import('docx')
+  const language = options.language ?? 'en'
+  const km = language === 'km'
   const completed = orders.filter((order) =>
     ['Paid', 'Ready', 'Completed'].includes(order.status),
   )
@@ -141,29 +487,6 @@ export async function exportSummaryWord(
     (sum, order) => sum + (order.discountAmount || 0),
     0,
   )
-  const km = {
-    shop: 'ហាងនំអាតេលៀ',
-    title: 'សេចក្តីសង្ខេបការលក់',
-    period: (start: string, end: string) =>
-      `រយៈពេលរាយការណ៍៖ ${start} ដល់ ${end}`,
-    allDates: 'រាល់កាលបរិច្ឆេទ',
-    present: 'បច្ចុប្បន្ន',
-    totalRevenue: (value: string) => `ចំណូលសរុប៖ $${value}`,
-    completedOrders: (value: number) => `ការបញ្ជាទិញដែលបានបញ្ចប់៖ ${value}`,
-    discounts: (value: string) => `ការបញ្ចុះតម្លៃដែលបានអនុវត្ត៖ $${value}`,
-    average: (value: string) => `តម្លៃមធ្យមនៃការបញ្ជាទិញ៖ $${value}`,
-    noSales: 'គ្មានការលក់ផលិតផលដែលបានបញ្ចប់ក្នុងអំឡុងពេលនេះទេ។',
-    topProducts: 'ផលិតផលពេញនិយម',
-    rank: 'លេខរៀង',
-    product: 'ផលិតផល',
-    units: 'ឯកតា',
-    generated: (value: string) => `បង្កើតនៅ ${value}`,
-  }
-  const khmerFont = {
-    ascii: 'Kantumruy Pro',
-    hAnsi: 'Kantumruy Pro',
-    eastAsia: 'Kantumruy Pro',
-  }
   const products = new Map<string, number>()
   completed.forEach((order) =>
     order.detail.forEach((line) => {
@@ -171,295 +494,51 @@ export async function exportSummaryWord(
       products.set(name, (products.get(name) || 0) + (Number(quantity) || 1))
     }),
   )
-  const top = [...products].sort((a, b) => b[1] - a[1]).slice(0, 5)
-  const rows = top.length
-    ? top.map(
-        ([name, units], index) =>
-          new TableRow({
-            children: [
-              new TableCell({ children: [new Paragraph(String(index + 1))] }),
-              new TableCell({ children: [new Paragraph(name)] }),
-              new TableCell({ children: [new Paragraph(String(units))] }),
-            ],
-          }),
-      )
-    : [
-        new TableRow({
-          children: [
-            new TableCell({
-              columnSpan: 3,
-              children: [new Paragraph(km.noSales)],
-            }),
-          ],
-        }),
-      ]
-  const doc = new Document({
-    styles: {
-      default: {
-        document: {
-          run: { font: khmerFont, size: 22 },
+  const top = [...products].sort((a, b) => b[1] - a[1]).slice(0, 10)
+  const labels = km
+    ? {
+        title: 'សេចក្តីសង្ខេបការលក់',
+        rank: 'លេខរៀង',
+        product: 'ផលិតផល',
+        units: 'ឯកតា',
+        revenue: 'ចំណូលសរុប',
+        orders: 'ការបញ្ជាទិញដែលបានបញ្ចប់',
+        discounts: 'ការបញ្ចុះតម្លៃ',
+        average: 'តម្លៃមធ្យមនៃការបញ្ជាទិញ',
+        subtitle: 'ផលិតផលពេញនិយម',
+      }
+    : {
+        title: 'Sales summary',
+        rank: '#',
+        product: 'Product',
+        units: 'Units sold',
+        revenue: 'Total revenue',
+        orders: 'Completed orders',
+        discounts: 'Discounts applied',
+        average: 'Average order value',
+        subtitle: 'Top selling products',
+      }
+  await exportTableWord(
+    {
+      title: labels.title,
+      subtitle: labels.subtitle,
+      from,
+      to,
+      branding: options.branding,
+      language,
+      filters: options.filters,
+      totals: [
+        { label: labels.revenue, value: `$${revenue.toFixed(2)}` },
+        { label: labels.orders, value: String(completed.length) },
+        { label: labels.discounts, value: `$${discounts.toFixed(2)}` },
+        {
+          label: labels.average,
+          value: `$${completed.length ? (revenue / completed.length).toFixed(2) : '0.00'}`,
         },
-      },
-    },
-    sections: [
-      {
-        properties: {},
-        children: [
-          new Paragraph({
-            text: km.shop,
-            heading: HeadingLevel.TITLE,
-          }),
-          new Paragraph({
-            text: km.title,
-            heading: HeadingLevel.HEADING_1,
-          }),
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: km.period(from || km.allDates, to || km.present),
-                font: khmerFont,
-                color: '666666',
-              }),
-            ],
-          }),
-          new Paragraph({
-            text: km.totalRevenue(revenue.toFixed(2)),
-            heading: HeadingLevel.HEADING_2,
-          }),
-          new Paragraph({
-            text: km.completedOrders(completed.length),
-          }),
-          new Paragraph({
-            text: km.discounts(discounts.toFixed(2)),
-          }),
-          new Paragraph({
-            text: km.average(
-              completed.length
-                ? (revenue / completed.length).toFixed(2)
-                : '0.00',
-            ),
-          }),
-          new Paragraph({
-            text: km.topProducts,
-            heading: HeadingLevel.HEADING_2,
-          }),
-          new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: [
-              new TableRow({
-                tableHeader: true,
-                children: [km.rank, km.product, km.units].map(
-                  (text) =>
-                    new TableCell({
-                      children: [
-                        new Paragraph({
-                          children: [
-                            new TextRun({ text, bold: true, font: khmerFont }),
-                          ],
-                        }),
-                      ],
-                    }),
-                ),
-              }),
-              ...rows,
-            ],
-          }),
-          new Paragraph({
-            text: km.generated(new Date().toLocaleString()),
-            spacing: { before: 500 },
-          }),
-        ],
-      },
-    ],
-  })
-  download(
-    await Packer.toBlob(doc),
-    `sales-summary-${from || 'all'}-${to || 'all'}.docx`,
-  )
-}
-
-/**
- * Losses/expense view as a real Excel workbook (same look/behavior as the
- * Orders export, but with a small category summary). The owner can read it
- * like the on-screen Losses tab instead of a raw event log.
- */
-export async function exportLossesExcel(
-  data: LossesReport,
-  from: string,
-  to: string,
-) {
-  const { default: ExcelJS } = await import('exceljs')
-  const workbook = new ExcelJS.Workbook()
-  workbook.creator = 'G-Cake POS'
-  workbook.created = new Date()
-  const sheet = workbook.addWorksheet('Losses', {
-    views: [{ state: 'frozen', ySplit: 1 }],
-  })
-  sheet.columns = [
-    { header: 'Category', key: 'category', width: 28 },
-    { header: 'USD', key: 'usd', width: 16 },
-  ]
-  const money = (cents: number) => Number((cents / 100).toFixed(2))
-  const rows = [
-    { category: 'Waste / spoilage', usd: money(data.wasteCents) },
-    { category: 'Discounts given', usd: money(data.discountsCents) },
-    { category: 'Voided orders', usd: money(data.voidsCents) },
-    { category: 'Refunds', usd: money(data.refundsCents) },
-    { category: 'Cash shortages', usd: money(data.cashShortagesCents) },
-  ]
-  rows.forEach((row) => sheet.addRow(row))
-  sheet.addRow({ category: 'Total lost', usd: money(data.totalLostCents) })
-  sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
-  sheet.getRow(1).fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFBE185D' },
-  }
-  const last = sheet.rowCount
-  sheet.getRow(last).font = { bold: true }
-  sheet.getColumn('usd').numFmt = '$0.00'
-  sheet.autoFilter = { from: 'A1', to: `B${last}` }
-  const buffer = await workbook.xlsx.writeBuffer()
-  download(
-    new Blob([buffer as BlobPart], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    }),
-    `losses-${from || 'all'}-${to || 'all'}.xlsx`,
-  )
-}
-
-/**
- * Losses/expense summary as a Word document, matching the style of the sales
- * summary export (Khmer + Latin font, clean labels, money formatted).
- */
-export async function exportLossesWord(
-  data: LossesReport,
-  from: string,
-  to: string,
-) {
-  const {
-    Document,
-    HeadingLevel,
-    Packer,
-    Paragraph,
-    Table,
-    TableCell,
-    TableRow,
-    TextRun,
-    WidthType,
-  } = await import('docx')
-  const money = (cents: number) => `$${(cents / 100).toFixed(2)}`
-  const khmerFont = {
-    ascii: 'Kantumruy Pro',
-    hAnsi: 'Kantumruy Pro',
-    eastAsia: 'Kantumruy Pro',
-  }
-  const labels = [
-    'Waste / spoilage',
-    'Discounts given',
-    'Voided orders',
-    'Refunds',
-    'Cash shortages',
-  ]
-  const values = [
-    data.wasteCents,
-    data.discountsCents,
-    data.voidsCents,
-    data.refundsCents,
-    data.cashShortagesCents,
-  ]
-  const rows = labels.map(
-    (label, index) =>
-      new TableRow({
-        children: [
-          new TableCell({ children: [new Paragraph(label)] }),
-          new TableCell({
-            children: [new Paragraph(money(values[index] ?? 0))],
-          }),
-        ],
-      }),
-  )
-  rows.push(
-    new TableRow({
-      tableHeader: true,
-      children: [
-        new TableCell({
-          children: [
-            new Paragraph({
-              children: [new TextRun({ text: 'Total lost', bold: true })],
-            }),
-          ],
-        }),
-        new TableCell({
-          children: [
-            new Paragraph({
-              children: [new TextRun({ text: money(data.totalLostCents), bold: true })],
-            }),
-          ],
-        }),
       ],
-    }),
-  )
-  const doc = new Document({
-    styles: {
-      default: {
-        document: {
-          run: { font: khmerFont, size: 22 },
-        },
-      },
     },
-    sections: [
-      {
-        properties: {},
-        children: [
-          new Paragraph({
-            text: 'ហាងនំអាតេលៀ',
-            heading: HeadingLevel.TITLE,
-          }),
-          new Paragraph({
-            text: 'របាយការណ៍ការខាតបង់',
-            heading: HeadingLevel.HEADING_1,
-          }),
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: `រយៈពេលរាយការណ៍៖ ${from || 'រាល់កាលបរិច្ឆេទ'} ដល់ ${to || 'បច្ចុប្បន្ន'}`,
-                font: khmerFont,
-                color: '666666',
-              }),
-            ],
-          }),
-          new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: [
-              new TableRow({
-                tableHeader: true,
-                children: ['Category', 'USD'].map(
-                  (text) =>
-                    new TableCell({
-                      children: [
-                        new Paragraph({
-                          children: [
-                            new TextRun({ text, bold: true, font: khmerFont }),
-                          ],
-                        }),
-                      ],
-                    }),
-                ),
-              }),
-              ...rows,
-            ],
-          }),
-          new Paragraph({
-            text: `បង្កើតនៅ ${new Date().toLocaleString()}`,
-            spacing: { before: 500 },
-          }),
-        ],
-      },
-    ],
-  })
-  download(
-    await Packer.toBlob(doc),
-    `losses-${from || 'all'}-${to || 'all'}.docx`,
+    [labels.rank, labels.product, labels.units],
+    top.map(([name, units], index) => [index + 1, name, units]),
+    `sales-summary-${from || 'all'}-${to || 'all'}.docx`,
   )
 }

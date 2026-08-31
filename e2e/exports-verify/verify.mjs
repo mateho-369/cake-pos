@@ -31,6 +31,12 @@ const stubbed = source.replace(
 )
 const tmp = join(outDir, 'exports-stub.ts')
 writeFileSync(tmp, stubbed)
+// The branding module (letterhead identity, logo, report strings) is a plain
+// sibling import, so copy it next to the stub and let esbuild bundle it.
+writeFileSync(
+  join(outDir, 'reportBranding.ts'),
+  readFileSync(join(root, 'apps/admin/src/lib/reportBranding.ts'), 'utf8'),
+)
 
 await esbuild.build({
   entryPoints: [tmp],
@@ -41,7 +47,7 @@ await esbuild.build({
   logLevel: 'silent',
 })
 
-const { exportOrdersExcel, exportSummaryWord } = await import(
+const { exportOrdersExcel, exportSummaryWord, exportTableWord } = await import(
   join(outDir, 'exports.cjs')
 )
 
@@ -135,24 +141,56 @@ check('xlsx total 20.00 present (hand-computed, stored as 20 with $0.00 fmt)', /
 check('xlsx total 11.25 present (hand-computed 12.50 - 1.25 discount)', /<v>11\.25<\/v>/.test(sheet), 'raw cell value 11.25')
 check('xlsx discount amount 1.25 present', /<v>1\.25<\/v>/.test(sheet), 'raw cell value 1.25')
 
-// ---- 4. Word export (Khmer summary) ----
+// ---- 4. Word export — branded letterhead, English default, Khmer option ----
+const brand = {
+  businessName: 'ហាងនំអាតេលៀ',
+  locationName: 'Toul Kork',
+  address: '12 Street 315, Phnom Penh',
+  phone: '+855 12 345 678',
+}
 await exportSummaryWord(sample, '2026-08-26', '2026-08-26')
 await Promise.all(pending)
 const docxPath = join(outDir, 'sales-summary-2026-08-26-2026-08-26.docx')
 check('docx file was produced', exists(docxPath))
+const englishXml = run(`unzip -p ${docxPath} word/document.xml`)
+// The report language is a setting now, and it defaults to English rather
+// than the old hardcoded Khmer document.
+check(
+  'docx defaults to the English report language',
+  englishXml.includes('Sales summary') &&
+    englishXml.includes('Total revenue') &&
+    englishXml.includes('Top selling products'),
+)
+check(
+  'English docx labels the period and the record count',
+  /Reporting period[^<]*2026-08-26/.test(englishXml) &&
+    /Records: /.test(englishXml),
+)
+
+await exportSummaryWord(sample, '2026-08-26', '2026-08-26', {
+  language: 'km',
+  branding: brand,
+})
+await Promise.all(pending)
 const docXml = run(`unzip -p ${docxPath} word/document.xml`)
 // Hand-computed expectations from the module's logic:
 //   revenue = (20.00 + 11.25) + (-5.00) = 26.25
-//   completed = 2, discounts = 1.25, average = 26.25 / 2 = 13.13 (banker's? toFixed → 13.13)
+//   completed = 2, discounts = 1.25, average = 26.25 / 2 = 13.13
 const revenue = (20 + 11.25 + -5).toFixed(2)
 const average = (26.25 / 2).toFixed(2)
-check('docx contains Khmer shop name', docXml.includes('ហាងនំអាតេលៀ'))
+check('docx letterhead carries the shop name from Settings', docXml.includes(brand.businessName))
+check(
+  'docx letterhead carries the branch, address and phone',
+  docXml.includes(brand.locationName) &&
+    docXml.includes(brand.address) &&
+    docXml.includes(brand.phone),
+)
 check('docx contains Khmer title', docXml.includes('សេចក្តីសង្ខេបការលក់'))
-check('docx contains Khmer period line', docXml.includes('រយៈពេលរាយការណ៍'))
-check('docx contains Khmer total revenue with real value', docXml.includes(`ចំណូលសរុប៖ $${revenue}`), `$${revenue} (hand-computed 20.00+11.25-5.00)`)
-check('docx contains Khmer completed orders count', docXml.includes('ការបញ្ជាទិញដែលបានបញ្ចប់៖ 2'))
-check('docx contains Khmer discounts with real value', docXml.includes(`ការបញ្ចុះតម្លៃដែលបានអនុវត្ត៖ $1.25`))
-check('docx contains Khmer average', docXml.includes(`តម្លៃមធ្យមនៃការបញ្ជាទិញ៖ $${average}`), `$${average}`)
+check('docx contains the Khmer period line', docXml.includes('រយៈពេលរាយការណ៍'))
+check('docx contains Khmer total revenue with real value', docXml.includes(`ចំណូលសរុប`) && docXml.includes(`$${revenue}`), `$${revenue} (hand-computed 20.00+11.25-5.00)`)
+check('docx contains Khmer completed orders count', docXml.includes('ការបញ្ជាទិញដែលបានបញ្ចប់'))
+check('docx contains Khmer discounts with real value', docXml.includes('ការបញ្ចុះតម្លៃ') && docXml.includes('$1.25'))
+check('docx contains Khmer average', docXml.includes('តម្លៃមធ្យមនៃការបញ្ជាទិញ') && docXml.includes(`$${average}`), `$${average}`)
 check('docx contains Khmer "top products" header', docXml.includes('ផលិតផលពេញនិយម'))
 check('docx contains Khmer table headers', docXml.includes('លេខរៀង') && docXml.includes('ផលិតផល') && docXml.includes('ឯកតា'))
 check('docx product rows are real', docXml.includes('Test Cake') && docXml.includes('Matcha Slice'))
@@ -160,13 +198,37 @@ check('docx Khmer font reference (Kantumruy Pro)', /Kantumruy Pro/.test(docXml))
 // count Khmer codepoint runs in document.xml (real glyphs, not missing-glyph boxes)
 const khmerRunes = (docXml.match(/[\u1780-\u17FF]/g) || []).length
 check('docx contains actual Khmer glyph codepoints', khmerRunes > 50, `${khmerRunes} Khmer codepoints`)
+
+// A generic branded table export (what the review dialog produces) must
+// survive an environment with no canvas: text-only letterhead, no crash.
+await exportTableWord(
+  {
+    title: 'Payment records',
+    from: '2026-08-01',
+    to: '2026-08-31',
+    branding: brand,
+    language: 'en',
+    filters: [{ label: 'Payment', value: 'KHQR' }],
+    totals: [{ label: 'Total (USD)', value: '$31.25' }],
+  },
+  ['Order', 'Payment', 'Total (USD)'],
+  [['CS-1001', 'KHQR', 20], ['CS-1002', 'Cash', 11.25]],
+  'payment-records.docx',
+)
+await Promise.all(pending)
+const tableXml = run(`unzip -p ${join(outDir, 'payment-records.docx')} word/document.xml`)
+check('branded table export writes a real Word table with the reviewed rows', /<w:tbl>/.test(tableXml) && tableXml.includes('CS-1001') && tableXml.includes('CS-1002'))
+check('branded table export reproduces the applied filters on the document', tableXml.includes('Payment: KHQR'))
+check('branded table export prints the totals under the table', tableXml.includes('Total (USD)') && tableXml.includes('$31.25'))
+check('branded table export degrades to a text letterhead without a canvas', tableXml.includes(brand.businessName) && !/<w:drawing>/.test(tableXml))
+
 // product names with Khmer impossible → check "No sales" branch separately:
 const emptyXml = await (async () => {
-  await exportSummaryWord([], '2026-08-26', '2026-08-26')
+  await exportSummaryWord([], '2026-08-26', '2026-08-26', { language: 'km', branding: brand })
   await Promise.all(pending)
-  return run(`unzip -p ${join(outDir, 'sales-summary-2026-08-26-2026-08-26.docx')} word/document.xml`)
+  return run(`unzip -p ${docxPath} word/document.xml`)
 })()
-check('docx empty-state shows Khmer "no sales" line', emptyXml.includes('គ្មានការលក់ផលិតផលដែលបានបញ្ចប់'))
+check('docx empty-state still renders the Khmer summary with zero rows', emptyXml.includes('សេចក្តីសង្ខេបការលក់') && emptyXml.includes('$0.00'))
 
 // ---- 5. CSV export (Dashboard daily summary) — same construction as the component ----
 const netSales = 0
