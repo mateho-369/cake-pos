@@ -430,7 +430,7 @@ class OrderService
      */
     public function accept(Order $order, Employee $employee): Order
     {
-        return DB::transaction(function () use ($order, $employee) {
+        $accepted = DB::transaction(function () use ($order, $employee) {
             $order = Order::whereKey($order->id)
                 ->lockForUpdate()
                 ->firstOrFail();
@@ -473,6 +473,12 @@ class OrderService
             ]);
             return $order->fresh(['cashier', 'customer', 'orderItems']);
         });
+        // Tell the customer the shop took their order (status 'Held' — see
+        // CustomerNotificationService). Dispatched after the transaction
+        // commits, exactly like cancel() above, so the job can never read a
+        // row that was rolled back.
+        SendCustomerStatusNotification::dispatch($accepted->id);
+        return $accepted;
     }
 
     /**

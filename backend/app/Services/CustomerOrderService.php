@@ -170,6 +170,15 @@ class CustomerOrderService
                 'totalCents' => $order->total_cents,
             ]);
         }
+        if ($created) {
+            // Confirm receipt to the customer in the same bot chat they
+            // ordered from — the counterpart of the staff notification
+            // below, and the same dispatch cancel()/rejectByStaff() use.
+            // Only on the FIRST placement: adding another cake updates this
+            // same open order in place, and re-sending "we received your
+            // order" for every edit would just be noise.
+            SendCustomerStatusNotification::dispatch($order->id);
+        }
         return [$order, $created && $this->notifyAdmin($customer, $order)];
     }
 

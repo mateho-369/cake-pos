@@ -58,6 +58,25 @@ of a crash or a second stock release. Once the order has been **accepted**,
 `/reject` is refused — it is an ordinary hold at that point and goes through
 `POST /api/orders/{id}/cancel`.
 
+## What the customer hears from the shop bot
+
+Every step the customer cares about is confirmed in the same bot chat they
+ordered from (`CustomerNotificationService`, queued through
+`SendCustomerStatusNotification`), and **every message is bilingual — Khmer
+first, English second** — like the `/start` welcome:
+
+| When                                  | Order status | Message                            |
+| ------------------------------------- | ------------ | ---------------------------------- |
+| Order submitted in the Mini App       | `Pending`    | received, total, "we'll confirm"   |
+| Staff **Accept** (parks it as a hold) | `Held`       | accepted, "pay when you collect"   |
+| Marked ready                          | `Ready`      | ready for pickup                   |
+| Take Payment                          | `Completed`  | completed, amount + method, thanks |
+| Customer self-cancel or staff reject  | `Cancelled`  | cancelled, "message us to reorder" |
+
+The receipt confirmation fires **once, on first submission**: adding another
+cake updates the same open order in place, and re-sending "we received your
+order" on every edit would be noise rather than a confirmation.
+
 ## Order notes (Telegram customer orders)
 
 A customer can attach a short free-text note to **each line** of their order in
@@ -92,6 +111,12 @@ stays behind the `open-shift` middleware, and the terminal still routes each
 sale action through `promptOpenShift` / `requestShiftThen`, which opens the
 shift modal — and brings the dismissed reminder back — the moment a real
 action is attempted without a shift.
+
+The same rule applies to the held/pending queue panels: their empty-state
+message ("No orders are held yet…") clears itself the moment an order lands,
+and until then it carries a close (X) in the panel header plus a **Back to
+menu** button inside the message, so no informational panel is ever a dead
+end.
 
 ## Telegram order payment integrity
 

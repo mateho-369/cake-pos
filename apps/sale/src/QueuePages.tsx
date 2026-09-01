@@ -182,6 +182,7 @@ export function HeldOrdersPage() {
         held={held}
         busy={busy}
         open
+        onClose={gotoTerminal}
         rate={exchangeRateKhrPerUsd}
         onResume={resumeHold}
         onPay={payHold}
@@ -312,6 +313,7 @@ export function PendingOrdersPage() {
       <PendingOrdersPanel
         pending={pending}
         open
+        onClose={gotoTerminal}
         shiftOpen={Boolean(shiftGate.shift)}
         rate={exchangeRateKhrPerUsd}
         onPay={payPending}

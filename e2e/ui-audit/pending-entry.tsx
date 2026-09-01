@@ -18,12 +18,14 @@ declare global {
     __calls: Array<{ kind: string; orderId?: string; arg?: unknown }>
     __toasts: string[]
     __toolbarPendingClicks: number
+    __queueClosed: string[]
   }
 }
 
 window.__calls = []
 window.__toasts = []
 window.__toolbarPendingClicks = 0
+window.__queueClosed = []
 
 const ORDERS: PendingOrder[] = [
   {
@@ -168,6 +170,7 @@ function Harness() {
             pending={[]}
             open
             shiftOpen
+            onClose={() => window.__queueClosed.push('pending')}
             rate={4100}
             onPay={async () => {}}
             onAccept={async () => {}}
@@ -183,6 +186,21 @@ function Harness() {
             held={HELD}
             busy={false}
             open
+            rate={4100}
+            onResume={() => {}}
+            onPay={() => {}}
+            onVoid={() => {}}
+          />
+        </div>
+        {/* Same for an empty held queue: the message must not be a dead
+            end — it clears itself when an order lands, and offers a way
+            back to the menu until then. */}
+        <div id="case-held-empty">
+          <HeldOrdersPanel
+            held={[]}
+            busy={false}
+            open
+            onClose={() => window.__queueClosed.push('held')}
             rate={4100}
             onResume={() => {}}
             onPay={() => {}}

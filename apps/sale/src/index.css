@@ -3325,8 +3325,15 @@ button:disabled {
 }
 .pending-panel-empty {
   margin: 6px 0 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
   color: var(--muted);
   font-size: calc(12px * var(--font-scale));
+}
+.pending-panel-empty p {
+  margin: 0;
 }
 .pending-panel-head {
   display: flex;
@@ -3835,8 +3842,55 @@ button:disabled {
 }
 .held-panel-empty {
   margin: 6px 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
   color: #92400e;
   font-size: calc(12px * var(--font-scale));
+}
+.held-panel-empty p {
+  margin: 0;
+}
+/*
+ * A queue panel is never a dead end. Its list clears itself as soon as an
+ * order lands (or the last one is paid/accepted/discarded), and while it is
+ * empty the cashier still has two explicit ways out: the X in the header
+ * and the "Back to menu" button inside the empty message itself.
+ */
+.queue-panel-close {
+  margin-left: auto;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  color: inherit;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.queue-panel-close:hover {
+  background: rgba(70, 31, 49, 0.08);
+  opacity: 1;
+}
+.queue-empty-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  color: inherit;
+  border: 1px solid rgba(70, 31, 49, 0.16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.7);
+  font-family: inherit;
+  font-size: calc(12px * var(--font-scale));
+  font-weight: 600;
+  cursor: pointer;
+}
+.queue-empty-back:hover {
+  background: #fff;
 }
 .held-panel {
   scroll-margin-top: 72px;

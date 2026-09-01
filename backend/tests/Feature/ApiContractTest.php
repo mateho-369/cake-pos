@@ -2797,6 +2797,142 @@ class ApiContractTest extends TestCase
     }
 
     /**
+     * The customer hears back at every step, in their own bot chat:
+     * a receipt confirmation the moment the order lands, an acceptance
+     * message when staff take it, and the existing completion message when
+     * they pay. Every line is bilingual (Khmer first, English second) like
+     * the /start welcome. Editing the still-open order must NOT repeat the
+     * "we received it" message — that would be noise, not a confirmation.
+     */
+    public function test_customer_is_notified_on_receipt_acceptance_and_payment(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        $cashier = Employee::where('role', 'cashier')->first();
+        $this->openShiftIfNone($cashier);
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 813,
+            'first_name' => 'Chanda',
+            'username' => 'chanda',
+        ]);
+        $this->postJson('/api/customer-products', [
+            'initData' => $initData,
+        ])->assertOk();
+        Customer::where('telegram_user_id', '813')->update([
+            'phone' => '+855 12 000 813',
+        ]);
+        $sentToCustomer = fn(string $needle) => collect(
+            Http::recorded(
+                fn($request) => str_contains(
+                    $request->url(),
+                    'bot123:test-token/sendMessage',
+                ) &&
+                    (string) $request['chat_id'] === '813' &&
+                    str_contains((string) $request['text'], $needle),
+            ),
+        )->count();
+
+        $orderId = $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'requestedTotal' => '10.00',
+        ])
+            ->assertCreated()
+            ->json('order.id');
+
+        // 1. Receipt confirmation, bilingual, in the customer's bot chat.
+        $this->assertSame(1, $sentToCustomer('was received'));
+        $this->assertSame(1, $sentToCustomer('បានទទួលការបញ្ជាទិញ'));
+
+        // Adding another cake updates the SAME open order: no repeat.
+        $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 2]],
+            'requestedTotal' => '20.00',
+        ])->assertCreated();
+        $this->assertSame(
+            1,
+            $sentToCustomer('was received'),
+            'editing the open order must not re-send the receipt confirmation',
+        );
+
+        // 2. Accept: a message of its own, distinct from "confirmed".
+        $this->assertSame(0, $sentToCustomer('has been accepted'));
+        $this->postJson(
+            "/api/orders/$orderId/accept",
+            [],
+            $this->auth($cashier),
+        )
+            ->assertOk()
+            ->assertJsonPath('status', 'Held');
+        $this->assertSame(1, $sentToCustomer('has been accepted'));
+        $this->assertSame(1, $sentToCustomer('ហាងបានទទួលយកការបញ្ជាទិញ'));
+        $this->assertSame(0, $sentToCustomer('is confirmed'));
+
+        // 3. Regression: paying still sends the completion message.
+        $this->postJson(
+            "/api/orders/$orderId/pay",
+            ['method' => 'Cash', 'usdReceivedCents' => 2000],
+            $this->auth($cashier),
+        )->assertOk();
+        $this->assertSame(1, $sentToCustomer('is completed'));
+        $this->assertSame(1, $sentToCustomer('បានបញ្ចប់'));
+    }
+
+    /**
+     * Regression on the same dispatch pattern: a rejected order still tells
+     * the customer, and that message is bilingual too.
+     */
+    public function test_staff_reject_still_notifies_the_customer_bilingually(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        $cashier = Employee::where('role', 'cashier')->first();
+        $this->openShiftIfNone($cashier);
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 814,
+            'first_name' => 'Rithy',
+            'username' => 'rithy',
+        ]);
+        $this->postJson('/api/customer-products', [
+            'initData' => $initData,
+        ])->assertOk();
+        Customer::where('telegram_user_id', '814')->update([
+            'phone' => '+855 12 000 814',
+        ]);
+        $orderId = $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'requestedTotal' => '10.00',
+        ])
+            ->assertCreated()
+            ->json('order.id');
+
+        $this->postJson(
+            "/api/orders/$orderId/reject",
+            ['reason' => 'Customer says they never placed it'],
+            $this->auth($cashier),
+        )->assertOk();
+
+        Http::assertSent(
+            fn($request) => str_contains(
+                $request->url(),
+                'bot123:test-token/sendMessage',
+            ) &&
+                (string) $request['chat_id'] === '814' &&
+                str_contains((string) $request['text'], 'was cancelled') &&
+                str_contains(
+                    (string) $request['text'],
+                    'ត្រូវបានបោះបង់',
+                ),
+        );
+    }
+
+    /**
      * The manual "Order status" dropdown used to set Paid/Ready/Completed
      * with NO OrderPayment and a hardcoded KHQR method, silently excluding
      * real cash pickups from shift reconciliation. Paid/Completed are no

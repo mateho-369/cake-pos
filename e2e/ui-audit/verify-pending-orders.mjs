@@ -135,6 +135,48 @@ check(
   $('#case-empty .pending-panel-empty') !== null,
   ($('#case-empty .pending-panel-empty')?.textContent || '').slice(0, 80),
 )
+// …but the explanation is never a dead end: it has a way out, and it
+// disappears on its own the moment a real order is in the queue.
+check(
+  'the empty pending queue offers a way back to the menu',
+  $('#case-empty .queue-empty-back') !== null &&
+    $('#case-empty .queue-panel-close') !== null,
+)
+click($('#case-empty .queue-empty-back'))
+await sleep(100)
+check(
+  '"Back to menu" closes the pending queue',
+  window.__queueClosed.includes('pending'),
+  JSON.stringify(window.__queueClosed),
+)
+click($('#case-empty .queue-panel-close'))
+await sleep(100)
+check(
+  'the header X closes it too',
+  window.__queueClosed.filter((q) => q === 'pending').length === 2,
+  JSON.stringify(window.__queueClosed),
+)
+check(
+  'a queue WITH orders shows no empty message at all',
+  $('#case-orders .pending-panel-empty') === null,
+)
+check(
+  'the empty held queue has the same way out',
+  $('#case-held-empty .held-panel-empty') !== null &&
+    $('#case-held-empty .queue-empty-back') !== null &&
+    $('#case-held-empty .queue-panel-close') !== null,
+)
+click($('#case-held-empty .queue-empty-back'))
+await sleep(100)
+check(
+  'closing the held queue works the same way',
+  window.__queueClosed.includes('held'),
+  JSON.stringify(window.__queueClosed),
+)
+check(
+  'the held queue with an order shows no empty message',
+  $('#case-held .held-panel-empty') === null,
+)
 
 // ---------------------------------------------------------------- the cards
 check('both pending orders render as cards', $$('.pending-card').length === 2)
