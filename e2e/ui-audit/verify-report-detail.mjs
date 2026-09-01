@@ -478,21 +478,32 @@ nav('Reports')
 await sleep(200)
 // The sidebar Reports item is now a dropdown: pick the Sales view to enter
 // the page (the old always-visible tab strip is gone).
-const openReportTab = (label) => {
+const openReportTab = async (label) => {
   const navBtn = $$('.sidebar-nav .nav-item').find((b) =>
     b.textContent.includes('Reports'),
   )
-  if (navBtn && navBtn.getAttribute('aria-expanded') !== 'true') click(navBtn)
+  if (navBtn && navBtn.getAttribute('aria-expanded') !== 'true') {
+    click(navBtn)
+    await sleep(120) // let React render the dropdown before querying it
+  }
   const item = $$('.nav-submenu-item').find(
     (b) => b.textContent.trim() === label,
   )
   if (item) click(item)
   return Boolean(item)
 }
-openReportTab('Sales')
+await openReportTab('Sales')
 await sleep(350)
 
 // ------------------------------------------ the sidebar dropdown is the hub
+// The dropdown closes after navigation, so expand it again to inventory it.
+const reportsNavBtn = $$('.sidebar-nav .nav-item').find((b) =>
+  b.textContent.includes('Reports'),
+)
+if (reportsNavBtn && reportsNavBtn.getAttribute('aria-expanded') !== 'true') {
+  click(reportsNavBtn)
+  await sleep(120)
+}
 check(
   'the Reports nav item expands ONE dropdown with all 8 report views',
   [
@@ -1001,7 +1012,7 @@ check(
 )
 
 // ------------------------------------------ every summary tab gets a View-by
-openReportTab('Payments')
+await openReportTab('Payments')
 await sleep(300)
 openViewBy()
 await sleep(80)
@@ -1033,7 +1044,7 @@ check(
 )
 click($('.drill-back'))
 await sleep(200)
-openReportTab('Products')
+await openReportTab('Products')
 await sleep(300)
 openViewBy()
 await sleep(80)
@@ -1050,7 +1061,7 @@ check(
   headerText() === 'Product,Units,Net sales',
   headerText(),
 )
-openReportTab('Team')
+await openReportTab('Team')
 await sleep(300)
 openViewBy()
 await sleep(80)
@@ -1091,7 +1102,7 @@ check(
 )
 click($('.drill-back'))
 await sleep(200)
-openReportTab('Waste')
+await openReportTab('Waste')
 await sleep(300)
 openViewBy()
 await sleep(80)
@@ -1124,7 +1135,7 @@ click($('.drill-back'))
 await sleep(200)
 
 // ------------------------------------------ Losses / Shifts / Audit stay tables
-openReportTab('Losses')
+await openReportTab('Losses')
 await sleep(300)
 check(
   'Losses reuses the same paginated table style (5 money rows)',
@@ -1141,7 +1152,7 @@ check(
     .map((row) => cell(row, 0))
     .join(','),
 )
-openReportTab('Shifts')
+await openReportTab('Shifts')
 await sleep(300)
 check(
   'Shifts reuses the same table style with the closed shifts of the range',
@@ -1154,7 +1165,7 @@ check(
   $$('.report-detail-table .record-link').length === 4,
   String($$('.report-detail-table .record-link').length),
 )
-openReportTab('Audit log')
+await openReportTab('Audit log')
 await sleep(300)
 check(
   'the Audit log reuses the same paginated table style',

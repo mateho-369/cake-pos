@@ -78,6 +78,13 @@ export default function Sidebar({
   const { t } = useTranslation()
   const { orders, customers, categories, products, summary } = useAdminData()
   const [reportsOpen, setReportsOpen] = useState(false)
+  // Close the report-views dropdown whenever the active page changes, so a
+  // click on Reports always means "open" — navigation never leaves the
+  // dropdown dangling open for the next visit.
+  useEffect(() => {
+    setReportsOpen(false)
+  }, [page])
+
   // The location card shows the REAL business profile (editable in Settings)
   // instead of a hardcoded branch name.
   const [profile, setProfile] = useState<{

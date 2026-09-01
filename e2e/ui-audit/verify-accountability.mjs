@@ -137,13 +137,16 @@ check('retention strip shows repeat rate 67%', custText.includes('67%'))
 nav('Reports')
 await sleep(200)
 // The tab strip is gone: reports are picked from the sidebar dropdown.
-const openReportTab = (label) => {
+const openReportTab = async (label) => {
   const navBtn = [...window.document.querySelectorAll('.sidebar-nav .nav-item')].find((b) => b.textContent.includes('Reports'))
-  if (navBtn && navBtn.getAttribute('aria-expanded') !== 'true') click(navBtn)
+  if (navBtn && navBtn.getAttribute('aria-expanded') !== 'true') {
+    click(navBtn)
+    await sleep(120) // let React render the dropdown before querying it
+  }
   const item = [...window.document.querySelectorAll('.nav-submenu-item')].find((b) => b.textContent.trim() === label)
   if (item) click(item)
 }
-openReportTab('Team')
+await openReportTab('Team')
 await sleep(250)
 const teamText = window.document.querySelector('.page-content').textContent
 check('team tab shows cashier name', teamText.includes('Sophea Chan'))
@@ -159,7 +162,7 @@ check('variance history shows expected cash $120.00', teamText2.includes('$120.0
 check('variance history shows negative variance', teamText2.includes('$2.00') || teamText2.includes('$5.00'))
 
 // --- Reports > Audit log ---
-openReportTab('Audit log')
+await openReportTab('Audit log')
 await sleep(250)
 const auditText = window.document.querySelector('.page-content').textContent
 check('audit log shows void event', auditText.includes('order.voided'))
