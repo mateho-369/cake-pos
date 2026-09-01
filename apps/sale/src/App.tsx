@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Clock3, Plus, ShoppingBag, X } from 'lucide-react'
 import { useStaffAuth } from './auth/StaffAuthContext'
 import LoginScreen from './components/LoginScreen'
@@ -26,7 +20,11 @@ import { apiRequest } from './lib/api'
 import { useSaleData } from './lib/data'
 import { formatShiftStartedAt } from './lib/shift'
 import { supportsCustomerDisplay } from './lib/device'
-import { useTelegramChrome } from '@cake-pos/telegram/react'
+import {
+  useTelegramBackButton,
+  useTelegramChrome,
+  useTelegramClosingConfirmation,
+} from '@cake-pos/telegram/react'
 import { cashTenderPayload } from './lib/tender'
 import CustomerApp from './CustomerApp'
 import CustomerDisplay from './components/CustomerDisplay'
@@ -54,10 +52,18 @@ export default function App() {
   // edge-to-edge exactly like the customer storefront, not just expanded.
   const { inTelegram } = useTelegramChrome()
   if (path === '/held') {
-    return <div className={inTelegram ? 'telegram-app' : ''}>{token ? <HeldOrdersPage /> : <LoginScreen />}</div>
+    return (
+      <div className={inTelegram ? 'telegram-app' : ''}>
+        {token ? <HeldOrdersPage /> : <LoginScreen />}
+      </div>
+    )
   }
   if (path === '/pending') {
-    return <div className={inTelegram ? 'telegram-app' : ''}>{token ? <PendingOrdersPage /> : <LoginScreen />}</div>
+    return (
+      <div className={inTelegram ? 'telegram-app' : ''}>
+        {token ? <PendingOrdersPage /> : <LoginScreen />}
+      </div>
+    )
   }
   return (
     <div className={inTelegram ? 'telegram-app' : ''}>
@@ -116,6 +122,27 @@ function SaleTerminal() {
   // Open Telegram customer orders awaiting staff action, polled for the
   // toolbar badge. The queue itself lives on the dedicated /pending page.
   const [pending, setPending] = useState<PendingOrder[]>([])
+  /*
+   * Telegram's own back button drives whatever is layered over the
+   * terminal, innermost first. A Mini App user reaches for that button
+   * before any in-page X — and in fullscreen it is the only chrome they
+   * are given. With nothing layered the handler is null, which hides the
+   * button rather than leaving one that would drop them out of the sale.
+   */
+  const closeTopLayer = success
+    ? () => setSuccess(null)
+    : quickAdd
+      ? () => setQuickAdd(false)
+      : shiftModal
+        ? () => setShiftModal(false)
+        : historyOpen
+          ? () => setHistoryOpen(false)
+          : mobileCart
+            ? () => setMobileCart(false)
+            : null
+  useTelegramBackButton(closeTopLayer)
+  // A cart with items is unsaved money: let Telegram ask before closing.
+  useTelegramClosingConfirmation(cart.length > 0)
   const promptOpenShift = (action: PendingSaleAction) => {
     setPendingAction(action)
     setShiftMode('open')
@@ -275,8 +302,7 @@ function SaleTerminal() {
     })
     return () => channel.close()
   }, [cart, subtotal, cartTotal, success])
-  const expectedCash =
-    currentShift?.expectedCash ?? (shift?.openingCash || 0)
+  const expectedCash = currentShift?.expectedCash ?? (shift?.openingCash || 0)
   const cashSales = currentShift?.cashSales ?? 0
   const cashSalesKhr = currentShift?.cashSalesKhr ?? 0
   const visibleProducts = useMemo(
@@ -380,9 +406,9 @@ function SaleTerminal() {
         // Holds whose lines are in THIS cart stop being held the moment the
         // sale is paid (server-side, in the same transaction). Derived from
         // the cart, so a cleared cart can never release a hold by accident.
-        ...heldOrderIdsInCart.length
+        ...(heldOrderIdsInCart.length
           ? { heldOrderIds: heldOrderIdsInCart }
-          : {},
+          : {}),
         ...(payment === 'cash'
           ? cashTenderPayload(totalCents, usdCents, khrReceived, rate)
           : {}),
@@ -500,9 +526,7 @@ function SaleTerminal() {
         continue
       }
       setCart((current) => {
-        const existing = current.find(
-          (item) => item.product.id === product.id,
-        )
+        const existing = current.find((item) => item.product.id === product.id)
         if (existing) {
           return current.map((item) =>
             item.product.id === product.id

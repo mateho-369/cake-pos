@@ -10,7 +10,43 @@ Cake POS has three focused React frontends and a self-hosted Laravel API:
 | `backend`    | Laravel 11 + Sanctum + MySQL REST API                  |  8080 | `api.yourdomain.com`        | [README](backend/README.md)    |
 | `packages`   | Shared API client and Liquid Glass design tokens       |     — | bundled into frontends      | source-only workspaces         |
 
-`apps/sale` and `apps/shop` can both be opened from the Telegram bot. The shared `@cake-pos/telegram` package makes **every** Mini App surface open edge-to-edge: `ready()` → `expand()` → `requestFullscreen()` on Web App API 8.0+, with one retry after the first tap because iOS clients reject a programmatic request before any user gesture. Telegram remains only a shell: staff authentication is always PIN or email/password, and `apps/shop` keeps deliberately separate code, using signed Telegram `initData` as customer identity with no customer login screen.
+All three frontends can be opened from a Telegram bot — `apps/shop` from the
+customer bot, `apps/sale` and `apps/admin` from the private staff bot — so the
+shared `@cake-pos/telegram` package owns that behaviour once, for every
+surface. Telegram remains only a shell: staff authentication is always PIN or
+email/password, and `apps/shop` keeps deliberately separate code, using signed
+Telegram `initData` as customer identity with no customer login screen.
+
+### What the shared Mini App chrome does
+
+- **Opens edge-to-edge**: `ready()` → `expand()` → `requestFullscreen()` on Web
+  App API 8.0+, with one retry after the first tap because iOS clients reject a
+  programmatic request made before any user gesture.
+- **Reserves the space Telegram takes.** In fullscreen Telegram floats its own
+  back/close pill and "..." menu over the top of the page. The package
+  publishes three sets of custom properties on `<html>`:
+  `--tg-safe-*` (device notch), `--tg-content-safe-*` (Telegram's chrome) and
+  `--tg-inset-*`, **the sum** — which is what every header, sticky bar and
+  dialog pads by:
+  `max(12px, env(safe-area-inset-top), var(--tg-inset-top, 0px))`.
+  The sum is the whole point: `contentSafeAreaInset` is measured _inside_ the
+  device safe area, so reserving `max()` of the two (59px of notch, ignoring
+  46px of Telegram chrome) is exactly how the terminal's toolbar ended up
+  underneath Telegram's back button. In fullscreen with no usable numbers
+  reported — a real macOS/desktop client bug — 56px is reserved anyway, and a
+  runaway value from a buggy client is capped rather than pushing the UI
+  off-screen.
+- **Uses Telegram's own back button.** Whatever is layered on top owns it,
+  innermost first: dialogs and sheets on the terminal, overlays and then "back
+  to the dashboard" in the console, the queue pages' back arrow. With nothing
+  layered the button is hidden, so it can never be the control that drops
+  someone out of a sale.
+- **Stops swipe-to-minimise** (`disableVerticalSwipes`, 7.7+): a POS is one big
+  scroller and every scroll used to risk minimising the app mid-sale.
+- **Confirms before closing** while the cart has items, and never otherwise.
+- **Knows when it is not in Telegram**: `telegram-web-app.js` defines
+  `window.Telegram.WebApp` in any browser tab that loads it (reporting platform
+  `unknown`), so a laptop browser gets none of this padding.
 
 ## Held (parked) orders
 

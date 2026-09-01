@@ -5,6 +5,7 @@ import { useSaleData } from './lib/data'
 import { apiRequest } from './lib/api'
 import { cashTenderPayload } from './lib/tender'
 import { useTranslation } from './lib/i18n'
+import { useTelegramBackButton } from '@cake-pos/telegram/react'
 import PendingOrdersPanel from './components/PendingOrdersPanel'
 import HeldOrdersPanel from './components/HeldOrdersPanel'
 import ShiftModal from './components/ShiftModal'
@@ -36,6 +37,9 @@ function PageShell({
   onBack: () => void
   children: ReactNode
 }) {
+  // Inside Telegram the same "back" is also on the client's own back
+  // button — the control a Mini App user actually reaches for.
+  useTelegramBackButton(onBack)
   return (
     <main className="queue-page">
       <header className="queue-page-head">
