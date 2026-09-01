@@ -28,7 +28,7 @@ abstract class TestCase extends BaseTestCase
             self::$failures[$this->name()] = str_replace(
                 ["\r", "\n"],
                 ['', ' ~ '],
-                mb_substr($t->getMessage(), 0, 420),
+                mb_substr($t->getMessage(), 0, 1400),
             );
             if (!self::$armed) {
                 self::$armed = true;
@@ -43,9 +43,23 @@ abstract class TestCase extends BaseTestCase
         $total = count(self::$failures);
         $chunks = [];
         $current = '';
-        foreach (self::$failures as $name => $message) {
+        $focus = [
+            'test_email_and_pin_login_issue_tokens_with_twelve_hour_expiry',
+            'test_presign_endpoint_requires_authentication_and_returns_upload_contract',
+            'test_walk_in_orders_are_counted_in_reports_summary',
+            'test_discount_rules_are_server_computed_capped_and_never_negative',
+            'test_customer_cancels_a_pending_order_releases_stock_and_notifies',
+            'test_logout_deletes_the_current_sanctum_token',
+        ];
+        $ordered = [];
+        foreach ($focus as $name) {
+            if (isset(self::$failures[$name])) {
+                $ordered[$name] = self::$failures[$name];
+            }
+        }
+        foreach ($ordered as $name => $message) {
             $line = "{$name} => {$message} ||| ";
-            if (strlen($current) + strlen($line) > 2200) {
+            if (strlen($current) + strlen($line) > 3000) {
                 $chunks[] = $current;
                 $current = '';
             }
