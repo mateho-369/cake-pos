@@ -3,6 +3,7 @@ namespace Tests\Feature;
 
 use App\Models\{
     AuditEvent,
+    Category,
     Customer,
     Employee,
     Order,
@@ -587,8 +588,13 @@ class ApiContractTest extends TestCase
         $admin = Employee::where('role', 'admin')->first();
         $employee = Employee::where('role', 'cashier')->first();
         Product::query()->delete();
+        // Every product belongs to a category (NOT NULL since the catalog
+        // was introduced) — building one without it fails the insert before
+        // the report is ever computed.
+        $categoryId = Category::query()->value('id');
         Product::create([
             'name' => 'Fresh Cake',
+            'category_id' => $categoryId,
             'price_cents' => 1000,
             'stock' => 6,
             'made_at' => now()->toDateString(),
@@ -597,6 +603,7 @@ class ApiContractTest extends TestCase
         ]);
         Product::create([
             'name' => 'Today Cake',
+            'category_id' => $categoryId,
             'price_cents' => 1500,
             'stock' => 2,
             'made_at' => now()->toDateString(),
@@ -605,6 +612,7 @@ class ApiContractTest extends TestCase
         ]);
         Product::create([
             'name' => 'Tomorrow Cake',
+            'category_id' => $categoryId,
             'price_cents' => 2000,
             'stock' => 3,
             'made_at' => now()->toDateString(),

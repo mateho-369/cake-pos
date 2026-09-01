@@ -136,7 +136,9 @@ class OrderService
                 $tenderKhr = null;
                 $changeUsd = null;
                 $changeKhr = null;
-                $roundingKhr = null;
+                // Not nullable in the schema (default 0): a KHQR sale has no
+                // riel rounding, and writing NULL fails the insert outright.
+                $roundingKhr = 0;
                 if ($method === 'cash') {
                     // Mixed-currency tender (USD notes + riel notes) is valid
                     // as long as the combined value covers the total — the
