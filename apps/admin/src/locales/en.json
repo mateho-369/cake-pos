@@ -340,7 +340,8 @@
     "statusCompleted": "Completed",
     "statusRefunded": "Refunded",
     "statusCancelled": "Cancelled",
-    "statusReleased": "Released"
+    "statusReleased": "Released",
+    "itemNote": "Customer note"
   },
   "freshness": {
     "fefo": "FEFO CONTROL",

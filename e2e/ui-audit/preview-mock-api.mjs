@@ -142,6 +142,20 @@ const routes = {
     json(res, from || to ? ordersIn(from, to) : orders)
   },
   '/api/orders/pending': (res) => json(res, []),
+  // Sale-terminal routes: enough for the checkout screen (and its
+  // open-your-shift reminder) to be eyeballed in the same preview.
+  '/api/orders/held': (res) => json(res, []),
+  '/api/shifts/open': (res) =>
+    json(res, {
+      id: 1,
+      status: 'Open',
+      openingCash: 100,
+      openingCashKhr: 0,
+      expectedCash: 100,
+      expectedCashKhr: 0,
+      variance: 0,
+      startedAt: new Date().toISOString(),
+    }),
   '/api/products': (res) => json(res, products),
   '/api/categories': (res) =>
     json(res, [

@@ -160,6 +160,33 @@ check(
   'no Message action for a customer without a Telegram chat id',
   $$('.pending-card')[1].querySelector('.pending-message-button') === null,
 )
+// ------------------------------------------- customer notes on the card
+check(
+  'each ordered line is listed on the card',
+  $$('.pending-card')[0].querySelectorAll('.pending-items li').length === 2,
+  String($$('.pending-card')[0].querySelectorAll('.pending-items li').length),
+)
+check(
+  "the customer's note for a line is shown before staff call them",
+  $$('.pending-card')[0]
+    .querySelector('.pending-item-note')
+    ?.textContent.includes('Happy Birthday John'),
+  $$('.pending-card')[0].querySelector('.pending-item-note')?.textContent,
+)
+check(
+  'the note sits on ITS line, not on the whole order',
+  $$('.pending-card')[0].querySelectorAll('.pending-items li')[0].querySelector(
+    '.pending-item-note',
+  ) !== null &&
+    $$('.pending-card')[0]
+      .querySelectorAll('.pending-items li')[1]
+      .querySelector('.pending-item-note') === null,
+)
+check(
+  'a card without line items still lists what was ordered',
+  $$('.pending-card')[1].textContent.includes('Chocolate Cake × 1'),
+)
+
 check(
   'Take payment is still offered',
   $$('.pending-card')[0].textContent.includes('Take payment'),
@@ -249,6 +276,18 @@ check(
   'delivery is confirmed with a toast',
   window.__toasts.some((t) => t.includes('Message sent to Srey Neang')),
   JSON.stringify(window.__toasts),
+)
+
+// ------------------------------- the note survives Accept (held queue)
+check(
+  'the accepted order still shows the note on its held card',
+  $('#case-held .held-item-note')?.textContent.includes('Happy Birthday John'),
+  $('#case-held .held-item-note')?.textContent,
+)
+check(
+  'only the line that carries a note shows one on the held card',
+  $$('#case-held .held-items li').length === 2 &&
+    $$('#case-held .held-items li')[1].querySelector('.held-item-note') === null,
 )
 
 console.log(

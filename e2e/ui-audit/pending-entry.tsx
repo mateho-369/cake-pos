@@ -9,8 +9,9 @@ import { useState } from 'react'
 import { StaffAuthProvider } from '../../apps/sale/src/auth/StaffAuthContext'
 import { LanguageProvider } from '../../apps/sale/src/lib/i18n'
 import PendingOrdersPanel from '../../apps/sale/src/components/PendingOrdersPanel'
+import HeldOrdersPanel from '../../apps/sale/src/components/HeldOrdersPanel'
 import TerminalHeader from '../../apps/sale/src/components/TerminalHeader'
-import type { PendingOrder } from '../../apps/sale/src/data'
+import type { HeldOrder, PendingOrder } from '../../apps/sale/src/data'
 
 declare global {
   interface Window {
@@ -32,7 +33,28 @@ const ORDERS: PendingOrder[] = [
     createdAt: new Date().toISOString(),
     status: 'Pending',
     total: 18.5,
-    detail: ['Matcha Pistachio Cake × 1', 'Latte × 2'],
+    detail: [
+      'Matcha Pistachio Cake × 1 — Happy Birthday John',
+      'Latte × 2',
+    ],
+    // Per-line customer notes travel with the order: staff must be able to
+    // read them on the card BEFORE they ring the customer.
+    lineItems: [
+      {
+        productId: 1,
+        description: 'Matcha Pistachio Cake',
+        quantity: 1,
+        note: 'Happy Birthday John',
+        unitPriceCents: 1450,
+      },
+      {
+        productId: 2,
+        description: 'Latte',
+        quantity: 2,
+        note: null,
+        unitPriceCents: 200,
+      },
+    ],
     customer: {
       name: 'Srey Neang',
       phone: '+855 12 345 678',
@@ -49,6 +71,43 @@ const ORDERS: PendingOrder[] = [
     detail: ['Chocolate Cake × 1'],
     // No Telegram chat id: only the phone link may appear on this card.
     customer: { name: 'Vibol', phone: '+855 92 111 222' },
+  },
+]
+
+/**
+ * The same order after Accept: it is now a held (parked) order, and the
+ * customer's per-line note must still be readable at pickup time.
+ */
+const HELD: HeldOrder[] = [
+  {
+    id: 'TG-31',
+    time: '2:14 PM',
+    date: 'Today',
+    createdAt: new Date().toISOString(),
+    cashier: 'Customer order',
+    source: 'telegram',
+    items: 3,
+    total: 18.5,
+    payment: null,
+    status: 'Held',
+    detail: ['Matcha Pistachio Cake × 1 — Happy Birthday John', 'Latte × 2'],
+    holdLabel: 'Srey Neang',
+    lineItems: [
+      {
+        productId: 1,
+        description: 'Matcha Pistachio Cake',
+        quantity: 1,
+        note: 'Happy Birthday John',
+        unitPriceCents: 1450,
+      },
+      {
+        productId: 2,
+        description: 'Latte',
+        quantity: 2,
+        note: null,
+        unitPriceCents: 200,
+      },
+    ],
   },
 ]
 
@@ -116,6 +175,18 @@ function Harness() {
             onMessage={async () => false}
             onNeedShift={(resume) => resume()}
             onToast={(message) => window.__toasts.push(message)}
+          />
+        </div>
+        {/* Accepted orders land here: the note must survive the hand-off. */}
+        <div id="case-held">
+          <HeldOrdersPanel
+            held={HELD}
+            busy={false}
+            open
+            rate={4100}
+            onResume={() => {}}
+            onPay={() => {}}
+            onVoid={() => {}}
           />
         </div>
         <div id="toast-sink" data-toast={toast ?? ''} />

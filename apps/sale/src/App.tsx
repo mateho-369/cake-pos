@@ -105,6 +105,11 @@ function SaleTerminal() {
   // cashier opens a shift through the prompt, the action continues
   // automatically instead of forcing them to click again.
   const [pendingAction, setPendingAction] = useState<PendingSaleAction>(null)
+  // The passive open-your-shift reminder. It can be dismissed (the cashier
+  // may just be browsing the menu), and it is NOT the gate: every sale
+  // action still goes through promptOpenShift / the API's open-shift
+  // middleware. Attempting one while shift-less brings the reminder back.
+  const [shiftReminder, setShiftReminder] = useState(true)
   // Held ("parked") orders and the holds the current cart was resumed from.
   const [held, setHeld] = useState<HeldOrder[]>([])
   const [heldBusy, setHeldBusy] = useState(false)
@@ -115,6 +120,9 @@ function SaleTerminal() {
     setPendingAction(action)
     setShiftMode('open')
     setShiftModal(true)
+    // A real sale action was just refused: the reminder is relevant again,
+    // even if it had been dismissed a moment ago.
+    setShiftReminder(true)
   }
   const loadPending = useCallback(async () => {
     try {
@@ -555,6 +563,9 @@ function SaleTerminal() {
       } else {
         const result = await closeShift(amount, amountKhr)
         setShift(null)
+        // A closed shift means selling is gated again: show the reminder
+        // even if it had been dismissed earlier in this session.
+        setShiftReminder(true)
         setToast(
           Math.abs(result.variance) < 0.01
             ? t('sale.shiftClosedBalanced')
@@ -631,8 +642,14 @@ function SaleTerminal() {
         onCustomerDisplay={() => openCustomerDisplay()}
         onAutoPlaceDisplay={() => openCustomerDisplay(true)}
       />
-      {!shift && (
-        <button className="shift-gate-banner" onClick={openShiftAction}>
+      {!shift && shiftReminder && (
+        // Informational, never blocking: it sits in the page flow under the
+        // sticky header (so it can't cover the toolbar, the shift pill or
+        // the quick-add button), offers the open-shift CTA, and can simply
+        // be dismissed. Dismissing changes nothing about enforcement — the
+        // API refuses every sale action without an open shift, and the next
+        // attempt re-opens the prompt AND brings this reminder back.
+        <aside className="shift-gate-banner" role="status">
           <span>
             <Clock3 size={17} />
           </span>
@@ -640,8 +657,18 @@ function SaleTerminal() {
             <strong>{t('sale.shiftGate')}</strong>
             <small>{t('sale.countDrawer')}</small>
           </div>
-          <b>{t('sale.openShift')}</b>
-        </button>
+          <button className="shift-gate-open" onClick={openShiftAction}>
+            {t('sale.openShift')}
+          </button>
+          <button
+            className="shift-gate-dismiss"
+            onClick={() => setShiftReminder(false)}
+            aria-label={t('sale.dismissShiftReminder')}
+            title={t('sale.dismissShiftReminder')}
+          >
+            <X size={15} />
+          </button>
+        </aside>
       )}
       <div className="terminal-layout">
         <ProductGrid

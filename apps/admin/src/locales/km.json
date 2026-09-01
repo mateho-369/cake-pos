@@ -340,7 +340,8 @@
     "statusCompleted": "បានបញ្ចប់",
     "statusRefunded": "បានសងប្រាក់",
     "statusCancelled": "បានលុបចោល",
-    "statusReleased": "បានប្រគល់"
+    "statusReleased": "បានប្រគល់",
+    "itemNote": "កំណត់ចំណាំរបស់អតិថិជន"
   },
   "freshness": {
     "fefo": "ការគ្រប់គ្រង FEFO",

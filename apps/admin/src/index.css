@@ -2729,6 +2729,22 @@ button.order-full-row.selected {
 .receipt-lines .numeric {
   white-space: nowrap;
 }
+/* The customer's own note for that line ("Happy Birthday John"), typed in
+   the Telegram Mini App — kept readable long after the order was paid. */
+.receipt-line-note {
+  margin-top: 3px;
+  padding: 2px 7px;
+  align-self: flex-start;
+  max-width: 100%;
+  color: #7c4a03;
+  border: 1px solid rgba(206, 126, 23, 0.24);
+  border-radius: 8px;
+  background: #fff8e8;
+  font-size: calc(11px * var(--font-scale));
+  font-style: normal;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
 .receipt-total {
   padding: 11px 0;
   display: flex;

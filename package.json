@@ -31,7 +31,9 @@
     "test:jsdom": "node e2e/ui-audit/run-audit.mjs",
     "test:ui:quick-add": "node e2e/ui-audit/verify-quick-add-category.mjs && node e2e/ui-audit/verify-quick-add-empty-state.mjs",
     "test:ui:categories": "node e2e/ui-audit/verify-category-review.mjs",
-    "test:ui": "npm run test:ui:quick-add && npm run test:ui:categories && node e2e/ui-audit/verify-accountability.mjs && node e2e/ui-audit/verify-pending-orders.mjs && npm run test:ui:orders && npm run test:ui:reports && npm run test:exports",
+    "test:ui": "npm run test:ui:quick-add && npm run test:ui:categories && node e2e/ui-audit/verify-accountability.mjs && node e2e/ui-audit/verify-pending-orders.mjs && npm run test:ui:shift-gate && npm run test:ui:order-notes && npm run test:ui:orders && npm run test:ui:reports && npm run test:exports",
+    "test:ui:shift-gate": "node e2e/ui-audit/verify-shift-gate.mjs",
+    "test:ui:order-notes": "node e2e/ui-audit/verify-shop-order-note.mjs",
     "test:ui:reports": "node e2e/ui-audit/verify-report-detail.mjs",
     "test:exports": "node e2e/exports-verify/verify.mjs",
     "test:ui:orders": "node e2e/ui-audit/verify-orders-page.mjs"

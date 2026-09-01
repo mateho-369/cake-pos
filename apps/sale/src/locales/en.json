@@ -690,7 +690,8 @@
     "khrReceived": "KHR received",
     "totalReceived": "Total received",
     "shortTender": "Still owed ${{amount}}",
-    "khqrKhrEquivalent": "≈ ៛{{khr}} at the shop rate (KHQR charges in USD)"
+    "khqrKhrEquivalent": "≈ ៛{{khr}} at the shop rate (KHQR charges in USD)",
+    "dismissShiftReminder": "Dismiss this reminder"
   },
   "app": {
     "cakePublished": "Cake added and published to the sale terminal"
@@ -798,7 +799,8 @@
     "accept": "Accept",
     "accepted": "Accepted {{id}} — parked in held orders",
     "receivedKhr": "Cash received (៛)",
-    "queueBack": "Back to menu"
+    "queueBack": "Back to menu",
+    "itemNote": "Customer note"
   },
   "hold": {
     "title": "Held orders",
@@ -817,6 +819,7 @@
     "resumedPartial": "Resumed {{id}} (some items are no longer on sale)",
     "paid": "{{id}} paid — no longer held",
     "voided": "Discarded hold {{id}}",
-    "queueBack": "Back to menu"
+    "queueBack": "Back to menu",
+    "itemNote": "Customer note"
   }
 }

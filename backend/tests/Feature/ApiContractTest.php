@@ -2626,6 +2626,177 @@ class ApiContractTest extends TestCase
     }
 
     /**
+     * A customer ordering in the Mini App can attach a free-text note to a
+     * LINE ("Happy Birthday John", "less sugar") — one basket can hold a
+     * birthday cake with an inscription next to a plain iced coffee. The
+     * note has to reach everyone who acts on it: the staff pending card,
+     * the Telegram notification, the Mini App when the customer reopens the
+     * same order, and the held order after Accept. A whitespace-only note
+     * is no note at all and must never become an empty line on that card.
+     */
+    public function test_customer_order_line_notes_reach_staff_and_survive_accept(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        $cashier = Employee::where('role', 'cashier')->first();
+        $this->openShiftIfNone($cashier);
+        $cake = Product::first();
+        $cake->update(['price_cents' => 1000, 'stock' => 10]);
+        $drink = Product::where('id', '!=', $cake->id)->first();
+        $drink->update(['price_cents' => 200, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 811,
+            'first_name' => 'Sokha',
+            'username' => 'sokha',
+        ]);
+        $this->postJson('/api/customer-products', [
+            'initData' => $initData,
+        ])->assertOk();
+        Customer::where('telegram_user_id', '811')->update([
+            'phone' => '+855 12 000 811',
+        ]);
+
+        $orderId = $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [
+                [
+                    'productId' => $cake->id,
+                    'quantity' => 1,
+                    'note' => '  Happy Birthday John  ',
+                ],
+                // Whitespace only: stored as no note, never as an empty one.
+                ['productId' => $drink->id, 'quantity' => 2, 'note' => '   '],
+            ],
+            'requestedTotal' => '14.00',
+        ])
+            ->assertCreated()
+            ->json('order.id');
+
+        $this->assertDatabaseHas('order_items', [
+            'order_id' => $orderId,
+            'product_id' => $cake->id,
+            'note' => 'Happy Birthday John',
+        ]);
+        $this->assertDatabaseHas('order_items', [
+            'order_id' => $orderId,
+            'product_id' => $drink->id,
+            'note' => null,
+        ]);
+        // The one-line summary staff read in the Telegram notification (and
+        // on any legacy screen) carries the note as well.
+        $this->assertStringContainsString(
+            'Happy Birthday John',
+            implode(' | ', Order::find($orderId)->detail_json),
+        );
+
+        // Staff pending card: the note travels on ITS line, not the order.
+        $entry = collect(
+            $this->getJson(
+                '/api/orders/pending',
+                $this->auth($cashier),
+            )->json(),
+        )->firstWhere('id', $orderId);
+        $lines = collect($entry['lineItems']);
+        $this->assertSame(
+            'Happy Birthday John',
+            $lines->firstWhere('productId', $cake->id)['note'],
+        );
+        $this->assertNull($lines->firstWhere('productId', $drink->id)['note']);
+
+        // Reopening the Mini App restores what the customer typed…
+        $open = $this->postJson('/api/customer-orders/open', [
+            'initData' => $initData,
+        ])->assertOk();
+        $this->assertSame(
+            'Happy Birthday John',
+            collect($open->json('items'))->firstWhere(
+                'productId',
+                $cake->id,
+            )['note'],
+        );
+
+        // …and editing the same open order replaces the note in place.
+        $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [
+                [
+                    'productId' => $cake->id,
+                    'quantity' => 1,
+                    'note' => 'Happy Birthday Jane',
+                ],
+            ],
+            'requestedTotal' => '10.00',
+        ])->assertCreated();
+        $this->assertDatabaseHas('order_items', [
+            'order_id' => $orderId,
+            'product_id' => $cake->id,
+            'note' => 'Happy Birthday Jane',
+        ]);
+
+        // Accept parks it in the held queue — the note goes with it, so it
+        // is still readable when the customer arrives to pay.
+        $this->postJson(
+            "/api/orders/$orderId/accept",
+            [],
+            $this->auth($cashier),
+        )->assertOk();
+        $held = collect(
+            $this->getJson('/api/orders/held', $this->auth($cashier))->json(),
+        )->firstWhere('id', $orderId);
+        $this->assertSame(
+            'Happy Birthday Jane',
+            collect($held['lineItems'])->firstWhere(
+                'productId',
+                $cake->id,
+            )['note'],
+        );
+    }
+
+    /**
+     * Notes are capped exactly like every other note field in the codebase
+     * (see MessageCustomerRequest): too long is a plain 422, and nothing is
+     * written — no half-placed order behind a rejected note.
+     */
+    public function test_customer_order_note_is_length_capped(): void
+    {
+        $cashier = Employee::where('role', 'cashier')->first();
+        $this->openShiftIfNone($cashier);
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 812,
+            'first_name' => 'Vichea',
+            'username' => 'vichea',
+        ]);
+        $this->postJson('/api/customer-products', [
+            'initData' => $initData,
+        ])->assertOk();
+        $customerId = Customer::where('telegram_user_id', '812')->value('id');
+        Customer::whereKey($customerId)->update([
+            'phone' => '+855 12 000 812',
+        ]);
+
+        $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [
+                [
+                    'productId' => $product->id,
+                    'quantity' => 1,
+                    'note' => str_repeat('a', 201),
+                ],
+            ],
+            'requestedTotal' => '10.00',
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('items.0.note');
+        $this->assertSame(
+            0,
+            Order::where('customer_id', $customerId)->count(),
+        );
+        $this->assertSame(0, (int) $product->fresh()->reserved_stock);
+    }
+
+    /**
      * The manual "Order status" dropdown used to set Paid/Ready/Completed
      * with NO OrderPayment and a hardcoded KHQR method, silently excluding
      * real cash pickups from shift reconciliation. Paid/Completed are no

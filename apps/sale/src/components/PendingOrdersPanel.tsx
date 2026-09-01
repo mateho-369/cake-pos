@@ -7,6 +7,7 @@ import {
   Phone,
   ScanLine,
   Send,
+  StickyNote,
   Trash2,
   X,
 } from 'lucide-react'
@@ -253,7 +254,31 @@ export default function PendingOrdersPanel({
                     )}
                   </div>
                 )}
-                <small>{order.detail.join('; ')}</small>
+                {order.lineItems?.length ? (
+                  // Per-line view, because a line can carry the customer's
+                  // own note ("Happy Birthday John") — staff must read it
+                  // before calling. Older payloads without lineItems keep
+                  // the one-line summary below.
+                  <ul className="pending-items">
+                    {order.lineItems.map((line, index) => (
+                      <li key={`${line.productId ?? 'x'}-${index}`}>
+                        <small>
+                          {line.description} × {line.quantity}
+                        </small>
+                        {line.note && (
+                          <span
+                            className="pending-item-note"
+                            title={t('pending.itemNote')}
+                          >
+                            <StickyNote size={11} /> {line.note}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <small>{order.detail.join('; ')}</small>
+                )}
               </div>
               <div className="pending-card-actions">
                 <button

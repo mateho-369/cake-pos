@@ -101,6 +101,11 @@ export type Order = {
     productId: number | null
     description: string | null
     quantity: number
+    /**
+     * The customer's free-text instruction for this line, typed in the
+     * Telegram Mini App ("Happy Birthday John"). Null on walk-in lines.
+     */
+    note?: string | null
     unitPriceCents: number
     lineTotalCents?: number
   }>

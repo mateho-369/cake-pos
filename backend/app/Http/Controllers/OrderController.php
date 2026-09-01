@@ -148,7 +148,7 @@ class OrderController extends Controller
      */
     public function pending(): JsonResponse
     {
-        $orders = Order::with(['customer'])
+        $orders = Order::with(['customer', 'orderItems'])
             ->where('source', 'telegram')
             ->where('payment_status', '!=', 'paid')
             ->whereIn('status', ['Pending', 'Confirmed', 'Ready'])

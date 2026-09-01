@@ -31,7 +31,9 @@
     "total": "Requested total",
     "note": "Final price is confirmed with our team in Telegram before payment.",
     "send": "Send Order",
-    "sending": "Sending…"
+    "sending": "Sending…",
+    "noteLabel": "Note for this item (optional)",
+    "notePlaceholder": "e.g. Happy Birthday John · less sugar"
   },
   "contact": {
     "title": "Confirm your order",

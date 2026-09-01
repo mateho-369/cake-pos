@@ -440,6 +440,37 @@
 .customer-cart-row > .customer-cart-row > b {
   font-size: calc(12px * var(--font-scale));
 }
+/* Optional per-line note ("Happy Birthday John", "less sugar"). Plain and
+   quiet: it must never look like a required field. */
+.customer-cart-note {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.customer-cart-note > span {
+  color: var(--subtle);
+  font-size: calc(11px * var(--font-scale));
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.customer-cart-note input {
+  width: 100%;
+  padding: 8px 10px;
+  color: inherit;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  font: inherit;
+  font-size: calc(12px * var(--font-scale));
+}
+.customer-cart-note input::placeholder {
+  color: var(--subtle);
+}
+.customer-cart-note input:focus {
+  border-color: var(--pink-deep);
+  outline: none;
+}
 .customer-cart-sheet footer {
   padding-top: 12px;
 }

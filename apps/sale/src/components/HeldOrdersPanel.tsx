@@ -1,5 +1,13 @@
 import { useCallback, useState } from 'react'
-import { Banknote, PauseCircle, RotateCcw, ScanLine, Trash2, X } from 'lucide-react'
+import {
+  Banknote,
+  PauseCircle,
+  RotateCcw,
+  ScanLine,
+  StickyNote,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { useTranslation } from '../lib/i18n'
 import type { HeldOrder } from '../data'
 // A null/omitted total on a legacy payload must never throw in the held list.
@@ -78,7 +86,30 @@ export default function HeldOrdersPanel({
               <b>{usd(order.total)}</b>
             </div>
             <div className="held-card-body">
-              <small>{order.detail.join('; ')}</small>
+              {order.lineItems?.some((line) => line.note) ? (
+                // An accepted Telegram order keeps the customer's per-line
+                // notes ("Happy Birthday John"): show them line by line so
+                // nothing is lost between Accept and pickup.
+                <ul className="held-items">
+                  {order.lineItems.map((line, index) => (
+                    <li key={`${line.productId ?? 'x'}-${index}`}>
+                      <small>
+                        {line.description} × {line.quantity}
+                      </small>
+                      {line.note && (
+                        <span
+                          className="held-item-note"
+                          title={t('hold.itemNote')}
+                        >
+                          <StickyNote size={11} /> {line.note}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <small>{order.detail.join('; ')}</small>
+              )}
               <span className="held-meta">
                 {order.time} · {t('hold.itemCount', { count: order.items })}
               </span>

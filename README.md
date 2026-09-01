@@ -58,6 +58,41 @@ of a crash or a second stock release. Once the order has been **accepted**,
 `/reject` is refused — it is an ordinary hold at that point and goes through
 `POST /api/orders/{id}/cancel`.
 
+## Order notes (Telegram customer orders)
+
+A customer can attach a short free-text note to **each line** of their order in
+the Mini App — "Happy Birthday John" on the cake, nothing on the iced coffee
+next to it. It is optional, trimmed, and capped at 200 characters
+(`StoreCustomerOrderRequest`, the same trim-then-cap shape as
+`MessageCustomerRequest`); a whitespace-only note is stored as no note at all.
+
+The note is stored on the order item (`order_items.note`) and repeated in the
+order's one-line `detail_json` summary, so it follows the order all the way
+through the flow it matters in:
+
+- the **staff notification** the shop bot sends when the order lands,
+- the **pending orders** card on the sale terminal, per line, so the cashier
+  reads it before ringing the customer,
+- the **held orders** card after **Accept**, so it is still there at pickup,
+- the admin **Orders** detail view, next to the line it belongs to.
+
+Reopening the Mini App restores what the customer typed (the open-order
+payload carries the note), so adding one more cake to the same order never
+silently erases the inscription.
+
+## Shift reminder vs. the shift gate
+
+The "Open your shift" banner on the sale terminal is a **reminder, not a
+gate**. It sits in the page flow under the header (it can never cover the
+toolbar or the shift pill), offers the open-shift action, and has its own
+close button so an admin who is only browsing can dismiss it.
+
+Dismissing it changes nothing about enforcement: every sale-creating endpoint
+stays behind the `open-shift` middleware, and the terminal still routes each
+sale action through `promptOpenShift` / `requestShiftThen`, which opens the
+shift modal — and brings the dismissed reminder back — the moment a real
+action is attempted without a shift.
+
 ## Telegram order payment integrity
 
 Telegram customer orders are completed ONLY through the real Take Payment flow

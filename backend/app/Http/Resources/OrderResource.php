@@ -87,6 +87,11 @@ class OrderResource extends JsonResource
                             'productId' => $item->product_id,
                             'description' => $item->description,
                             'quantity' => (int) $item->quantity,
+                            // The customer's free-text instruction for this
+                            // line ("Happy Birthday John") — null on a
+                            // walk-in line. Staff see it on the pending
+                            // card and again once the order is accepted.
+                            'note' => $item->note,
                             'unitPriceCents' => (int) $item->unit_price_cents,
                         ],
                     )
