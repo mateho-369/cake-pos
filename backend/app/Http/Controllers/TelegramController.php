@@ -7,11 +7,12 @@ use App\Models\{Order, Product, Setting, Shift};
 use App\Services\{
     CustomerOrderService,
     ReportingService,
+    ShopWelcomeService,
     TelegramIdentityService,
 };
 use App\Support\Money;
 use Illuminate\Http\{JsonResponse, Request};
-use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\{Http, Log};
 
 class TelegramController extends Controller
 {
@@ -19,6 +20,7 @@ class TelegramController extends Controller
         private readonly TelegramIdentityService $identity,
         private readonly CustomerOrderService $orders,
         private readonly ReportingService $reports,
+        private readonly ShopWelcomeService $welcome,
     ) {}
 
     public function products(Request $request): JsonResponse
@@ -226,80 +228,9 @@ class TelegramController extends Controller
         // shop Mini App. Opening a bot chat always sends /start, so this
         // covers both "first messages the bot" and an explicit /start.
         if ($from && str_starts_with($text, '/start')) {
-            $this->sendShopWelcome((string) $from['id']);
+            $this->welcome->send((string) $from['id']);
         }
         return response()->json(['ok' => true]);
-    }
-
-    /**
-     * Welcome message for customers starting the shop bot. Wording is
-     * bilingual (Khmer first line, English second) and intentionally lives
-     * in one place so the shop owner can tweak the copy without hunting.
-     */
-    private function sendShopWelcome(string $chatId): void
-    {
-        $token = config('services.telegram.bot_token');
-        $miniAppUrl = config('services.telegram.shop_mini_app_url');
-        if (!$token || !$miniAppUrl) {
-            return;
-        }
-        $profile = Setting::find('business_profile')?->value_json ?? [];
-        // Copy is reviewed with the store owner; the business name itself
-        // always comes from Settings → Business profile when set.
-        $shopName =
-            trim((string) ($profile['businessName'] ?? '')) ?: 'G-Cake';
-        $text =
-            "🎂 សូមស្វាគមន៍មកកាន់ {$shopName}!\n" .
-            'យើងធ្វើនំថ្មីៗរាល់ថ្ងៃ ព្រមទាំងភេសជ្ជៈ និងសម្ភារៈពិធីជប់លៀង '
-            . "\n" .
-            'សូមមើលមឺនុយ ហើយកម្មង់មុនដើម្បីមកយកនៅហាង។' . "\n\n" .
-            "🎂 Welcome to {$shopName}!\n" .
-            "We bake fresh cakes every day — plus drinks and party supplies " .
-            "for your celebration.\n" .
-            'Browse the menu and order ahead for pickup.';
-
-        // Primary: launch the Mini App. Secondary (only when the shop has a
-        // phone or address on file): contact / location. Two buttons max.
-        $keyboard = [
-            [
-                [
-                    'type' => 'web_app',
-                    'text' => '🛍️ Open Shop / បើកហាង',
-                    'web_app' => ['url' => $miniAppUrl],
-                ],
-            ],
-        ];
-        $phone = trim((string) ($profile['phone'] ?? ''));
-        $address = trim((string) ($profile['address'] ?? ''));
-        if ($phone !== '' || $address !== '') {
-            $keyboard[] = [
-                [
-                    'type' => 'url',
-                    'text' => '📞 Contact / Location / ទំនាក់ទំនង',
-                    'url' => $address !== ''
-                        ? 'https://maps.google.com/?q=' . urlencode($address)
-                        : 'tel:' . preg_replace('/[^0-9+]/', '', $phone),
-                ],
-            ];
-        }
-        try {
-            $base = rtrim(
-                (string) config('services.telegram.api_base'),
-                '/',
-            );
-            Http::timeout(8)->post(
-                "{$base}/bot{$token}/sendMessage",
-                [
-                    'chat_id' => $chatId,
-                    'text' => $text,
-                    'reply_markup' => json_encode([
-                        'inline_keyboard' => $keyboard,
-                    ]),
-                ],
-            );
-        } catch (\Throwable $exception) {
-            report($exception);
-        }
     }
 
     /**
@@ -311,6 +242,9 @@ class TelegramController extends Controller
     {
         $token = config('services.telegram.staff_bot_token');
         if (!$token) {
+            Log::warning(
+                'Staff /today summary skipped: STAFF_TELEGRAM_BOT_TOKEN is not set',
+            );
             return;
         }
         $s = $this->reports->summary(['preset' => 'today']);
@@ -334,10 +268,17 @@ class TelegramController extends Controller
                 (string) config('services.telegram.api_base'),
                 '/',
             );
-            Http::timeout(8)->post(
+            $response = Http::timeout(8)->post(
                 "{$base}/bot{$token}/sendMessage",
                 ['chat_id' => $chatId, 'text' => $text],
             );
+            if (!$response->successful()) {
+                Log::warning('Staff /today summary was refused by Telegram', [
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                    'chat_id' => $chatId,
+                ]);
+            }
         } catch (\Throwable $exception) {
             report($exception);
         }

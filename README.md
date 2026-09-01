@@ -113,6 +113,20 @@ The receipt confirmation fires **once, on first submission**: adding another
 cake updates the same open order in place, and re-sending "we received your
 order" on every edit would be noise rather than a confirmation.
 
+If `/start` itself is silent (no welcome, no Open Shop button), every link in
+that chain used to fail closed. Diagnose it on the API host:
+
+```bash
+php artisan telegram:webhook
+php artisan telegram:webhook --set --url=https://api.yourdomain.com
+php artisan telegram:webhook --send=YOUR_TELEGRAM_CHAT_ID
+```
+
+It prints Telegram's own `last_error_message` (`401 Unauthorized` = webhook
+secret mismatch, `Connection refused` = wrong URL) and refuses to register a
+webhook while `TELEGRAM_WEBHOOK_SECRET` is unset. See
+[`docs/TELEGRAM_STOREFRONT.md`](docs/TELEGRAM_STOREFRONT.md).
+
 ## Order notes (Telegram customer orders)
 
 A customer can attach a short free-text note to **each line** of their order in

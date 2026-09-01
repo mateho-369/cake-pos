@@ -98,7 +98,9 @@ continuous visibility into advisories that land after the lock was written.
 
 ## Environment
 
-All variables are documented in `.env.example`. Telegram staff notifications and customer broadcasts use the configured bot tokens and database queue. Run `php artisan queue:work` in production. Before staff notifications can arrive, the owner must send `/start` to the staff bot in the target DM, or add the bot to the target group. CORS is allowlist-only and accepts `ADMIN_ORIGIN`, `SALE_ORIGIN`, and `SHOP_ORIGIN`, including `Authorization` and `Content-Type` headers. Each separately hosted app must be configured with its own exact HTTPS origin.
+All variables are documented in `.env.example`. Telegram staff notifications and customer broadcasts use the configured bot tokens and database queue. Run `php artisan queue:work` in production. Before staff notifications can arrive, the owner must send `/start` to the staff bot in the target DM, or add the bot to the target group.
+
+If the *customer* shop bot's `/start` is silent, run `php artisan telegram:webhook` on the API host. It prints Telegram's `last_error_message`, refuses to `setWebhook` while `TELEGRAM_WEBHOOK_SECRET` is unset (the handler would 401 every update), and `--send=<chat id>` proves the bot can reach you. See [`docs/TELEGRAM_STOREFRONT.md`](../docs/TELEGRAM_STOREFRONT.md). CORS is allowlist-only and accepts `ADMIN_ORIGIN`, `SALE_ORIGIN`, and `SHOP_ORIGIN`, including `Authorization` and `Content-Type` headers. Each separately hosted app must be configured with its own exact HTTPS origin.
 
 ## API authentication
 
