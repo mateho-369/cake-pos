@@ -201,6 +201,14 @@ async function navigateAdmin(page, label) {
     throw new Error(`sidebar nav item not found: ${label}`)
   }
   await item.click()
+  if (label === 'Reports') {
+    // Reports opens a dropdown of report views instead of navigating:
+    // enter the default view so the drawer closes on the real page.
+    await page
+      .locator('.nav-submenu-item', { hasText: 'Sales' })
+      .first()
+      .click()
+  }
   await page.waitForSelector('.sidebar.sidebar-open', {
     state: 'detached',
     timeout: 15000,

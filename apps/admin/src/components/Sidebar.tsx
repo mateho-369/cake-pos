@@ -1,12 +1,15 @@
+import { useEffect, useState } from 'react'
 import {
   BarChart3,
   CakeSlice,
+  ChevronDown,
   ChevronLeft,
   CircleDollarSign,
   Clock3,
   LayoutDashboard,
   Images,
   PackageCheck,
+  Pencil,
   ReceiptText,
   Settings,
   Tags,
@@ -14,6 +17,8 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
+import { apiRequest } from '../lib/api'
+import { REPORT_TABS } from '../lib/reportNav'
 import { GCakeLogo } from '@cake-pos/brand'
 import type { PageId } from '../data'
 import { useAdminData } from '../lib/data'
@@ -56,6 +61,8 @@ type SidebarProps = {
   onClose: () => void
   collapsed: boolean
   onToggleCollapsed: () => void
+  onOpenReportTab: (tabId: string) => void
+  onEditLocation: () => void
 }
 
 export default function Sidebar({
@@ -65,9 +72,39 @@ export default function Sidebar({
   onClose,
   collapsed,
   onToggleCollapsed,
+  onOpenReportTab,
+  onEditLocation,
 }: SidebarProps) {
   const { t } = useTranslation()
   const { orders, customers, categories, products, summary } = useAdminData()
+  const [reportsOpen, setReportsOpen] = useState(false)
+  // Close the report-views dropdown whenever the active page changes, so a
+  // click on Reports always means "open" — navigation never leaves the
+  // dropdown dangling open for the next visit.
+  useEffect(() => {
+    setReportsOpen(false)
+  }, [page])
+
+  // The location card shows the REAL business profile (editable in Settings)
+  // instead of a hardcoded branch name.
+  const [profile, setProfile] = useState<{
+    businessName?: string
+    locationName?: string
+    address?: string
+  } | null>(null)
+  useEffect(() => {
+    let alive = true
+    apiRequest<{
+      businessName?: string
+      locationName?: string
+      address?: string
+    }>('/api/settings/business-profile')
+      .then((value) => alive && setProfile(value))
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
   // Every badge is derived from the same live API collections the page bodies
   // render; a store with no data shows no badges, never a hardcoded number.
   const badgeFor = (id: PageId): string | undefined => {
@@ -117,15 +154,24 @@ export default function Sidebar({
             <X size={18} />
           </button>
         </div>
-        <div className="location-card">
+        <button
+          className="location-card"
+          type="button"
+          onClick={onEditLocation}
+          title={t('settings.businessProfile')}
+        >
           <span className="status-dot" />
           {!collapsed && (
             <div>
-              <strong>{t('nav.location')}</strong>
-              <span>{t('nav.locationOpen')}</span>
+              <strong>{profile?.businessName || t('nav.location')}</strong>
+              <span>
+                {profile?.locationName ||
+                  (profile?.address ? profile.address : t('nav.locationOpen'))}
+              </span>
             </div>
           )}
-        </div>
+          {!collapsed && <Pencil size={13} className="location-edit" />}
+        </button>
         <nav className="sidebar-nav" aria-label={t('nav.overview')}>
           {navGroups.map((group) => (
             <div className="nav-group" key={group.title}>
@@ -135,6 +181,54 @@ export default function Sidebar({
               {group.items.map((item) => {
                 const Icon = item.icon
                 const badge = badgeFor(item.id)
+                if (item.id === 'reports') {
+                  return (
+                    <div
+                      key={item.id}
+                      className={`nav-item-group ${reportsOpen ? 'open' : ''}`}
+                    >
+                      <button
+                        className={`nav-item ${page === 'reports' ? 'active' : ''}`}
+                        onClick={() => {
+                          if (collapsed) {
+                            onNavigate('reports')
+                            onClose()
+                            return
+                          }
+                          setReportsOpen((open) => !open)
+                        }}
+                        aria-expanded={!collapsed ? reportsOpen : undefined}
+                        aria-haspopup={!collapsed ? 'menu' : undefined}
+                        title={collapsed ? t(item.label) : undefined}
+                      >
+                        <Icon size={19} strokeWidth={1.8} />
+                        {!collapsed && <span>{t(item.label)}</span>}
+                        {!collapsed && (
+                          <ChevronDown size={14} className="nav-chev" />
+                        )}
+                      </button>
+                      {!collapsed && reportsOpen && (
+                        <div className="nav-submenu">
+                          <div className="nav-submenu-label">
+                            {t('reports.views')}
+                          </div>
+                          {REPORT_TABS.map((tab) => (
+                            <button
+                              key={tab.id}
+                              className="nav-submenu-item"
+                              onClick={() => {
+                                onOpenReportTab(tab.id)
+                                onClose()
+                              }}
+                            >
+                              {t(tab.labelKey)}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                }
                 return (
                   <button
                     key={item.id}

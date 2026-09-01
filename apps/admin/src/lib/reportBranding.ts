@@ -16,6 +16,9 @@ export type ReportBranding = {
   locationName: string
   address: string
   phone: string
+  /** The shop's own logo (Settings → Receipts). When set it replaces the
+      brand mark in Word/Excel letterheads. */
+  logoUrl?: string
 }
 
 export const defaultBranding: ReportBranding = {
@@ -49,6 +52,68 @@ export const BRAND_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="
   <path d="M104.3 97.4 L95.1 105.6 H113.5 Z" fill="#3B82F6" stroke="#3B82F6" stroke-width="3" stroke-linejoin="round"/>
   <rect x="95.1" y="108.4" width="18.4" height="5.6" rx="2.8" fill="#3B82F6"/>
 </svg>`
+
+const customLogoCache = new Map<string, Promise<ArrayBuffer | null>>()
+
+/**
+ * Rasterise the shop's OWN logo (the one uploaded in Settings → Receipts)
+ * to PNG bytes for the document letterhead. Falls back to null — and the
+ * exports fall back to the brand mark / a text letterhead — when the image
+ * cannot be loaded or the canvas is unavailable (jsdom, headless browsers).
+ */
+export function customLogoPng(
+  logoUrl: string,
+  size = 128,
+): Promise<ArrayBuffer | null> {
+  const cached = customLogoCache.get(logoUrl)
+  if (cached) return cached
+  const pending = new Promise<ArrayBuffer | null>((resolve) => {
+    try {
+      const canvas = document.createElement('canvas')
+      const context = canvas.getContext?.('2d')
+      if (!context || typeof canvas.toDataURL !== 'function') {
+        resolve(null)
+        return
+      }
+      canvas.width = size
+      canvas.height = size
+      const image = new Image()
+      image.crossOrigin = 'anonymous'
+      const done = (value: ArrayBuffer | null) => resolve(value)
+      image.onload = () => {
+        try {
+          const scale = Math.min(size / image.width, size / image.height)
+          const width = Math.max(1, Math.round(image.width * scale))
+          const height = Math.max(1, Math.round(image.height * scale))
+          context.clearRect(0, 0, size, size)
+          context.drawImage(
+            image,
+            (size - width) / 2,
+            (size - height) / 2,
+            width,
+            height,
+          )
+          const dataUrl = canvas.toDataURL('image/png')
+          const base64 = dataUrl.split(',')[1] ?? ''
+          const binary = atob(base64)
+          const bytes = new Uint8Array(binary.length)
+          for (let index = 0; index < binary.length; index += 1) {
+            bytes[index] = binary.charCodeAt(index)
+          }
+          done(bytes.buffer)
+        } catch {
+          done(null)
+        }
+      }
+      image.onerror = () => done(null)
+      image.src = logoUrl
+    } catch {
+      resolve(null)
+    }
+  })
+  customLogoCache.set(logoUrl, pending)
+  return pending
+}
 
 let logoCache: ArrayBuffer | null | undefined
 

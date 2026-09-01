@@ -127,6 +127,17 @@ export default function App() {
   const [selectedOrder, setSelectedOrder] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  // Cross-page intents: a sidebar Reports dropdown pick, and drill-through
+  // jumps from report rows to the underlying record (product, order,
+  // employee, customer) plus the settings section to open.
+  const [reportIntent, setReportIntent] = useState<{ tab?: string } | null>(
+    null,
+  )
+  const [reportIntentNonce, setReportIntentNonce] = useState(0)
+  const [editProductId, setEditProductId] = useState<number | null>(null)
+  const [editEmployeeId, setEditEmployeeId] = useState<number | null>(null)
+  const [selectCustomerId, setSelectCustomerId] = useState<number | null>(null)
+  const [settingsSection, setSettingsSection] = useState('business')
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
@@ -158,6 +169,34 @@ export default function App() {
   const openOrder = (id: string) => {
     setSelectedOrder(id)
     navigate('orders')
+  }
+  const openReportTab = (tabId: string) => {
+    setReportIntent({ tab: tabId })
+    setReportIntentNonce((nonce) => nonce + 1)
+    navigate('reports')
+  }
+  const openProductDetail = (productId: number) => {
+    setEditProductId(productId)
+    navigate('products')
+  }
+  const openBusinessSettings = () => {
+    setSettingsSection('business')
+    navigate('settings')
+  }
+  // QuickZoom-style drill-throughs: a report row opens its real record.
+  const openEmployeeDetail = (employeeId: number) => {
+    setEditEmployeeId(employeeId)
+    navigate('employees')
+  }
+  const openCustomerDetail = (customerId: number) => {
+    setSelectCustomerId(customerId)
+    navigate('customers')
+  }
+  const openShiftDetail = () => {
+    navigate('shifts')
+  }
+  const openCategoryDetail = () => {
+    navigate('categories')
   }
   const addProduct = async (
     event: React.FormEvent<HTMLFormElement>,
@@ -203,6 +242,8 @@ export default function App() {
         onClose={() => setSidebarOpen(false)}
         collapsed={sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onOpenReportTab={openReportTab}
+        onEditLocation={openBusinessSettings}
       />
       <main className="main-shell">
         <Header
@@ -225,7 +266,12 @@ export default function App() {
           />
         )}
         {page === 'products' && (
-          <ProductsPage onAdd={() => setAddOpen(true)} onToast={setToast} />
+          <ProductsPage
+            onAdd={() => setAddOpen(true)}
+            onToast={setToast}
+            editId={editProductId}
+            onEditConsumed={() => setEditProductId(null)}
+          />
         )}
         {page === 'orders' && (
           <OrdersPage
@@ -234,13 +280,39 @@ export default function App() {
             onToast={setToast}
           />
         )}
-        {page === 'customers' && <CustomersPage />}
+        {page === 'customers' && (
+          <CustomersPage
+            selectId={selectCustomerId}
+            onSelectConsumed={() => setSelectCustomerId(null)}
+          />
+        )}
         {page === 'freshness' && <FreshnessPage onToast={setToast} />}
         {page === 'categories' && <CategoriesPage onToast={setToast} />}
-        {page === 'employees' && <EmployeesPage onToast={setToast} />}
+        {page === 'employees' && (
+          <EmployeesPage
+            onToast={setToast}
+            editId={editEmployeeId}
+            onEditConsumed={() => setEditEmployeeId(null)}
+          />
+        )}
         {page === 'shifts' && <ShiftsPage onToast={setToast} />}
-        {page === 'reports' && <ReportsPage onToast={setToast} />}
-        {page === 'settings' && <SettingsPage onToast={setToast} />}
+        {page === 'reports' && (
+          <ReportsPage
+            onToast={setToast}
+            initialTab={reportIntent?.tab}
+            intentNonce={reportIntentNonce}
+            onIntentConsumed={() => setReportIntent(null)}
+            onOpenProduct={openProductDetail}
+            onOpenOrder={openOrder}
+            onOpenEmployee={openEmployeeDetail}
+            onOpenCustomer={openCustomerDetail}
+            onOpenShift={openShiftDetail}
+            onOpenCategory={openCategoryDetail}
+          />
+        )}
+        {page === 'settings' && (
+          <SettingsPage onToast={setToast} initialSection={settingsSection} />
+        )}
         {page === 'media' && <MediaPage onToast={setToast} />}
       </main>
       <AddCakeModal

@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   AlertTriangle,
   Banknote,
   CheckCircle,
+  ChevronDown,
+  Download,
   FileSpreadsheet,
   FileText,
   MoreHorizontal,
@@ -17,7 +20,7 @@ import {
   X,
 } from 'lucide-react'
 import { type Order } from '../data'
-import { useTranslation } from '../lib/i18n'
+import { statusLabel, useTranslation } from '../lib/i18n'
 import { useAdminData } from '../lib/data'
 import { apiRequest } from '../lib/api'
 import { printReceipt } from '../lib/receipt'
@@ -125,7 +128,7 @@ function OrderStatusBadge({
   return (
     <span className={`status-badge ${statusClass(order.status)} ${className}`}>
       <i />
-      {order.status}
+      {statusLabel(t, order.status)}
     </span>
   )
 }
@@ -261,7 +264,7 @@ function PendingCustomerOrders({
               <small>{order.detail.join('; ')}</small>
               <small className="pending-order-meta">
                 {order.id} · {t('reports.placedAt')}{' '}
-                {new Date(order.createdAt).toLocaleString()} · {order.status}
+                {new Date(order.createdAt).toLocaleString()} · {statusLabel(t, order.status)}
               </small>
             </div>
             <div className="pending-order-total">
@@ -349,7 +352,7 @@ function PayHeldOrderModal({
   const changeKhr = tender ? tender.changeKhr : 0
   const canConfirm =
     method === 'KHQR' || (usdCents > 0 || khr > 0)
-  return (
+  return createPortal(
     <div className="modal-layer" role="dialog" aria-modal="true">
       <button
         className="modal-backdrop"
@@ -457,7 +460,8 @@ function PayHeldOrderModal({
           </div>
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -487,6 +491,23 @@ export default function OrdersPage({
   const [rate, setRate] = useState(4100)
   const [takePayment, setTakePayment] = useState<Order | null>(null)
   const [payBusy, setPayBusy] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
+  const exportRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!exportOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setExportOpen(false)
+    }
+    const onDown = (event: MouseEvent) => {
+      if (!exportRef.current?.contains(event.target as Node)) setExportOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    document.addEventListener('mousedown', onDown)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.removeEventListener('mousedown', onDown)
+    }
+  }, [exportOpen])
   useEffect(() => {
     apiRequest<{ exchangeRateKhrPerUsd?: number }>('/api/settings/pos-rules')
       .then((value) =>
@@ -645,7 +666,7 @@ export default function OrdersPage({
                 className={status === item ? 'active' : ''}
                 onClick={() => setStatus(item)}
               >
-                {item === 'all' ? t('common.all') : item}
+                {item === 'all' ? t('common.all') : statusLabel(t, item)}
               </button>
             ))}
           </div>
@@ -667,26 +688,46 @@ export default function OrdersPage({
               onChange={(event) => setTo(event.target.value)}
             />
           </label>
-          <button
-            className="secondary-button"
-            onClick={() =>
-              void exportSummaryWord(visible, from, to).catch((error) =>
-                onToast(error.message),
-              )
-            }
-          >
-            <FileText size={15} /> Word
-          </button>
-          <button
-            className="primary-button"
-            onClick={() =>
-              void exportOrdersExcel(visible, from, to).catch((error) =>
-                onToast(error.message),
-              )
-            }
-          >
-            <FileSpreadsheet size={15} /> Excel
-          </button>
+          <div className="export-menu" ref={exportRef}>
+            <button
+              type="button"
+              className="primary-button"
+              aria-haspopup="menu"
+              aria-expanded={exportOpen}
+              onClick={() => setExportOpen((open) => !open)}
+            >
+              <Download size={15} /> {t('common.export')}
+              <ChevronDown size={14} />
+            </button>
+            {exportOpen && (
+              <div className="export-menu-list" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setExportOpen(false)
+                    void exportSummaryWord(visible, from, to).catch((error) =>
+                      onToast(error.message),
+                    )
+                  }}
+                >
+                  <FileText size={15} /> Word
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setExportOpen(false)
+                    void exportOrdersExcel(visible, from, to).catch((error) =>
+                      onToast(error.message),
+                    )
+                  }}
+                >
+                  <FileSpreadsheet size={15} /> Excel
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </section>
       <section className={`orders-layout ${selected ? 'with-detail' : ''}`}>
@@ -726,16 +767,18 @@ export default function OrdersPage({
                   {order.time} · {order.date}
                 </small>
               </span>
-              <span>{order.items}</span>
-              <span className="payment-pill">
-                {order.payment === 'KHQR' ? (
-                  <ScanLine size={14} />
-                ) : order.payment === 'Cash' ? (
-                  <Banknote size={14} />
-                ) : (
-                  <ShoppingBag size={14} />
-                )}{' '}
-                {order.payment || t('orders.notPaid')}
+              <span className="order-row-meta">
+                <span>{order.items}</span>
+                <span className="payment-pill">
+                  {order.payment === 'KHQR' ? (
+                    <ScanLine size={14} />
+                  ) : order.payment === 'Cash' ? (
+                    <Banknote size={14} />
+                  ) : (
+                    <ShoppingBag size={14} />
+                  )}{' '}
+                  {order.payment || t('orders.notPaid')}
+                </span>
               </span>
               <OrderStatusBadge order={order} onConverted={onSelect} />
               <strong className="numeric">{usd(order.total)}</strong>

@@ -1376,10 +1376,12 @@ kbd {
 }
 .payment-pill {
   width: fit-content;
+  max-width: 100%;
   padding: 4px 7px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
   color: #5d4e58;
   border-radius: 7px;
   background: #f1edef;
@@ -2082,7 +2084,8 @@ label > small {
   position: fixed;
   right: 24px;
   bottom: 24px;
-  z-index: 150;
+  /* Below modal layers (100): a toast must never float over an open dialog. */
+  z-index: 90;
   min-width: 280px;
   padding: 11px 12px;
   display: flex;
@@ -2611,14 +2614,14 @@ label > small {
   overflow: hidden;
 }
 .order-full-row {
-  min-width: 880px;
-  min-height: 59px;
+  min-width: 900px;
+  min-height: 66px;
   width: 100%;
-  padding: 0 14px;
+  padding: 0 18px;
   display: grid;
   grid-template-columns: 90px 110px 1fr 55px 90px 95px 80px 20px;
   align-items: center;
-  gap: 10px;
+  gap: 16px;
   text-align: left;
   border: 0;
   border-top: 1px solid var(--line);
@@ -5189,9 +5192,13 @@ img.qr-placeholder {
   .freshness-hero-copy h2 {
     font-size: calc(20px * var(--font-scale));
   }
-  .reports-header .toolbar-actions,
-  .catalog-toolbar .toolbar-actions {
+  .reports-header .toolbar-actions {
     overflow-x: auto;
+  }
+  /* The catalog-style toolbars (Orders, Products, Customers) wrap instead
+     of scrolling: a scroll container would clip the export dropdown menu. */
+  .catalog-toolbar .toolbar-actions {
+    flex-wrap: wrap;
   }
   .report-library-grid {
     grid-template-columns: 1fr;
@@ -5571,7 +5578,9 @@ img.qr-placeholder {
 
 /* Phase 2: Telegram customers and order workflow */
 .phase2-order-row {
-  grid-template-columns: 78px 82px minmax(125px, 1fr) 45px 92px 92px 72px 18px;
+  grid-template-columns:
+    96px 104px minmax(170px, 1fr) 60px 132px 136px 100px
+    24px;
 }
 .source-pill {
   display: inline-flex !important;
@@ -6779,6 +6788,7 @@ img.qr-placeholder {
    Reports → record-table filter bar + review-before-download dialog
    -------------------------------------------------------------------- */
 .report-detail-filters {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -6791,144 +6801,826 @@ img.qr-placeholder {
   flex: 1 1 220px;
   min-width: 180px;
 }
-.report-detail-filter {
+.report-detail-filter-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+/* One outlined trigger replaces the four always-visible pill selects. */
+.report-filter-trigger {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 6px 5px 12px;
-  border: 1px solid var(--line, rgba(79, 40, 58, 0.14));
+  padding: 8px 15px;
+  border: 1px solid var(--line, rgba(79, 40, 58, 0.2));
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.75);
+  background: #fff;
+  color: var(--ink, #2c2128);
+  font-size: calc(12.5px * var(--font-scale));
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+.report-filter-trigger:hover {
+  border-color: rgba(190, 24, 93, 0.4);
+  background: rgba(247, 232, 239, 0.4);
+}
+.report-filter-trigger[aria-expanded='true'] {
+  border-color: var(--pink, #e75480);
+  box-shadow: 0 0 0 3px rgba(231, 84, 128, 0.14);
+}
+/* Applied filters read as removable chips, matching the export dialog meta. */
+.report-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 6px 5px 12px;
+  border: 1px solid rgba(190, 24, 93, 0.22);
+  border-radius: 999px;
+  background: rgba(247, 232, 239, 0.65);
+  color: var(--pink-deep, #a92c36);
   font-size: calc(12px * var(--font-scale));
-  color: var(--muted, #7a6b74);
+  font-weight: 700;
   white-space: nowrap;
 }
-.report-detail-filter select {
-  max-width: 170px;
-  padding: 4px 6px;
+.report-filter-chip button {
+  width: 19px;
+  height: 19px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
   border: 0;
-  border-radius: 999px;
-  background: transparent;
-  font: inherit;
-  color: var(--ink, #2c2128);
-  font-weight: 600;
+  border-radius: 50%;
+  background: rgba(190, 24, 93, 0.1);
+  color: inherit;
   cursor: pointer;
 }
-.report-detail-filter:focus-within {
-  border-color: var(--pink, #e75480);
-  box-shadow: 0 0 0 3px rgba(231, 84, 128, 0.12);
+.report-filter-chip button:hover {
+  background: rgba(190, 24, 93, 0.22);
+}
+/* The popover panel: labelled native selects in a proper field style. */
+.report-filter-backdrop {
+  display: none;
+}
+.report-filter-panel {
+  position: absolute;
+  top: calc(100% - 6px);
+  left: 0;
+  z-index: 40;
+  width: min(560px, 100%);
+  padding: 14px 16px 16px;
+  border: 1px solid rgba(79, 40, 58, 0.14);
+  border-radius: 16px;
+  background: linear-gradient(150deg, #ffffff, #fff8fb);
+  box-shadow: 0 24px 60px rgba(45, 14, 29, 0.18);
+}
+.report-filter-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.report-filter-panel-head strong {
+  font-size: calc(13px * var(--font-scale));
+}
+.report-filter-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.report-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.report-filter-field > span {
+  color: var(--muted, #7a6b74);
+  font-size: calc(11px * var(--font-scale));
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.report-filter-field select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line, rgba(79, 40, 58, 0.2));
+  border-radius: 10px;
+  background: #fff;
+  font: inherit;
+  font-size: calc(13px * var(--font-scale));
+  color: var(--ink, #2c2128);
+  cursor: pointer;
+}
+.report-filter-field select:focus {
+  outline: 2px solid var(--pink, #e75480);
+  outline-offset: 1px;
+}
+.report-filter-panel-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line, rgba(79, 40, 58, 0.12));
+}
+.report-detail-empty {
+  gap: 8px;
+  padding: 22px 16px;
+}
+.report-detail-empty small {
+  color: var(--muted, #7a6b74);
 }
 .report-detail-clear {
   gap: 5px;
   color: var(--pink-deep, #a92c36);
 }
 
-.export-preview-card {
-  max-width: 900px;
+/* --------------------------------------------------------------------
+   Reports → responsive pass (record table, filters, export dialog)
+   -------------------------------------------------------------------- */
+
+/* Wide desktop: keep the first column pinned while the table scrolls. */
+@media (min-width: 641px) {
+  .report-detail-table th:first-child,
+  .report-detail-table td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: #fff;
+    box-shadow: inset -1px 0 rgba(79, 40, 58, 0.08);
+  }
+  .report-detail-table th:first-child {
+    z-index: 3;
+  }
 }
-.export-preview-lead {
-  margin: 0;
-  color: var(--muted, #7a6b74);
+
+/* Tablet: condensed padding, secondary columns collapse out of the grid
+   (they stay in the stacked mobile cards, so nothing is lost). */
+@media (min-width: 641px) and (max-width: 1024px) {
+  .report-detail-table th,
+  .report-detail-table td {
+    padding: 8px 9px;
+  }
+  .report-detail-table th.compact,
+  .report-detail-table td.compact {
+    display: none;
+  }
+  .report-filter-panel {
+    left: 0;
+    right: 0;
+    width: auto;
+  }
 }
-.export-preview-meta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-  margin: 0;
-  padding: 14px 16px;
-  border: 1px solid var(--line, rgba(79, 40, 58, 0.12));
-  border-radius: 14px;
-  background: rgba(253, 242, 246, 0.6);
+
+/* Phone: the record table becomes a stacked card list, the filter popover a
+   bottom sheet, and the export dialog a full-screen review. */
+@media (max-width: 640px) {
+  .report-detail-panel {
+    margin-top: 14px;
+    padding: 14px 12px 6px;
+  }
+  .report-detail-panel .panel-heading {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .report-detail-filters {
+    gap: 8px;
+  }
+  .report-detail-filters .inline-search {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .report-detail-filter-controls {
+    width: 100%;
+  }
+  .report-filter-trigger {
+    flex: 0 0 auto;
+  }
+  /* Filter bottom sheet with its own backdrop and an Apply action. */
+  .report-filter-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+    display: block;
+    border: 0;
+    background: rgba(40, 20, 29, 0.42);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+  }
+  .report-filter-panel {
+    position: fixed;
+    top: auto;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 200;
+    width: auto;
+    max-height: 78vh;
+    overflow-y: auto;
+    border-radius: 20px;
+  }
+  .report-filter-fields {
+    grid-template-columns: 1fr;
+  }
+  /* Stacked record cards: thead disappears, every td becomes a labelled
+     value pair, the first column doubles as the card header. */
+  .report-detail-table thead {
+    display: none;
+  }
+  .report-detail-table,
+  .report-detail-table tbody,
+  .report-detail-table tr,
+  .report-detail-table td {
+    display: block;
+    width: 100%;
+  }
+  .report-detail-table tbody tr {
+    margin-bottom: 10px;
+    padding: 10px 12px 12px;
+    border: 1px solid rgba(79, 40, 58, 0.12);
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: var(--shadow, 0 12px 30px rgba(74, 28, 49, 0.06));
+  }
+  .report-detail-table td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 6px 0;
+    border: 0;
+    text-align: left;
+    white-space: normal;
+  }
+  .report-detail-table td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: var(--muted, #7a6b74);
+    font-size: calc(10px * var(--font-scale));
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .report-detail-table tbody tr > td:first-child {
+    font-size: calc(13.5px * var(--font-scale));
+    font-weight: 700;
+    padding-bottom: 9px;
+    margin-bottom: 2px;
+    border-bottom: 1px solid var(--line, rgba(79, 40, 58, 0.12));
+  }
+  .report-detail-table td .block-note {
+    max-width: none;
+    white-space: normal;
+  }
+  .report-detail-table .detail-items {
+    max-width: none;
+  }
+  .table-pagination {
+    gap: 8px;
+  }
+  .table-pagination-size {
+    width: 100%;
+    justify-content: space-between;
+  }
+  /* Toolbar: tabs and presets scroll as strips, dates span the row, the
+     single Export button goes full width. */
+  .report-tabs,
+  .report-presets {
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+  .report-presets {
+    width: 100%;
+  }
+  .reports-header .report-export-actions {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .reports-header .report-export-actions label {
+    flex: 1 1 130px;
+    min-width: 0;
+  }
+  .reports-header .report-export-actions input {
+    width: 100%;
+    min-width: 0;
+  }
+  .reports-header .report-export-actions .primary-button {
+    width: 100%;
+    justify-content: center;
+  }
+  /* The import review table scrolls instead of squeezing its six columns. */
+  .import-preview-table {
+    overflow-x: auto;
+  }
+  .import-row {
+    min-width: 520px;
+  }
+  /* Rollup tables keep their label/value shapes without overflow. */
+  .report-tab-table {
+    padding: 4px 8px 12px;
+  }
+  .report-tab-table--3col .table-row {
+    grid-template-columns: minmax(120px, 2fr) minmax(70px, 1fr) minmax(
+        54px,
+        0.8fr
+      );
+  }
+  .report-tab-table--4col .table-row {
+    grid-template-columns: 34px minmax(92px, 1.6fr) minmax(34px, 0.7fr) minmax(
+        56px,
+        0.9fr
+      );
+  }
+  /* Accountability keeps its seven columns: it scrolls instead of mangling. */
+  .report-tab-table .table-row.accountability-head {
+    min-width: 640px;
+  }
+  .report-tab-table .table-row.variance-row {
+    min-width: 460px;
+  }
+  .report-comparison-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .audit-filters {
+    flex-wrap: wrap;
+  }
+  .audit-head,
+  .audit-row {
+    min-width: 640px;
+  }
+  .report-kpi {
+    min-height: 0;
+    padding: 13px 14px;
+  }
+  .report-chart-card .panel-heading {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .dual-legend {
+    width: 100%;
+  }
 }
-.export-preview-meta dt {
-  margin-bottom: 4px;
-  font-size: calc(11px * var(--font-scale));
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--muted, #7a6b74);
+
+/* --------------------------------------------------------------------
+   Orders → toolbar export menu + phone card layout for the order rows
+   -------------------------------------------------------------------- */
+
+/* On desktop the meta wrapper is transparent: its children still occupy
+   their own grid columns, so the 8-column row is byte-identical to before.
+   On phones the wrapper becomes one groupable grid item (see below). */
+.order-full-row > .order-row-meta {
+  display: contents;
 }
-.export-preview-meta dd {
-  margin: 0;
-  font-size: calc(13px * var(--font-scale));
-  color: var(--ink, #2c2128);
-  overflow-wrap: anywhere;
+/* One Export button; the format lives in the dropdown (same files as the
+   old Word/Excel buttons, contents unchanged). */
+.export-menu {
+  position: relative;
+  display: inline-flex;
 }
-.export-preview-choices {
+.export-menu-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 190px;
+  padding: 6px;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid rgba(79, 40, 58, 0.14);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(45, 14, 29, 0.18);
 }
-.export-preview-formats,
-.export-preview-language {
-  display: inline-flex;
+.export-menu-list button {
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px;
-  border: 1px solid var(--line, rgba(79, 40, 58, 0.14));
-  border-radius: 999px;
-  background: rgba(247, 232, 239, 0.45);
+  gap: 9px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font: inherit;
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 600;
+  color: var(--ink, #2c2128);
+  text-align: left;
+  cursor: pointer;
 }
-.export-preview-language > span {
-  padding: 0 8px;
-  font-size: calc(11px * var(--font-scale));
-  letter-spacing: 0.05em;
+.export-menu-list button:hover {
+  background: rgba(247, 232, 239, 0.6);
+}
+
+@media (max-width: 640px) {
+  /* Each order becomes a card: id + total header, who/date under it, then
+     source, items · payment, and the status pill. No horizontal scrolling. */
+  .orders-full-table.table-responsive {
+    overflow-x: visible;
+  }
+  .orders-full-table .table-head {
+    display: none;
+  }
+  .order-full-row.phase2-order-row {
+    min-width: 0;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'id total'
+      'who total'
+      'src src'
+      'meta meta'
+      'status status';
+    gap: 4px 12px;
+    padding: 11px 13px;
+    margin-bottom: 9px;
+    border: 1px solid rgba(79, 40, 58, 0.12);
+    border-top: 1px solid rgba(79, 40, 58, 0.12);
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: var(--shadow, 0 12px 30px rgba(74, 28, 49, 0.06));
+  }
+  .order-full-row.phase2-order-row:hover {
+    background: #fff;
+  }
+  .order-full-row.phase2-order-row > strong:first-child {
+    grid-area: id;
+  }
+  .order-full-row.phase2-order-row > .source-pill {
+    grid-area: src;
+    justify-self: start;
+  }
+  .order-full-row.phase2-order-row > span:nth-child(3) {
+    grid-area: who;
+  }
+  .order-full-row.phase2-order-row > .order-row-meta {
+    grid-area: meta;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .order-full-row.phase2-order-row > .status-badge {
+    grid-area: status;
+    justify-self: start;
+  }
+  .order-full-row.phase2-order-row > strong.numeric {
+    grid-area: total;
+    align-self: start;
+    justify-self: end;
+  }
+  .order-full-row.phase2-order-row > svg {
+    display: none;
+  }
+  /* Toolbar: dates share the row, the Export button goes full width and its
+     menu spans the button. */
+  .catalog-toolbar .report-export-actions {
+    width: 100%;
+  }
+  .catalog-toolbar .report-export-actions label {
+    flex: 1 1 130px;
+    min-width: 0;
+  }
+  .catalog-toolbar .report-export-actions input {
+    width: 100%;
+    min-width: 0;
+  }
+  .catalog-toolbar .export-menu {
+    flex: 1 1 100%;
+  }
+  .catalog-toolbar .export-menu > .primary-button {
+    width: 100%;
+    justify-content: center;
+  }
+  .catalog-toolbar .export-menu-list {
+    left: 0;
+    right: 0;
+  }
+  /* Status tabs stay a horizontally scrollable strip (no wrap, no overflow). */
+  .page-toolbar .filter-tabs {
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* --------------------------------------------------------------------
+   Sidebar → Reports dropdown, editable location card, preset dropdown,
+   product links
+   -------------------------------------------------------------------- */
+
+/* The location card is now a button: clicking it edits the store profile
+   in Settings. The pencil appears on hover to say "this is editable". */
+button.location-card {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+button.location-card:hover {
+  border-color: rgba(190, 24, 93, 0.28);
+  background: rgba(255, 255, 255, 0.9);
+}
+button.location-card > div {
+  flex: 1;
+  min-width: 0;
+}
+button.location-card strong,
+button.location-card span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.location-edit {
+  opacity: 0;
+  color: var(--pink-deep, #a92c36);
+  transition: opacity 0.18s ease;
+}
+button.location-card:hover .location-edit,
+button.location-card:focus-visible .location-edit {
+  opacity: 1;
+}
+
+/* Reports nav item: the chevron flips into the dropdown arrow, and the
+   submenu lists every report view + download under it. */
+.nav-item-group {
+  width: 100%;
+}
+.nav-item .nav-chev {
+  flex: 0 0 auto;
+  opacity: 0.7;
+  transition: transform 0.18s ease;
+}
+.nav-item-group.open .nav-chev {
+  transform: rotate(180deg);
+}
+.nav-submenu {
+  margin: 1px 0 7px 24px;
+  padding: 4px 0 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-left: 2px solid rgba(190, 24, 93, 0.18);
+}
+.nav-submenu-label {
+  padding: 7px 10px 3px;
+  color: var(--subtle, #a99ca4);
+  font-size: calc(10px * var(--font-scale));
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--muted, #7a6b74);
 }
-.export-preview-formats button,
-.export-preview-language button {
+.nav-submenu-item {
+  min-height: 34px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #6e606a;
+  font-size: calc(12px * var(--font-scale));
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.nav-submenu-item:hover {
+  color: var(--ink, #2c2128);
+  background: rgba(255, 255, 255, 0.76);
+}
+
+/* A product name in Reports that jumps to the product's detail page. */
+.product-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink, #2c2128);
+  font-size: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: rgba(190, 24, 93, 0.45);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.product-link:hover {
+  color: var(--pink-deep, #a92c36);
+  text-decoration-color: var(--pink, #e75480);
+}
+
+/* --------------------------------------------------------------------
+   Reports → summary cards (Losses / Audit / Shifts chart slot) + links
+   -------------------------------------------------------------------- */
+
+/* A big-number card replaces the chart when a tab has no series. */
+.report-summary-card {
+  padding: 26px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.report-summary-card > strong {
+  font-size: calc(34px * var(--font-scale));
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.report-summary-card > span {
+  color: var(--muted, #7a6b74);
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 700;
+}
+.report-summary-card > small {
+  color: var(--subtle, #a99ca4);
+  font-size: calc(12px * var(--font-scale));
+}
+
+/* QuickZoom drill-through links: a report row opens its real record. */
+.record-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink, #2c2128);
+  font-size: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: rgba(190, 24, 93, 0.45);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.record-link:hover {
+  color: var(--pink-deep, #a92c36);
+  text-decoration-color: var(--pink, #e75480);
+}
+
+/* --------------------------------------------------------------------
+   Reports → View-by dropdown, QuickZoom drill chip, below-table export
+   -------------------------------------------------------------------- */
+
+/* The per-tab "View by: X" dropdown. */
+.report-viewby-section {
+  margin: 4px 0 14px;
+}
+.report-viewby-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.view-by-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+.view-by-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  border: 1px solid transparent;
-  border-radius: 999px;
+  gap: 8px;
+  padding: 9px 15px;
+  border: 1px solid var(--line, rgba(79, 40, 58, 0.2));
+  border-radius: 12px;
+  background: #fff;
+  color: var(--muted, #7a6b74);
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.view-by-trigger strong {
+  color: var(--ink, #2c2128);
+}
+.view-by-trigger:hover {
+  border-color: rgba(190, 24, 93, 0.4);
+}
+.view-by-trigger[aria-expanded='true'] {
+  border-color: var(--pink, #e75480);
+  box-shadow: 0 0 0 3px rgba(231, 84, 128, 0.14);
+}
+.view-by-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  min-width: 190px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid rgba(79, 40, 58, 0.14);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(45, 14, 29, 0.18);
+}
+.view-by-menu button {
+  padding: 9px 12px;
+  display: flex;
+  align-items: center;
+  border: 0;
+  border-radius: 9px;
   background: transparent;
   font: inherit;
   font-size: calc(13px * var(--font-scale));
   font-weight: 600;
   color: var(--muted, #7a6b74);
+  text-align: left;
   cursor: pointer;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease,
-    box-shadow 0.15s ease;
 }
-.export-preview-formats button:hover,
-.export-preview-language button:hover {
+.view-by-menu button:hover {
   color: var(--ink, #2c2128);
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(247, 232, 239, 0.6);
 }
-.export-preview-formats button.active,
-.export-preview-language button.active {
-  background: var(--pink, #e75480);
+.view-by-menu button.active {
+  color: var(--pink-deep, #a92c36);
+  background: rgba(190, 24, 93, 0.08);
+}
+
+/* QuickZoom: the chip that says which summary row's records are shown. */
+.drill-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 13px;
+  border: 1px solid rgba(190, 24, 93, 0.22);
+  border-radius: 999px;
+  background: rgba(190, 24, 93, 0.06);
+  color: var(--pink-deep, #a92c36);
+  font-size: calc(12.5px * var(--font-scale));
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.drill-back:hover {
+  background: rgba(190, 24, 93, 0.12);
+}
+.drill-back small {
+  color: var(--subtle, #a99ca4);
+  font-weight: 600;
+}
+
+/* The Export row under a breakdown table: exports exactly what is shown. */
+.report-export-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  padding: 4px 2px 0;
+  flex-wrap: wrap;
+}
+.report-export-note {
+  color: var(--subtle, #a99ca4);
+  font-size: calc(11.5px * var(--font-scale));
+  text-align: right;
+  max-width: 320px;
+}
+
+/* Manual refresh next to the date inputs: re-runs the current view+filter. */
+.report-refresh {
+  border: 1px solid var(--line, rgba(79, 40, 58, 0.2));
+}
+.report-refresh:hover {
   border-color: var(--pink, #e75480);
-  color: #fff;
-  box-shadow: 0 4px 12px rgba(231, 84, 128, 0.24);
+  color: var(--pink-deep, #a92c36);
 }
-.export-preview-table-wrap {
-  max-height: 320px;
-  overflow: auto;
-  border: 1px solid var(--line, rgba(79, 40, 58, 0.12));
-  border-radius: 14px;
+
+/* Preset pills keep their own row; allow them to wrap + scroll on mobile. */
+.reports-header {
+  flex-wrap: wrap;
 }
-.export-preview-table {
-  font-size: calc(12px * var(--font-scale));
+.report-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
-.export-preview-table th {
-  background: #fff;
-}
-.export-preview-more {
-  color: var(--muted, #7a6b74);
-}
-@media (max-width: 820px) {
-  .export-preview-choices {
-    flex-direction: column;
-    align-items: stretch;
+@media (max-width: 680px) {
+  .report-export-note {
+    display: none;
   }
-  .report-detail-filter select {
-    max-width: 120px;
+  .report-export-row {
+    justify-content: stretch;
+  }
+  .report-export-row .export-menu,
+  .report-export-row .export-menu > button {
+    width: 100%;
   }
 }

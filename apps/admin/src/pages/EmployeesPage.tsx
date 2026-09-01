@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Check,
   KeyRound,
@@ -16,8 +16,13 @@ import { useTranslation } from '../lib/i18n'
 
 export default function EmployeesPage({
   onToast,
+  editId = null,
+  onEditConsumed,
 }: {
   onToast: (message: string) => void
+  /** An employee id coming from a report row: open their editor. */
+  editId?: number | null
+  onEditConsumed?: () => void
 }) {
   const { t } = useTranslation()
   const { employees, createEmployee, updateEmployee, deactivateEmployee } =
@@ -27,6 +32,16 @@ export default function EmployeesPage({
   const [accessOpen, setAccessOpen] = useState(false)
   const [editing, setEditing] = useState<Employee | null>(null)
   const [saving, setSaving] = useState(false)
+
+  // A report row drilled into this employee: open their editor once the
+  // list has loaded, then hand the intent back.
+  useEffect(() => {
+    if (editId == null) return
+    const employee = employees.find((item) => item.id === editId)
+    if (!employee) return
+    setEditing(employee)
+    onEditConsumed?.()
+  }, [editId, employees, onEditConsumed])
 
   const submitEmployee = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()

@@ -38,8 +38,17 @@ export const DEACTIVATION_REASONS = [
 type ProductsPageProps = {
   onAdd: () => void
   onToast: (message: string) => void
+  /** A product id coming from elsewhere (e.g. a report link): open its
+      edit modal once the catalog has loaded. */
+  editId?: number | null
+  onEditConsumed?: () => void
 }
-export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
+export default function ProductsPage({
+  onAdd,
+  onToast,
+  editId = null,
+  onEditConsumed,
+}: ProductsPageProps) {
   const { t } = useTranslation()
   const { products, categories, updateProduct, deleteProduct, refresh } =
     useAdminData()
@@ -175,9 +184,7 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
         employee: string
         at: string
       }>
-    >(
-      `/api/reports/audit?productId=${product.id}`,
-    )
+    >(`/api/reports/audit?productId=${product.id}`)
       .then((rows) => {
         const latest = rows[0]
         if (latest?.details?.reasonCode) {
@@ -193,6 +200,17 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
       .catch(() => undefined)
   }
 
+  // A product picked from a report (or anywhere else) opens its edit modal
+  // as soon as the catalog has loaded, then hands the intent back.
+  useEffect(() => {
+    if (editId == null) return
+    const product = products.find((item) => item.id === editId)
+    if (!product) return
+    beginEdit(product)
+    onEditConsumed?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editId, products, onEditConsumed])
+
   const applyPickedImage = (url: string, slotIndex: number) => {
     setEditing((current) => {
       if (!current) return current
@@ -204,7 +222,11 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
       } else {
         images[images.length - 1] = { ...images[images.length - 1], url }
       }
-      return { ...current, images, imageUrl: images[0]?.url || current.imageUrl }
+      return {
+        ...current,
+        images,
+        imageUrl: images[0]?.url || current.imageUrl,
+      }
     })
   }
 
@@ -341,7 +363,12 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
       // (the API rejects the change without one). Prompt first, then save.
       setReasonPrompt({
         pending: input,
-        action: deactivating && zeroing ? 'both' : deactivating ? 'deactivate' : 'stock-zero',
+        action:
+          deactivating && zeroing
+            ? 'both'
+            : deactivating
+              ? 'deactivate'
+              : 'stock-zero',
       })
       setReasonCode(DEACTIVATION_REASONS[0].id)
       setReasonNote('')
@@ -1026,7 +1053,10 @@ export default function ProductsPage({ onAdd, onToast }: ProductsPageProps) {
  * level only — the API enforces that when saving).
  */
 function categorySelectGroups(categories: ProductsPageCategory[]) {
-  type Group = { parent: ProductsPageCategory | null; children: ProductsPageCategory[] }
+  type Group = {
+    parent: ProductsPageCategory | null
+    children: ProductsPageCategory[]
+  }
   const parents = categories.filter((item) => !item.parentId)
   const groups: Group[] = []
   for (const parent of parents) {
@@ -1050,11 +1080,9 @@ function reasonLabel(
   t: (key: string, variables?: Record<string, string | number>) => string,
   code: string,
 ) {
-  return (
-    DEACTIVATION_REASONS.find((reason) => reason.id === code)
-      ? t(DEACTIVATION_REASONS.find((reason) => reason.id === code)!.key)
-      : code
-  )
+  return DEACTIVATION_REASONS.find((reason) => reason.id === code)
+    ? t(DEACTIVATION_REASONS.find((reason) => reason.id === code)!.key)
+    : code
 }
 
 type ProductsPageCategory = {

@@ -1,6 +1,7 @@
 import type { Order } from '../data'
 import {
   brandLogoPng,
+  customLogoPng,
   defaultBranding,
   REPORT_FONT,
   reportStrings,
@@ -74,7 +75,9 @@ export async function exportTableWord(
   const language = meta.language ?? 'en'
   const strings = reportStrings(language)
   const branding = meta.branding ?? defaultBranding
-  const logo = await brandLogoPng()
+  const logo = branding?.logoUrl
+    ? await customLogoPng(branding.logoUrl)
+    : await brandLogoPng()
   const run = (text: string, options: Record<string, unknown> = {}) =>
     new TextRun({ text, font: REPORT_FONT, ...options })
   const cell = (
@@ -249,7 +252,9 @@ export async function exportTableExcel(
   workbook.creator = branding.businessName || defaultBranding.businessName
   workbook.created = new Date()
   const sheet = workbook.addWorksheet(meta.title.slice(0, 28) || 'Report')
-  const logo = await brandLogoPng()
+  const logo = branding?.logoUrl
+    ? await customLogoPng(branding.logoUrl)
+    : await brandLogoPng()
   if (logo) {
     try {
       const id = workbook.addImage({ buffer: logo as never, extension: 'png' })

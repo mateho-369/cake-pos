@@ -188,6 +188,14 @@ for (const [label, slug] of nav) {
     .locator('.sidebar-nav .nav-item', { hasText: label })
     .first()
     .click()
+  if (label === 'Reports') {
+    // Reports is a dropdown of report views now: enter the default view
+    // so the screenshot captures the real page.
+    await page
+      .locator('.nav-submenu-item', { hasText: 'Sales' })
+      .first()
+      .click()
+  }
   await page.waitForTimeout(700)
   await shot(`admin-${slug}-empty`)
 }
@@ -226,9 +234,14 @@ check(
   shiftsText.includes('No KHQR payments in this period'),
 )
 
-// Reports page
+// Reports page (sidebar item opens the report-views dropdown)
 await page
   .locator('.sidebar-nav .nav-item', { hasText: 'Reports' })
+  .first()
+  .click()
+await page.waitForTimeout(400)
+await page
+  .locator('.nav-submenu-item', { hasText: 'Sales' })
   .first()
   .click()
 await page.waitForTimeout(600)
@@ -315,9 +328,11 @@ await page
   .first()
   .click()
 await page.waitForTimeout(500)
+// Single Export button opens the Word/Excel menu
+await page.getByRole('button', { name: 'Export' }).first().click()
 const [xlsxDl] = await Promise.all([
   page.waitForEvent('download'),
-  page.getByRole('button', { name: 'Excel' }).click(),
+  page.getByRole('menuitem', { name: 'Excel' }).click(),
 ])
 const xlsxPath = await xlsxDl.path()
 const xlsxShared = execSync(`unzip -p "${xlsxPath}" xl/sharedStrings.xml`, {
@@ -328,9 +343,10 @@ check(
   /Order ID/.test(xlsxShared) && /Total \(USD\)/.test(xlsxShared),
 )
 
+await page.getByRole('button', { name: 'Export' }).first().click()
 const [docxDl] = await Promise.all([
   page.waitForEvent('download'),
-  page.getByRole('button', { name: 'Word' }).click(),
+  page.getByRole('menuitem', { name: 'Word' }).click(),
 ])
 const docxPath = await docxDl.path()
 const docXml = execSync(`unzip -p "${docxPath}" word/document.xml`, {
@@ -587,10 +603,11 @@ const orders2 = await page.locator('.page-content').innerText()
 check('orders page shows smoke order', orders2.includes(order.json.id))
 check('orders page shows $20.00', orders2.includes('20.00'))
 
-// Exports with real data now
+// Exports with real data now (single Export button → Word/Excel menu)
+await page.getByRole('button', { name: 'Export' }).first().click()
 const [xlsxDl2] = await Promise.all([
   page.waitForEvent('download'),
-  page.getByRole('button', { name: 'Excel' }).click(),
+  page.getByRole('menuitem', { name: 'Excel' }).click(),
 ])
 const xlsxShared2 = execSync(
   `unzip -p "${await xlsxDl2.path()}" xl/sharedStrings.xml`,
@@ -602,9 +619,10 @@ const xlsxSheet2 = execSync(
   { encoding: 'utf8' },
 )
 check('seeded xlsx contains total 20', /<v>20<\/v>/.test(xlsxSheet2))
+await page.getByRole('button', { name: 'Export' }).first().click()
 const [docxDl2] = await Promise.all([
   page.waitForEvent('download'),
-  page.getByRole('button', { name: 'Word' }).click(),
+  page.getByRole('menuitem', { name: 'Word' }).click(),
 ])
 const docXml2 = execSync(
   `unzip -p "${await docxDl2.path()}" word/document.xml`,

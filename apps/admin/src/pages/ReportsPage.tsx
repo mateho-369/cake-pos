@@ -2,26 +2,38 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   ArrowDownRight,
+  ArrowLeft,
   ArrowUpRight,
-  Download,
-  FileSpreadsheet,
-  FileText,
   Lightbulb,
+  RefreshCw,
   Send,
   ShieldAlert,
   Store,
   TrendingUp,
-  X,
 } from 'lucide-react'
-import type { Order, Product, RevenuePoint, WasteEvent } from '../data'
+import type { Order, Product, RevenuePoint, Shift, WasteEvent } from '../data'
 import { useAdminData } from '../lib/data'
 import { apiRequest } from '../lib/api'
-import { translateCategory, useTranslation } from '../lib/i18n'
+import { statusLabel, translateCategory, useTranslation } from '../lib/i18n'
 import ReportDetailTable from '../components/ReportDetailTable'
-import ExportPreviewModal, {
-  type ExportRequest,
-} from '../components/ExportPreviewModal'
-import { ordersInRange, type LossesReport } from '../lib/exports'
+import {
+  BreakdownTable,
+  buildBreakdown,
+  DEFAULT_VIEWS,
+  VIEWS_BY_TAB,
+  ViewByDropdown,
+  type BreakdownData,
+  type BreakdownDrill,
+  type BreakdownRow,
+  type CashierBreakdownRow,
+} from '../components/ReportBreakdown'
+import {
+  exportTableExcel,
+  exportTableWord,
+  ordersInRange,
+  type LossesReport,
+} from '../lib/exports'
+import { REPORT_TABS } from '../lib/reportNav'
 import {
   defaultBranding,
   type ReportBranding,
@@ -30,8 +42,29 @@ import {
 
 export default function ReportsPage({
   onToast,
+  initialTab,
+  intentNonce = 0,
+  onIntentConsumed,
+  onOpenProduct,
+  onOpenOrder,
+  onOpenEmployee,
+  onOpenCustomer,
+  onOpenShift,
+  onOpenCategory,
 }: {
   onToast: (message: string) => void
+  /** Tab id arriving from the sidebar dropdown (REPORT_TABS). */
+  initialTab?: string
+  /** Bumps so re-picking the same item re-triggers the intent effect. */
+  intentNonce?: number
+  onIntentConsumed?: () => void
+  /** QuickZoom drill-throughs: report rows open their real record. */
+  onOpenProduct?: (productId: number) => void
+  onOpenOrder?: (orderId: string) => void
+  onOpenEmployee?: (employeeId: number) => void
+  onOpenCustomer?: (customerId: number) => void
+  onOpenShift?: () => void
+  onOpenCategory?: () => void
 }) {
   const { t } = useTranslation()
   const {
@@ -42,6 +75,9 @@ export default function ReportsPage({
     summary,
     freshness,
     shifts,
+    employees,
+    customers,
+    refresh,
   } = useAdminData()
   const kpiNetSales = summary?.todaySalesTotal ?? 0
   const kpiAverageOrder = (summary?.averageOrderValueCents ?? 0) / 100
@@ -78,19 +114,111 @@ export default function ReportsPage({
   const [from, setFrom] = useState(today.slice(0, 8) + '01')
   const [to, setTo] = useState(today)
   const [activePreset, setActivePreset] = useState<string | null>('this_month')
-  const [libraryPicker, setLibraryPicker] = useState<{
-    key: string
-    label: string
-  } | null>(null)
   // Letterhead identity + report language come from Settings, so every
   // export carries the shop's real name/address and the labels the owner
   // chose — not hardcoded strings baked into the exporter.
   const [branding, setBranding] = useState<ReportBranding>(defaultBranding)
   const [language, setLanguage] = useState<ReportLanguage>('en')
   const [posRules, setPosRules] = useState<Record<string, unknown> | null>(null)
-  // Nothing downloads on click: the request is staged here and the review
-  // dialog is what actually generates the file.
-  const [exportRequest, setExportRequest] = useState<ExportRequest | null>(null)
+  // The View-by selection and the current QuickZoom drill (a summary row
+  // whose transactions are being shown) are per-tab questions: switching
+  // tabs starts each report fresh.
+  const [viewBy, setViewBy] = useState<string>(DEFAULT_VIEWS.sales)
+  const [drill, setDrill] = useState<BreakdownDrill | null>(null)
+  useEffect(() => {
+    setViewBy(DEFAULT_VIEWS[tab] ?? 'day')
+    setDrill(null)
+  }, [tab])
+  // Breakdown endpoints, re-fetched whenever the range or the refresh
+  // control changes. One fetch per range so the tables never lag the
+  // preset pills above them.
+  const [breakdown, setBreakdown] = useState<BreakdownData | null>(null)
+  const [dataNonce, setDataNonce] = useState(0)
+  useEffect(() => {
+    let alive = true
+    const range = `from=${from}&to=${to}`
+    const get = <T,>(path: string): Promise<T | null> =>
+      apiRequest<T>(path).catch(() => null)
+    void (async () => {
+      const [
+        trend,
+        peakHours,
+        categories,
+        customers,
+        products,
+        payments,
+        cashiers,
+      ] = await Promise.all([
+        get<Array<{ period: string; netRevenueCents: number }>>(
+          `/api/reports/revenue-trend?${range}`,
+        ),
+        get<Array<{ hour: number; orders: number; revenueCents: number }>>(
+          `/api/reports/peak-hours?${range}`,
+        ),
+        get<
+          Array<{
+            category: string
+            units: number
+            netRevenueCents: number
+            orders?: number
+          }>
+        >(`/api/reports/categories?${range}`),
+        get<
+          Array<{
+            customer_id: number
+            orders: number
+            netRevenueCents: number
+            lastOrderAt: string
+          }>
+        >(`/api/reports/customers?${range}`),
+        get<
+          Array<{
+            product_id: number | null
+            snapshotName: string
+            quantity: number
+            netRevenueCents: number
+          }>
+        >(`/api/reports/products?${range}`),
+        get<
+          Array<{
+            method: string
+            transactions: number
+            amount_usd_cents: number
+          }>
+        >(`/api/reports/payments?${range}`),
+        get<CashierBreakdownRow[]>(`/api/reports/cashiers?${range}`),
+      ])
+      if (!alive) return
+      setBreakdown({
+        trend: trend ?? [],
+        peakHours: peakHours ?? [],
+        categories: categories ?? [],
+        customers: customers ?? [],
+        products: products ?? [],
+        payments: payments ?? [],
+        cashiers,
+      })
+    })()
+    return () => {
+      alive = false
+    }
+  }, [from, to, dataNonce])
+  // Manual retry: re-runs the current view+filter exactly as-is — the
+  // admin's selection is never touched, only the data behind it.
+  const refreshAll = () => {
+    void refresh()
+    setDataNonce((nonce) => nonce + 1)
+  }
+  // A sidebar dropdown pick lands here as an intent: switch to the tab,
+  // then hand the intent back up.
+  useEffect(() => {
+    if (!initialTab) return
+    if (REPORT_TABS.some((item) => item.id === initialTab)) {
+      setTab(initialTab)
+    }
+    onIntentConsumed?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTab, intentNonce])
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -108,6 +236,15 @@ export default function ReportsPage({
             address: profile.address || '',
             phone: profile.phone || '',
           })
+        }
+        // The receipt template carries the shop's own logo (Settings →
+        // Receipts); when one is set, reports use it instead of the brand
+        // mark, so the Word/Excel letterhead is editable end-to-end.
+        const receipt = await apiRequest<{ logoUrl?: string }>(
+          '/api/settings/receipt-template',
+        )
+        if (!cancelled && receipt?.logoUrl) {
+          setBranding((current) => ({ ...current, logoUrl: receipt.logoUrl }))
         }
       } catch {
         // Offline or unauthorised: fall back to the default letterhead.
@@ -130,49 +267,76 @@ export default function ReportsPage({
       cancelled = true
     }
   }, [])
-  // Remember the language with the rest of the POS rules so the choice
-  // survives a reload and applies to every terminal, not just this tab.
-  const changeLanguage = (next: ReportLanguage) => {
-    setLanguage(next)
-    if (!posRules) return
-    const payload = { ...posRules, reportLanguage: next }
-    setPosRules(payload)
-    void apiRequest('/api/settings/pos-rules', {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    }).catch(() => {
-      /* A failed save must not block the download in front of the admin. */
-    })
-  }
-  const stageExport = (request: ExportRequest) => setExportRequest(request)
-  const wasteInRange = (freshness?.events ?? []).filter((event) =>
-    inRange(event.recordedAt, from, to),
-  )
-  /** The whole selected period as one order table, staged for review. */
-  const ordersExportRequest = (format: 'word' | 'excel'): ExportRequest => ({
-    meta: {
-      title: t('reports.ordersInPeriod'),
+  /**
+   * The one download path for every Reports table. The review happens live
+   * on screen (presets, View-by and per-column filters all update the table
+   * immediately); picking Word or Excel exports exactly the rows currently
+   * shown, stamped with the active filters so the file is self-describing.
+   */
+  const runExport = (payload: {
+    header: string[]
+    rows: Array<Array<string | number>>
+    filters: Array<{ label: string; value: string }>
+    title: string
+    totals?: Array<{ label: string; value: string }>
+    format: 'word' | 'excel'
+  }) => {
+    const meta = {
+      title: payload.title,
       from,
       to,
       branding,
       language,
-      totals: [
-        {
-          label: t('orders.total'),
-          value: usd(
-            selectedOrders.reduce(
-              (sum, order) => sum + safeNumber(order.total),
-              0,
-            ),
-          ),
-        },
-      ],
-    },
-    header: orderExportHeader,
-    rows: selectedOrders.map(orderExportRow),
-    filenameBase: `orders-${from || 'all'}-${to || 'all'}`,
-    defaultFormat: format,
-  })
+      filters: payload.filters,
+      totals: payload.totals,
+    }
+    const base =
+      payload.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '') || 'report'
+    const save = (error: unknown) =>
+      onToast(error instanceof Error ? error.message : 'Export failed')
+    if (payload.format === 'excel') {
+      void exportTableExcel(
+        meta,
+        payload.header,
+        payload.rows,
+        `${base}.xlsx`,
+      ).catch(save)
+    } else {
+      void exportTableWord(
+        meta,
+        payload.header,
+        payload.rows,
+        `${base}.docx`,
+      ).catch(save)
+    }
+  }
+  const wasteInRange = (freshness?.events ?? []).filter((event) =>
+    inRange(event.recordedAt, from, to),
+  )
+  // Losses (5-row money rollup) and the audit log live at page level now:
+  // both the summary card AND the paginated detail table read one fetch.
+  const [lossesData, setLossesData] = useState<LossesReport | null>(null)
+  const [auditRows, setAuditRows] = useState<AuditRow[] | null>(null)
+  useEffect(() => {
+    let alive = true
+    apiRequest<LossesReport>(`/api/reports/losses?from=${from}&to=${to}`)
+      .then((row) => alive && setLossesData(row))
+      .catch(() => alive && setLossesData(null))
+    apiRequest<AuditRow[]>(`/api/reports/audit?from=${from}&to=${to}`)
+      .then((rows) => alive && setAuditRows(rows))
+      .catch((error) => {
+        if (!alive) return
+        setAuditRows([])
+        onToast(error instanceof Error ? error.message : 'Audit load failed')
+      })
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to])
   const selectedOrders = ordersInRange(orders, from, to)
   const applyPreset = (preset: string) => {
     const range = rangeForPreset(preset)
@@ -180,15 +344,6 @@ export default function ReportsPage({
     setTo(range.to)
     setActivePreset(preset)
   }
-  const tabs = [
-    { id: 'sales', label: 'reports.sales' },
-    { id: 'products', label: 'reports.products' },
-    { id: 'payments', label: 'reports.payments' },
-    { id: 'team', label: 'reports.team' },
-    { id: 'waste', label: 'reports.waste' },
-    { id: 'losses', label: 'reports.losses' },
-    { id: 'audit', label: 'reports.auditLog' },
-  ]
   const presets = [
     { id: 'today', label: 'reports.today' },
     { id: 'yesterday', label: 'reports.yesterday' },
@@ -197,179 +352,78 @@ export default function ReportsPage({
     { id: 'last_month', label: 'reports.lastMonth' },
     { id: 'this_year', label: 'reports.thisYear' },
   ]
-  const libraries = [
-    { key: 'dailySummary', label: 'reports.dailySummary' },
-    { key: 'sellThrough', label: 'reports.sellThrough' },
-    { key: 'reconciliation', label: 'reports.reconciliation' },
-    { key: 'shiftVariance', label: 'reports.shiftVariance' },
-    { key: 'freshWaste', label: 'reports.freshWaste' },
-    { key: 'employeePerformance', label: 'reports.employeePerformance' },
-  ]
-  // Each library item builds the report that matches its label from the
-  // dataset the admin chose in the export dialog, then hands it to the
-  // review step — a library click never downloads anything by itself.
-  const buildLibraryExport = (
-    key: string,
-    label: string,
-    rangeOrders: typeof orders,
-    rangeFrom: string,
-    rangeTo: string,
-  ): ExportRequest => {
-    const suffix = `${rangeFrom || 'all'}-${rangeTo || 'all'}`
-    const meta = (
-      title: string,
-      totals?: Array<{ label: string; value: string }>,
-    ) => ({
-      title,
-      from: rangeFrom,
-      to: rangeTo,
-      branding,
-      language,
-      totals,
-    })
-    switch (key) {
-      case 'dailySummary': {
-        const revenue = rangeOrders.reduce(
-          (sum, order) => sum + safeNumber(order.total),
-          0,
-        )
-        const items = rangeOrders.reduce(
-          (sum, order) => sum + safeNumber(order.items),
-          0,
-        )
-        const average = rangeOrders.length ? revenue / rangeOrders.length : 0
-        return {
-          meta: meta(t(label)),
-          header: ['Metric', 'Value'],
-          rows: [
-            ['Orders', rangeOrders.length],
-            ['Items sold', items],
-            ['Revenue (USD)', Number(revenue.toFixed(2))],
-            ['Average order (USD)', Number(average.toFixed(2))],
-            ...summaryTopProductRows(rangeOrders, products),
-          ],
-          filenameBase: `daily-summary-${suffix}`,
-        }
-      }
-      case 'sellThrough':
-        return {
-          meta: meta(t(label)),
-          header: ['Product', 'Category', 'Sold', 'On hand', 'Sell-through %'],
-          rows: rangeProductSellThrough(rangeOrders, products),
-          filenameBase: `product-sell-through-${suffix}`,
-        }
-      case 'reconciliation':
-        return {
-          meta: meta(t(label)),
-          header: ['Order', 'Date', 'Payment', 'Status', 'Total (USD)'],
-          rows: rangeOrders.map((order) => [
-            order.id,
-            new Date(order.createdAt).toLocaleDateString('en-CA'),
-            order.payment || 'Unpaid',
-            order.status,
-            Number(safeNumber(order.total).toFixed(2)),
-          ]),
-          filenameBase: `payment-reconciliation-${suffix}`,
-        }
-      case 'shiftVariance':
-        return {
-          meta: meta(t(label)),
-          header: [
-            'Opened',
-            'Closed',
-            'Opened by',
-            'Opening cash (USD)',
-            'Expected cash (USD)',
-            'Counted cash (USD)',
-            'Variance (USD)',
-            'Status',
-          ],
-          rows: shifts
-            .filter(
-              (shift) =>
-                inRange(shift.openedAt, rangeFrom, rangeTo) ||
-                inRange(shift.closedAt, rangeFrom, rangeTo),
-            )
-            .map((shift) => [
-              new Date(shift.openedAt).toLocaleString(),
-              shift.closedAt ? new Date(shift.closedAt).toLocaleString() : '',
-              shift.openedBy || '',
-              Number(((shift.openingCashUsdCents ?? 0) / 100).toFixed(2)),
-              Number(((shift.expectedCashUsdCents ?? 0) / 100).toFixed(2)),
-              shift.closedAt
-                ? Number(((shift.closingCashUsdCents ?? 0) / 100).toFixed(2))
-                : '',
-              shift.closedAt
-                ? Number(((shift.varianceUsdCents ?? 0) / 100).toFixed(2))
-                : '',
-              shift.status,
-            ]),
-          filenameBase: `shift-variance-${suffix}`,
-        }
-      case 'freshWaste':
-        return {
-          meta: meta(t(label)),
-          header: [
-            'Date',
-            'Product',
-            'Quantity',
-            'Reason',
-            'Retail value (USD)',
-            'Recorded by',
-          ],
-          rows: wasteInRange.map((event) => [
-            new Date(event.recordedAt).toLocaleString(),
-            event.productName,
-            event.quantity,
-            event.reason,
-            Number(safeNumber(event.retailValue).toFixed(2)),
-            event.recordedBy || '',
-          ]),
-          filenameBase: `freshness-waste-${suffix}`,
-        }
-      case 'employeePerformance':
-        return {
-          meta: meta(t(label)),
-          header: ['Employee', 'Role', 'Orders', 'Sales (USD)'],
-          rows: rangeEmployeePerformance(rangeOrders),
-          filenameBase: `employee-performance-${suffix}`,
-        }
-      default:
-        return {
-          meta: meta(t(label)),
-          header: orderExportHeader,
-          rows: rangeOrders.map(orderExportRow),
-          filenameBase: `orders-${suffix}`,
-        }
+  // The five summary tabs render a View-by breakdown; the other three are
+  // record tables already. Drilling a summary row swaps in the record table
+  // behind that number (QuickZoom), with a back chip to return.
+  const drillOrders = useMemo(() => {
+    if (!drill) return selectedOrders
+    const kind = drill.kind
+    if (kind === 'date')
+      return selectedOrders.filter(
+        (order) => localDayOf(order.createdAt) === drill.value,
+      )
+    if (kind === 'hour')
+      return selectedOrders.filter(
+        (order) => String(new Date(order.createdAt).getHours()) === drill.value,
+      )
+    if (kind === 'method')
+      return selectedOrders.filter((order) => order.payment === drill.value)
+    return selectedOrders
+  }, [drill, selectedOrders])
+  const drillWaste = useMemo(() => {
+    if (!drill) return wasteInRange
+    if (drill.kind === 'date')
+      return wasteInRange.filter(
+        (event) => localDayOf(event.recordedAt) === drill.value,
+      )
+    if (drill.kind === 'reason')
+      return wasteInRange.filter((event) => event.reason === drill.value)
+    return wasteInRange
+  }, [drill, wasteInRange])
+  const handleBreakdownClick = (row: BreakdownRow) => {
+    if (!row.drill) return
+    const { kind, value, label } = row.drill
+    if (kind === 'category') {
+      onOpenCategory?.()
+      return
     }
+    if (kind === 'customer') {
+      onOpenCustomer?.(Number(value))
+      return
+    }
+    if (kind === 'product') {
+      onOpenProduct?.(Number(value))
+      return
+    }
+    setDrill({ kind, value, label })
   }
   return (
     <div className="page-content">
       <section className="reports-header">
-        <div className="filter-tabs report-tabs">
-          {tabs.map((item) => (
+        <div
+          className="report-presets"
+          role="group"
+          aria-label={t('reports.dateRange')}
+        >
+          {presets.map((preset) => (
             <button
-              key={item.id}
-              className={tab === item.id ? 'active' : ''}
-              onClick={() => setTab(item.id)}
+              key={preset.id}
+              type="button"
+              className={`text-button ${activePreset === preset.id ? 'active' : ''}`}
+              onClick={() => applyPreset(preset.id)}
             >
-              {t(item.label)}
+              {t(preset.label)}
             </button>
           ))}
+          <button
+            type="button"
+            className={`text-button ${activePreset === 'none' ? 'active' : ''}`}
+            onClick={() => applyPreset('none')}
+          >
+            {t('reports.noPreset')}
+          </button>
         </div>
         <div className="toolbar-actions report-export-actions">
-          <div className="report-presets">
-            {presets.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                className={`text-button ${activePreset === preset.id ? 'active' : ''}`}
-                onClick={() => applyPreset(preset.id)}
-              >
-                {t(preset.label)}
-              </button>
-            ))}
-          </div>
           <label>
             {t('reports.from')}
             <input
@@ -393,16 +447,13 @@ export default function ReportsPage({
             />
           </label>
           <button
-            className="secondary-button"
-            onClick={() => stageExport(ordersExportRequest('word'))}
+            type="button"
+            className="icon-button report-refresh"
+            aria-label={t('reports.refresh')}
+            title={t('reports.refresh')}
+            onClick={refreshAll}
           >
-            <FileText size={16} /> Word
-          </button>
-          <button
-            className="primary-button"
-            onClick={() => stageExport(ordersExportRequest('excel'))}
-          >
-            <FileSpreadsheet size={16} /> Excel
+            <RefreshCw size={16} />
           </button>
         </div>
       </section>
@@ -459,26 +510,18 @@ export default function ReportsPage({
           </div>
           {tab === 'sales' && <ComparisonChart waste={false} />}
           {tab === 'waste' && <ComparisonChart waste />}
-          {tab === 'products' && <TopProductsTable />}
+          {tab === 'products' && (
+            <TopProductsTable onOpenProduct={onOpenProduct} />
+          )}
           {tab === 'payments' && <PaymentsBreakdown />}
           {tab === 'team' && <TeamAccountability from={from} to={to} />}
-          {tab === 'audit' && (
-            <AuditLogPanel
-              from={from}
-              to={to}
-              onToast={onToast}
-              branding={branding}
-              language={language}
-              onReview={stageExport}
-            />
-          )}
-          {tab === 'losses' && (
-            <LossesPanel
-              from={from}
-              to={to}
-              branding={branding}
-              language={language}
-              onReview={stageExport}
+          {tab === 'audit' && <AuditSummaryCard rows={auditRows ?? []} />}
+          {tab === 'losses' && <LossesSummaryCard data={lossesData} />}
+          {tab === 'shifts' && (
+            <ShiftsSummaryCard
+              shifts={shifts.filter(
+                (shift) => shift.closedAt && inRange(shift.closedAt, from, to),
+              )}
             />
           )}
         </div>
@@ -527,7 +570,77 @@ export default function ReportsPage({
           )}
         </div>
       </section>
-      {DETAIL_TABLE_TABS.includes(tab) && (
+      {VIEWBY_TABS.includes(tab) && (
+        <section className="report-viewby-section">
+          <div className="report-viewby-bar">
+            <ViewByDropdown
+              value={viewBy}
+              options={VIEWS_BY_TAB[tab]}
+              onChange={(next) => {
+                setViewBy(next)
+                setDrill(null)
+              }}
+            />
+            {drill && (
+              <button
+                type="button"
+                className="drill-back"
+                onClick={() => setDrill(null)}
+              >
+                <ArrowLeft size={14} />
+                <span>{drill.label}</span>
+                <small>{t('reports.backToSummary')}</small>
+              </button>
+            )}
+          </div>
+          {drill ? (
+            drill.kind === 'cashier' ? (
+              <TeamAccountability
+                from={from}
+                to={to}
+                rows={breakdown?.cashiers ?? []}
+                onlyEmployee={drill.value}
+              />
+            ) : (
+              <TabDetailSection
+                tab={tab}
+                orders={drillOrders}
+                products={products}
+                waste={drillWaste}
+                from={from}
+                to={to}
+                drillLabel={drill.label}
+                onOpenProduct={onOpenProduct}
+                onOpenOrder={onOpenOrder}
+                onOpenEmployee={onOpenEmployee}
+                onOpenCustomer={onOpenCustomer}
+                onOpenShift={onOpenShift}
+                lossesData={lossesData}
+                auditRows={auditRows}
+                employees={employees}
+                customers={customers}
+                shifts={shifts}
+                onExport={runExport}
+              />
+            )
+          ) : (
+            <BreakdownView
+              tab={tab}
+              view={viewBy}
+              breakdown={breakdown}
+              orders={selectedOrders}
+              waste={wasteInRange}
+              customers={customers}
+              products={products}
+              from={from}
+              to={to}
+              onExport={runExport}
+              onRowClick={handleBreakdownClick}
+            />
+          )}
+        </section>
+      )}
+      {RECORD_TABS.includes(tab) && (
         <TabDetailSection
           tab={tab}
           orders={selectedOrders}
@@ -535,17 +648,17 @@ export default function ReportsPage({
           waste={wasteInRange}
           from={from}
           to={to}
-          onExport={({ header, rows, filters, title }) =>
-            stageExport({
-              meta: { title, from, to, branding, language, filters },
-              header,
-              rows,
-              filenameBase: `${title
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, '-')
-                .replace(/^-|-$/g, '')}-${from || 'all'}-${to || 'all'}`,
-            })
-          }
+          onOpenProduct={onOpenProduct}
+          onOpenOrder={onOpenOrder}
+          onOpenEmployee={onOpenEmployee}
+          onOpenCustomer={onOpenCustomer}
+          onOpenShift={onOpenShift}
+          lossesData={lossesData}
+          auditRows={auditRows}
+          employees={employees}
+          customers={customers}
+          shifts={shifts}
+          onExport={runExport}
         />
       )}
       <PeriodComparison from={from} to={to} />
@@ -615,7 +728,11 @@ export default function ReportsPage({
                     className="catalog-image small"
                     style={{ backgroundPosition: product.imagePosition }}
                   />
-                  <strong>{product.name}</strong>
+                  <ProductNameLink
+                    id={product.id}
+                    name={product.name}
+                    onOpenProduct={onOpenProduct}
+                  />
                 </div>
                 <strong>${product.revenue}</strong>
                 <span className="margin-pill">{Math.round(share)}%</span>
@@ -624,165 +741,94 @@ export default function ReportsPage({
           })}
         </div>
       </section>
-      <section className="glass-panel report-library">
-        <div className="panel-heading">
-          <div>
-            <span className="section-kicker">{t('reports.downloads')}</span>
-            <h2>{t('reports.library')}</h2>
-          </div>
-        </div>
-        <div className="report-library-grid">
-          {libraries.map((item) => (
-            <button key={item.key} onClick={() => setLibraryPicker(item)}>
-              <FileSpreadsheet size={19} />
-              <span>
-                <strong>{t(item.label)}</strong>
-                <small>
-                  {t('reports.csvRange', {
-                    range: formatReportRange(from, to),
-                  })}
-                </small>
-              </span>
-              <Download size={16} />
-            </button>
-          ))}
-        </div>
-      </section>
-      {libraryPicker && (
-        <LibraryExportModal
-          item={libraryPicker}
-          defaultFrom={from}
-          defaultTo={to}
-          onClose={() => setLibraryPicker(null)}
-          onExport={(key, label, rangeFrom, rangeTo) => {
-            const rangeOrders = ordersInRange(orders, rangeFrom, rangeTo)
-            stageExport(
-              buildLibraryExport(key, label, rangeOrders, rangeFrom, rangeTo),
-            )
-            setLibraryPicker(null)
-          }}
-        />
-      )}
-      {exportRequest && (
-        <ExportPreviewModal
-          request={exportRequest}
-          language={language}
-          onLanguage={changeLanguage}
-          onClose={() => setExportRequest(null)}
-          onDone={onToast}
-        />
-      )}
     </div>
   )
 }
 
-function LibraryExportModal({
-  item,
-  defaultFrom,
-  defaultTo,
-  onClose,
+/** What every table's Export menu hands the download runner. */
+type ExportPayload = {
+  header: string[]
+  rows: Array<Array<string | number>>
+  filters: Array<{ label: string; value: string }>
+  title: string
+  totals?: Array<{ label: string; value: string }>
+  format: 'word' | 'excel'
+}
+
+const EMPTY_BREAKDOWN: BreakdownData = {
+  trend: [],
+  peakHours: [],
+  categories: [],
+  customers: [],
+  products: [],
+  payments: [],
+  cashiers: null,
+}
+
+/**
+ * The tab's View-by table: the breakdown built from the per-range report
+ * endpoints, paginated, with the Export row below it. While the endpoints
+ * are still loading (or the manual refresh re-runs them) the table shows
+ * the loading empty state — never stale numbers.
+ */
+function BreakdownView({
+  tab,
+  view,
+  breakdown,
+  orders,
+  waste,
+  customers,
+  products,
+  from,
+  to,
   onExport,
+  onRowClick,
 }: {
-  item: { key: string; label: string }
-  defaultFrom: string
-  defaultTo: string
-  onClose: () => void
-  onExport: (key: string, label: string, from: string, to: string) => void
+  tab: string
+  view: string
+  breakdown: BreakdownData | null
+  orders: Order[]
+  waste: WasteEvent[]
+  customers: Array<{ id: number; name: string }>
+  products: Product[]
+  from: string
+  to: string
+  onExport: (payload: ExportPayload) => void
+  onRowClick: (row: BreakdownRow) => void
 }) {
   const { t } = useTranslation()
-  const [from, setFrom] = useState(defaultFrom)
-  const [to, setTo] = useState(defaultTo)
+  const built = buildBreakdown({
+    tab,
+    view,
+    data: breakdown ?? EMPTY_BREAKDOWN,
+    orders,
+    waste,
+    customers,
+    products,
+    t,
+  })
+  const viewLabel = VIEWS_BY_TAB[tab]?.find(
+    (option) => option.id === view,
+  )?.labelKey
   return (
-    <div className="modal-layer" role="dialog" aria-modal="true">
-      <button
-        className="modal-backdrop"
-        onClick={onClose}
-        aria-label={t('modal.closeDialog')}
-      />
-      <section className="modal-card modal-small">
-        <header className="modal-header">
-          <div>
-            <span>{t('reports.downloads')}</span>
-            <h2>{t(item.label)}</h2>
-          </div>
-          <button
-            className="icon-button"
-            onClick={onClose}
-            aria-label={t('modal.close')}
-          >
-            <X size={19} />
-          </button>
-        </header>
-        <div className="modal-form">
-          <p>{t('reports.filterFirst')}</p>
-          <label>
-            <span>{t('reports.from')}</span>
-            <input
-              type="date"
-              value={from}
-              onChange={(event) => setFrom(event.target.value)}
-            />
-          </label>
-          <label>
-            <span>{t('reports.to')}</span>
-            <input
-              type="date"
-              value={to}
-              onChange={(event) => setTo(event.target.value)}
-            />
-          </label>
-          <div className="modal-actions">
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={onClose}
-            >
-              {t('common.cancel')}
-            </button>
-            <button
-              type="button"
-              className="primary-button"
-              onClick={() => onExport(item.key, item.label, from, to)}
-            >
-              <Download size={15} />
-              {t('reports.exportFiltered')}
-            </button>
-          </div>
-        </div>
-      </section>
-    </div>
+    <BreakdownTable
+      title={tabTitle(t, tab)}
+      subtitle={
+        viewLabel ? `${t('reports.viewBy')}: ${t(viewLabel)}` : undefined
+      }
+      rows={breakdown ? built.rows : []}
+      columns={built.columns}
+      defaultSort={built.defaultSort}
+      from={from}
+      to={to}
+      emptyText={
+        breakdown ? t('reports.noTransactions') : t('reports.loadingData')
+      }
+      onExport={onExport}
+      onRowClick={onRowClick}
+    />
   )
 }
-/** The order-table shape shared by the toolbar export and the library. */
-const orderExportHeader = [
-  'Order ID',
-  'Date',
-  'Time',
-  'Source',
-  'Customer / Cashier',
-  'Items',
-  'Details',
-  'Subtotal (USD)',
-  'Discount (USD)',
-  'Payment',
-  'Status',
-  'Total (USD)',
-]
-
-const orderExportRow = (order: Order): Array<string | number> => [
-  order.id,
-  new Date(order.createdAt).toLocaleDateString('en-CA'),
-  order.time,
-  order.source,
-  order.customer?.name || order.cashier || '',
-  safeNumber(order.items),
-  (order.detail ?? []).join('; '),
-  Number(safeNumber(order.subtotal ?? order.total).toFixed(2)),
-  Number(safeNumber(order.discountAmount).toFixed(2)),
-  order.payment || '',
-  order.status,
-  Number(safeNumber(order.total).toFixed(2)),
-]
 
 /** Top sellers appended under the daily-summary KPI rows. */
 const summaryTopProductRows = (
@@ -801,7 +847,8 @@ const usd = (value: number | null | undefined) =>
 const inRange = (iso: string | null | undefined, from: string, to: string) => {
   if (!iso) return false
   const day = new Date(iso).toISOString().slice(0, 10)
-  return day >= from && day <= to
+  // Empty bounds mean "no date filter" (the None preset): everything passes.
+  return (from === '' || day >= from) && (to === '' || day <= to)
 }
 /**
  * Tabs that browse raw records. Sales/Team browse orders, Products browses
@@ -810,7 +857,17 @@ const inRange = (iso: string | null | undefined, from: string, to: string) => {
  * and the Audit log (already an event list with its own filters) do not get
  * a second table.
  */
-const DETAIL_TABLE_TABS = ['sales', 'products', 'payments', 'team', 'waste']
+/** Tabs whose default view is a View-by breakdown table. */
+const VIEWBY_TABS = ['sales', 'products', 'payments', 'team', 'waste']
+/** Tabs that are record tables already (no View-by dropdown). */
+const RECORD_TABS = ['losses', 'shifts', 'audit']
+
+const localDayOf = (iso: string): string => {
+  const date = new Date(iso)
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
 
 const orderWho = (order: Order) => order.customer?.name || order.cashier || ''
 const orderItemsText = (order: Order) =>
@@ -830,12 +887,129 @@ const sourcePill = (t: TranslationFn, order: Order) => (
     <strong>{sourceLabel(t, order)}</strong>
   </span>
 )
-const statusPill = (status: string) => (
+const statusPill = (t: TranslationFn, status: string) => (
   <span className={`status-badge order-status-${status.toLowerCase()}`}>
     <i />
-    {status}
+    {statusLabel(t, status)}
   </span>
 )
+
+/**
+ * A product name inside Reports that jumps to that product's detail in the
+ * catalog. Names without a resolvable id render as plain text, so a legacy
+ * line can never look clickable without somewhere to go.
+ */
+function ProductNameLink({
+  id,
+  name,
+  onOpenProduct,
+}: {
+  id: number | null | undefined
+  name: string
+  onOpenProduct?: (productId: number) => void
+}) {
+  if (id == null || !onOpenProduct) return <strong>{name}</strong>
+  return (
+    <button
+      type="button"
+      className="record-link"
+      onClick={() => onOpenProduct(id)}
+      title={name}
+    >
+      {name}
+    </button>
+  )
+}
+
+/** QuickZoom link: an order id in a report opens that order in Orders. */
+function OrderLink({
+  id,
+  onOpenOrder,
+}: {
+  id: string
+  onOpenOrder?: (orderId: string) => void
+}) {
+  if (!onOpenOrder) return <strong>{id}</strong>
+  return (
+    <button
+      type="button"
+      className="record-link"
+      onClick={() => onOpenOrder(id)}
+      title={id}
+    >
+      {id}
+    </button>
+  )
+}
+
+/** QuickZoom link: an employee name in a report opens their editor. */
+function EmployeeLink({
+  name,
+  employees,
+  onOpenEmployee,
+}: {
+  name: string
+  employees: Array<{ id: number; name: string }>
+  onOpenEmployee?: (employeeId: number) => void
+}) {
+  const employee = employees.find((item) => item.name === name)
+  if (!employee || !onOpenEmployee) return <strong>{name}</strong>
+  return (
+    <button
+      type="button"
+      className="record-link"
+      onClick={() => onOpenEmployee(employee.id)}
+      title={name}
+    >
+      {name}
+    </button>
+  )
+}
+
+/** QuickZoom link: a customer name in a report opens their detail panel. */
+function CustomerLink({
+  name,
+  customers,
+  onOpenCustomer,
+}: {
+  name: string
+  customers: Array<{ id: number; name: string }>
+  onOpenCustomer?: (customerId: number) => void
+}) {
+  const customer = customers.find((item) => item.name === name)
+  if (!customer || !onOpenCustomer) return <strong>{name}</strong>
+  return (
+    <button
+      type="button"
+      className="record-link"
+      onClick={() => onOpenCustomer(customer.id)}
+      title={name}
+    >
+      {name}
+    </button>
+  )
+}
+
+/** QuickZoom link: a closed shift row opens the Shifts page. */
+function ShiftLink({
+  label,
+  onOpenShift,
+}: {
+  label: string
+  onOpenShift?: () => void
+}) {
+  if (!onOpenShift) return <strong>{label}</strong>
+  return (
+    <button
+      type="button"
+      className="record-link"
+      onClick={onOpenShift}
+      title={label}
+    >
+      {label}
+    </button>
+  )
+}
 
 type TranslationFn = (
   key: string,
@@ -850,6 +1024,7 @@ type ProductLineRow = {
   unitPriceCents: number
   lineTotalCents: number
   index: number
+  productId: number | null
 }
 
 type PaymentRow = {
@@ -878,6 +1053,7 @@ function productLineRows(
       lines.forEach((line, index) => {
         rows.push({
           order,
+          productId: line.productId ?? null,
           description:
             line.description ||
             (line.productId ? byId.get(line.productId)?.name : '') ||
@@ -898,6 +1074,7 @@ function productLineRows(
       const [name, quantity] = entry.split(' × ')
       rows.push({
         order,
+        productId: null,
         description: name || '—',
         category: '—',
         quantity: Number(quantity) || 1,
@@ -965,6 +1142,17 @@ function TabDetailSection({
   from,
   to,
   onExport,
+  onOpenProduct,
+  onOpenOrder,
+  onOpenEmployee,
+  onOpenCustomer,
+  onOpenShift,
+  lossesData,
+  auditRows,
+  employees,
+  customers,
+  shifts,
+  drillLabel,
 }: {
   tab: string
   orders: Order[]
@@ -972,18 +1160,278 @@ function TabDetailSection({
   waste: WasteEvent[]
   from: string
   to: string
-  onExport: (payload: {
-    header: string[]
-    rows: Array<Array<string | number>>
-    filters: Array<{ label: string; value: string }>
-    title: string
-  }) => void
+  onOpenProduct?: (productId: number) => void
+  onOpenOrder?: (orderId: string) => void
+  onOpenEmployee?: (employeeId: number) => void
+  onOpenCustomer?: (customerId: number) => void
+  onOpenShift?: () => void
+  lossesData: LossesReport | null
+  auditRows: AuditRow[] | null
+  employees: Array<{ id: number; name: string }>
+  customers: Array<{ id: number; name: string }>
+  shifts: Shift[]
+  /** QuickZoom context line shown under the title when drilled. */
+  drillLabel?: string
+  onExport: (payload: ExportPayload) => void
 }) {
   const { t } = useTranslation()
   const rangeLabel = t('reports.detailNote', {
     range: formatReportRange(from, to),
   })
-  const shared = { from, to, onExport, subtitle: rangeLabel }
+  const shared = { from, to, onExport, subtitle: drillLabel ?? rangeLabel }
+
+  if (tab === 'losses') {
+    const data = lossesData
+    if (!data)
+      return (
+        <section className="glass-panel report-detail-panel">
+          <div className="empty-state">
+            <span>{t('reports.loadingData')}</span>
+          </div>
+        </section>
+      )
+    const rows = [
+      { label: t('reports.waste'), valueCents: data.wasteCents },
+      { label: t('reports.discounts'), valueCents: data.discountsCents },
+      { label: t('reports.voids'), valueCents: data.voidsCents },
+      { label: t('reports.refunds'), valueCents: data.refundsCents },
+      {
+        label: t('reports.cashShortages'),
+        valueCents: data.cashShortagesCents,
+      },
+    ]
+    return (
+      <ReportDetailTable<{ label: string; valueCents: number }>
+        {...shared}
+        title={t('reports.lossesTitle')}
+        rows={rows}
+        rowKey={(row) => row.label}
+        defaultSort={{ key: 'label', direction: 'asc' }}
+        columns={[
+          {
+            key: 'label',
+            label: t('reports.losses'),
+            value: (row) => row.label,
+          },
+          {
+            key: 'value',
+            label: t('dashboard.revenue'),
+            numeric: true,
+            value: (row) => Number((row.valueCents / 100).toFixed(2)),
+            render: (row) => <strong>{cents(row.valueCents)}</strong>,
+          },
+        ]}
+        onExport={({ header, rows: exportRows, filters, title, format }) =>
+          onExport({
+            header,
+            rows: exportRows,
+            filters,
+            title,
+            format,
+            totals: [
+              {
+                label: t('reports.totalLost'),
+                value: cents(data.totalLostCents),
+              },
+            ],
+          })
+        }
+      />
+    )
+  }
+
+  if (tab === 'shifts') {
+    const rows = shifts
+      .filter((shift) => shift.closedAt && inRange(shift.closedAt, from, to))
+      .sort((a, b) => (b.closedAt ?? '').localeCompare(a.closedAt ?? ''))
+    return (
+      <ReportDetailTable<Shift>
+        {...shared}
+        title={t('reports.shiftRecords')}
+        emptyText={t('reports.noShiftsInRange')}
+        rows={rows}
+        rowKey={(row) => String(row.id)}
+        defaultSort={{ key: 'closed', direction: 'desc' }}
+        filters={[
+          {
+            key: 'openedBy',
+            label: t('employees.employee'),
+            get: (row) => row.openedBy || '—',
+          },
+        ]}
+        columns={[
+          {
+            key: 'closed',
+            label: t('reports.dateTimeCol'),
+            value: (row) =>
+              row.closedAt ? new Date(row.closedAt).toLocaleString() : '—',
+            sort: (row) => new Date(row.closedAt ?? row.openedAt).getTime(),
+            render: (row) =>
+              row.closedAt ? (
+                <ShiftLink
+                  label={new Date(row.closedAt).toLocaleString()}
+                  onOpenShift={onOpenShift}
+                />
+              ) : (
+                '—'
+              ),
+          },
+          {
+            key: 'id',
+            label: t('reports.shiftCol'),
+            value: (row) => row.id,
+          },
+          {
+            key: 'openedBy',
+            label: t('reports.openedBy'),
+            value: (row) => row.openedBy || '—',
+            render: (row) =>
+              row.openedBy ? (
+                <EmployeeLink
+                  name={row.openedBy}
+                  employees={employees}
+                  onOpenEmployee={onOpenEmployee}
+                />
+              ) : (
+                '—'
+              ),
+          },
+          {
+            key: 'openingCash',
+            label: t('reports.openingCash'),
+            numeric: true,
+            value: (row) => Number((row.openingCashUsdCents / 100).toFixed(2)),
+          },
+          {
+            key: 'expectedCash',
+            label: t('reports.expectedCash'),
+            numeric: true,
+            value: (row) =>
+              row.expectedCashUsdCents == null
+                ? ''
+                : Number((row.expectedCashUsdCents / 100).toFixed(2)),
+          },
+          {
+            key: 'countedCash',
+            label: t('reports.countedCash'),
+            numeric: true,
+            value: (row) =>
+              row.closingCashUsdCents == null
+                ? ''
+                : Number((row.closingCashUsdCents / 100).toFixed(2)),
+          },
+          {
+            key: 'variance',
+            label: t('reports.varianceCol'),
+            numeric: true,
+            value: (row) =>
+              row.varianceUsdCents == null
+                ? ''
+                : Number((row.varianceUsdCents / 100).toFixed(2)),
+            render: (row) =>
+              row.varianceUsdCents == null ? (
+                '—'
+              ) : (
+                <strong
+                  className={
+                    row.varianceUsdCents < 0
+                      ? 'coral-text'
+                      : row.varianceUsdCents > 0
+                        ? 'amber-text'
+                        : 'green-text'
+                  }
+                >
+                  {row.varianceUsdCents < 0 ? '−' : ''}
+                  {cents(Math.abs(row.varianceUsdCents))}
+                </strong>
+              ),
+          },
+          {
+            key: 'status',
+            label: t('orders.status'),
+            value: (row) => row.status,
+          },
+        ]}
+      />
+    )
+  }
+
+  if (tab === 'audit') {
+    if (auditRows === null)
+      return (
+        <section className="glass-panel report-detail-panel">
+          <div className="empty-state">
+            <span>{t('reports.loadingData')}</span>
+          </div>
+        </section>
+      )
+    return (
+      <ReportDetailTable<AuditRow>
+        {...shared}
+        title={t('reports.auditLog')}
+        emptyText={t('reports.noAuditEvents')}
+        rows={auditRows}
+        rowKey={(row) => String(row.id)}
+        defaultSort={{ key: 'at', direction: 'desc' }}
+        filters={[
+          {
+            key: 'employee',
+            label: t('employees.employee'),
+            get: (row) => row.employee,
+          },
+          {
+            key: 'action',
+            label: t('reports.actionCol'),
+            get: (row) => row.action,
+            options: auditActionGroups
+              .filter((group) => group.id)
+              .map((group) => t(group.key)),
+          },
+        ]}
+        columns={[
+          {
+            key: 'at',
+            label: t('dashboard.time'),
+            value: (row) => new Date(row.at).toLocaleString(),
+            sort: (row) => new Date(row.at).getTime(),
+          },
+          {
+            key: 'employee',
+            label: t('employees.employee'),
+            value: (row) => row.employee,
+            render: (row) => (
+              <EmployeeLink
+                name={row.employee}
+                employees={employees}
+                onOpenEmployee={onOpenEmployee}
+              />
+            ),
+          },
+          {
+            key: 'action',
+            label: t('reports.actionCol'),
+            value: (row) => row.action,
+          },
+          {
+            key: 'order',
+            label: t('orders.order'),
+            value: (row) => row.orderId || '',
+            render: (row) =>
+              row.orderId ? (
+                <OrderLink id={row.orderId} onOpenOrder={onOpenOrder} />
+              ) : (
+                '—'
+              ),
+          },
+          {
+            key: 'details',
+            label: t('reports.detailsCol'),
+            value: (row) => describeDetails(row.details),
+          },
+        ]}
+      />
+    )
+  }
 
   if (tab === 'waste') {
     return (
@@ -1022,11 +1470,19 @@ function TabDetailSection({
             key: 'product',
             label: t('dashboard.product'),
             value: (row) => row.productName,
+            render: (row) => (
+              <ProductNameLink
+                id={products.find((item) => item.name === row.productName)?.id}
+                name={row.productName}
+                onOpenProduct={onOpenProduct}
+              />
+            ),
           },
           {
             key: 'category',
             label: t('catalog.category'),
             value: (row) => row.category || '—',
+            compact: true,
           },
           {
             key: 'quantity',
@@ -1050,6 +1506,16 @@ function TabDetailSection({
             key: 'by',
             label: t('reports.recordedBy'),
             value: (row) => row.recordedBy || '—',
+            render: (row) =>
+              row.recordedBy ? (
+                <EmployeeLink
+                  name={row.recordedBy}
+                  employees={employees}
+                  onOpenEmployee={onOpenEmployee}
+                />
+              ) : (
+                '—'
+              ),
           },
         ]}
       />
@@ -1099,17 +1565,27 @@ function TabDetailSection({
             key: 'order',
             label: t('orders.order'),
             value: (row) => row.order.id,
-            render: (row) => <strong>{row.order.id}</strong>,
+            render: (row) => (
+              <OrderLink id={row.order.id} onOpenOrder={onOpenOrder} />
+            ),
           },
           {
             key: 'product',
             label: t('dashboard.product'),
             value: (row) => row.description,
+            render: (row) => (
+              <ProductNameLink
+                id={row.productId}
+                name={row.description}
+                onOpenProduct={onOpenProduct}
+              />
+            ),
           },
           {
             key: 'category',
             label: t('catalog.category'),
             value: (row) => row.category,
+            compact: true,
           },
           {
             key: 'quantity',
@@ -1135,7 +1611,7 @@ function TabDetailSection({
             key: 'status',
             label: t('orders.status'),
             value: (row) => row.order.status,
-            render: (row) => statusPill(row.order.status),
+            render: (row) => statusPill(t, row.order.status),
           },
         ]}
       />
@@ -1180,7 +1656,9 @@ function TabDetailSection({
             key: 'order',
             label: t('orders.order'),
             value: (row) => row.order.id,
-            render: (row) => <strong>{row.order.id}</strong>,
+            render: (row) => (
+              <OrderLink id={row.order.id} onOpenOrder={onOpenOrder} />
+            ),
           },
           {
             key: 'method',
@@ -1203,6 +1681,7 @@ function TabDetailSection({
             key: 'tenderUsd',
             label: t('reports.tenderedUsd'),
             numeric: true,
+            compact: true,
             value: (row) =>
               row.tenderedUsdCents === null
                 ? ''
@@ -1212,12 +1691,14 @@ function TabDetailSection({
             key: 'tenderKhr',
             label: t('reports.tenderedKhr'),
             numeric: true,
+            compact: true,
             value: (row) => row.tenderedKhr ?? '',
           },
           {
             key: 'change',
             label: t('reports.changeGiven'),
             numeric: true,
+            compact: true,
             value: (row) =>
               row.changeUsdCents === null
                 ? ''
@@ -1227,6 +1708,16 @@ function TabDetailSection({
             key: 'cashier',
             label: t('employees.employee'),
             value: (row) => row.order.cashier || '—',
+            render: (row) =>
+              row.order.cashier ? (
+                <EmployeeLink
+                  name={row.order.cashier}
+                  employees={employees}
+                  onOpenEmployee={onOpenEmployee}
+                />
+              ) : (
+                '—'
+              ),
           },
         ]}
       />
@@ -1283,7 +1774,7 @@ function TabDetailSection({
           value: (row) => row.id,
           render: (row) => (
             <>
-              <strong>{row.id}</strong>
+              <OrderLink id={row.id} onOpenOrder={onOpenOrder} />
               {row.pickupCode && (
                 <small className="block-note">{row.pickupCode}</small>
               )}
@@ -1305,6 +1796,23 @@ function TabDetailSection({
           key: 'who',
           label: t('orders.customerCashier'),
           value: (row) => orderWho(row) || '—',
+          compact: true,
+          render: (row) =>
+            row.customer ? (
+              <CustomerLink
+                name={row.customer.name}
+                customers={customers}
+                onOpenCustomer={onOpenCustomer}
+              />
+            ) : row.cashier ? (
+              <EmployeeLink
+                name={row.cashier}
+                employees={employees}
+                onOpenEmployee={onOpenEmployee}
+              />
+            ) : (
+              '—'
+            ),
         },
         {
           key: 'items',
@@ -1336,7 +1844,7 @@ function TabDetailSection({
           key: 'status',
           label: t('orders.status'),
           value: (row) => row.status,
-          render: (row) => statusPill(row.status),
+          render: (row) => statusPill(t, row.status),
         },
       ]}
     />
@@ -1407,6 +1915,8 @@ function tabTitle(t: (key: string) => string, tab: string) {
       return t('reports.teamTitle')
     case 'losses':
       return t('reports.lossesTitle')
+    case 'shifts':
+      return t('reports.shiftRecords')
     default:
       return t('reports.salesTrend')
   }
@@ -1451,99 +1961,71 @@ function rangeForPreset(preset: string): { from: string; to: string } {
     }
     case 'this_year':
       return { from: `${y}-01-01`, to: today }
+    case 'none':
+      return { from: '', to: '' }
     default:
       return { from: today, to: today }
   }
 }
 
-function LossesPanel({
-  from,
-  to,
-  branding,
-  language,
-  onReview,
-}: {
-  from: string
-  to: string
-  branding: ReportBranding
-  language: ReportLanguage
-  onReview: (request: ExportRequest) => void
-}) {
+/**
+ * The chart-card slot for tabs whose "chart" is a number, not a series:
+ * Losses (total money lost), the Audit log (event count + newest) and
+ * Shifts (closed count + total variance). The detail table below carries
+ * the rows, paginated and exportable like every other report.
+ */
+function LossesSummaryCard({ data }: { data: LossesReport | null }) {
   const { t } = useTranslation()
-  const [data, setData] = useState<LossesReport | null>(null)
-  useEffect(() => {
-    let alive = true
-    apiRequest<LossesReport>(`/api/reports/losses?from=${from}&to=${to}`)
-      .then((row) => alive && setData(row))
-      .catch(() => alive && setData(null))
-    return () => {
-      alive = false
-    }
-  }, [from, to])
   if (!data)
     return (
       <div className="empty-state">
         <span>{t('reports.loadingData')}</span>
       </div>
     )
-  const rows = [
-    { label: t('reports.waste'), value: data.wasteCents },
-    { label: t('reports.discounts'), value: data.discountsCents },
-    { label: t('reports.voids'), value: data.voidsCents },
-    { label: t('reports.refunds'), value: data.refundsCents },
-    { label: t('reports.cashShortages'), value: data.cashShortagesCents },
-  ]
   return (
-    <div className="report-tab-table report-tab-table--2col table-responsive">
-      <div className="table-row table-head">
-        <span>{t('reports.losses')}</span>
-        <span>{t('dashboard.revenue')}</span>
-      </div>
-      {rows.map((row) => (
-        <div className="table-row" key={row.label}>
-          <strong>{row.label}</strong>
-          <strong className="numeric">{cents(row.value)}</strong>
-        </div>
-      ))}
-      <div className="table-row table-total">
-        <strong>{t('reports.totalLost')}</strong>
-        <strong className="numeric">{cents(data.totalLostCents)}</strong>
-      </div>
-      <div className="report-export-actions">
-        <button
-          className="text-button"
-          onClick={() =>
-            onReview({
-              meta: {
-                title: t('reports.lossesTitle'),
-                from,
-                to,
-                branding,
-                language,
-                totals: [
-                  {
-                    label: t('reports.totalLost'),
-                    value: cents(data.totalLostCents),
-                  },
-                ],
-              },
-              header: [t('reports.losses'), 'USD'],
-              rows: rows.map((row) => [
-                row.label,
-                Number((row.value / 100).toFixed(2)),
-              ]),
-              filenameBase: `losses-${from || 'all'}-${to || 'all'}`,
-            })
-          }
-        >
-          <Download size={14} /> {t('reports.reviewAndExport')}
-        </button>
-      </div>
+    <div className="report-summary-card">
+      <strong>{cents(data.totalLostCents)}</strong>
+      <span>{t('reports.totalLost')}</span>
+      <small>{t('reports.lossesTitle')}</small>
     </div>
   )
 }
 
-function TopProductsTable() {
+function AuditSummaryCard({ rows }: { rows: AuditRow[] }) {
+  const { t } = useTranslation()
+  const newest = rows[0]
+  return (
+    <div className="report-summary-card">
+      <strong>{rows.length}</strong>
+      <span>{t('reports.auditLog')}</span>
+      {newest && <small>{new Date(newest.at).toLocaleString()}</small>}
+    </div>
+  )
+}
+
+function ShiftsSummaryCard({ shifts }: { shifts: Shift[] }) {
+  const { t } = useTranslation()
+  const variance = shifts.reduce(
+    (sum, shift) => sum + (shift.varianceUsdCents ?? 0),
+    0,
+  )
+  return (
+    <div className="report-summary-card">
+      <strong>{shifts.length}</strong>
+      <span>{t('reports.shiftRecords')}</span>
+      <small className={variance < 0 ? 'coral-text' : 'green-text'}>
+        {variance < 0 ? '−' : ''}
+        {cents(Math.abs(variance))} {t('reports.cashVariance')}
+      </small>
+    </div>
+  )
+}
+
+function TopProductsTable({
+  onOpenProduct,
+}: {
+  onOpenProduct?: (productId: number) => void
+}) {
   const { t } = useTranslation()
   const { summary } = useAdminData()
   const top = summary?.topProducts ?? []
@@ -1564,7 +2046,11 @@ function TopProductsTable() {
       {top.map((product, index) => (
         <div className="table-row" key={`${product.id}-${product.name}`}>
           <span className="rank">{index + 1}</span>
-          <strong>{product.name}</strong>
+          <ProductNameLink
+            id={product.id}
+            name={product.name}
+            onOpenProduct={onOpenProduct}
+          />
           <span>{product.units}</span>
           <strong className="numeric">{usd(product.revenue)}</strong>
         </div>
@@ -1615,56 +2101,51 @@ function PaymentsBreakdown() {
   )
 }
 
-type CashierAccountability = {
-  cashier_id: number
-  name: string
-  completedOrderCount: number
-  netRevenueCents: number
-  discountsCents: number
-  discountCount: number
-  voidCount: number
-  voidAmountCents: number
-  refundCount: number
-  refundAmountCents: number
-  shiftsClosed: number
-  shortfallCount: number
-  repeatedShortfall: boolean
-  varianceHistory: Array<{
-    closedAt: string | null
-    openingCashUsdCents: number
-    expectedCashUsdCents: number
-    closingCashUsdCents: number
-    varianceUsdCents: number
-  }>
-}
-
 /**
  * Employee accountability: normal sales numbers next to the anti-theft
  * signals (discounts, voids, refunds, cash-variance history). Rows with a
  * repeated negative-variance pattern are flagged for the owner.
  */
-function TeamAccountability({ from, to }: { from: string; to: string }) {
+function TeamAccountability({
+  from,
+  to,
+  rows,
+  onlyEmployee,
+}: {
+  from: string
+  to: string
+  /** Pre-fetched rows (the page fetches them for the By-employee view);
+      when omitted the component fetches its own, as before. */
+  rows?: CashierBreakdownRow[] | null
+  /** When set, only this employee's block renders (drill-down view). */
+  onlyEmployee?: string
+}) {
   const { t } = useTranslation()
-  const [rows, setRows] = useState<CashierAccountability[] | null>(null)
+  const [fetched, setFetched] = useState<CashierBreakdownRow[] | null>(null)
   const [expanded, setExpanded] = useState<number | null>(null)
   useEffect(() => {
+    if (rows !== undefined) return
     let alive = true
-    apiRequest<CashierAccountability[]>(
+    apiRequest<CashierBreakdownRow[]>(
       `/api/reports/cashiers?from=${from}&to=${to}`,
     )
-      .then((data) => alive && setRows(data))
-      .catch(() => alive && setRows([]))
+      .then((data) => alive && setFetched(data))
+      .catch(() => alive && setFetched([]))
     return () => {
       alive = false
     }
-  }, [from, to])
-  if (!rows)
+  }, [from, to, rows])
+  const all = rows ?? fetched
+  const visible = onlyEmployee
+    ? (all ?? []).filter((row) => row.name === onlyEmployee)
+    : (all ?? [])
+  if (!all)
     return (
       <div className="empty-state">
         <span>{t('reports.loadingData')}</span>
       </div>
     )
-  if (!rows.length)
+  if (!visible.length)
     return (
       <div className="empty-state">
         <span>{t('reports.noChartData')}</span>
@@ -1681,7 +2162,7 @@ function TeamAccountability({ from, to }: { from: string; to: string }) {
         <span>{t('reports.cashVariance')}</span>
         <span />
       </div>
-      {rows.map((row) => (
+      {visible.map((row) => (
         <div key={row.cashier_id} className="accountability-row-wrap">
           <div
             className={`table-row accountability-head ${
@@ -1826,135 +2307,6 @@ function describeDetails(details: Record<string, unknown>): string {
     parts.push(`code ${details.pickupCode}`)
   if (typeof details.phone === 'string') parts.push(String(details.phone))
   return parts.join(' · ') || '—'
-}
-
-function AuditLogPanel({
-  from,
-  to,
-  onToast,
-  branding,
-  language,
-  onReview,
-}: {
-  from: string
-  to: string
-  onToast: (message: string) => void
-  branding: ReportBranding
-  language: ReportLanguage
-  onReview: (request: ExportRequest) => void
-}) {
-  const { t } = useTranslation()
-  const { employees } = useAdminData()
-  const [rows, setRows] = useState<AuditRow[]>([])
-  const [employee, setEmployee] = useState('')
-  const [action, setAction] = useState('')
-  const [newestFirst, setNewestFirst] = useState(true)
-  useEffect(() => {
-    let alive = true
-    const params = new URLSearchParams({ from, to })
-    if (employee) params.set('employee', employee)
-    if (action) params.set('action', action)
-    apiRequest<AuditRow[]>(`/api/reports/audit?${params.toString()}`)
-      .then((data) => alive && setRows(data))
-      .catch((error) => {
-        if (alive) {
-          setRows([])
-          onToast(error instanceof Error ? error.message : 'Audit load failed')
-        }
-      })
-    return () => {
-      alive = false
-    }
-  }, [from, to, employee, action, onToast])
-  const sorted = newestFirst ? rows : [...rows].reverse()
-  // The audit log is evidence: it goes through the same review step, so the
-  // exported file provably matches the filtered list on screen.
-  const exportAudit = () =>
-    onReview({
-      meta: {
-        title: t('reports.auditLog'),
-        from,
-        to,
-        branding,
-        language,
-        filters: [
-          ...(employee
-            ? [
-                {
-                  label: t('employees.employee'),
-                  value:
-                    employees.find((member) => String(member.id) === employee)
-                      ?.name || employee,
-                },
-              ]
-            : []),
-          ...(action ? [{ label: t('reports.actionCol'), value: action }] : []),
-        ],
-      },
-      header: ['Timestamp', 'Employee', 'Action', 'Order', 'Details'],
-      rows: sorted.map((row) => [
-        new Date(row.at).toLocaleString(),
-        row.employee,
-        row.action,
-        row.orderId || '',
-        describeDetails(row.details),
-      ]),
-      filenameBase: `audit-log-${from || 'all'}-${to || 'all'}`,
-    })
-  return (
-    <div className="audit-log-panel">
-      <div className="audit-filters">
-        <select value={employee} onChange={(e) => setEmployee(e.target.value)}>
-          <option value="">{t('reports.allEmployees')}</option>
-          {employees.map((member) => (
-            <option key={member.id} value={member.id}>
-              {member.name}
-            </option>
-          ))}
-        </select>
-        <select value={action} onChange={(e) => setAction(e.target.value)}>
-          {auditActionGroups.map((group) => (
-            <option key={group.id} value={group.id}>
-              {t(group.key)}
-            </option>
-          ))}
-        </select>
-        <button
-          className="text-button"
-          onClick={() => setNewestFirst(!newestFirst)}
-        >
-          {newestFirst ? t('reports.newestFirst') : t('reports.oldestFirst')}
-        </button>
-        <button className="text-button" onClick={exportAudit}>
-          <Download size={14} /> {t('common.export')}
-        </button>
-      </div>
-      <div className="table-responsive">
-        <div className="table-row table-head audit-head">
-          <span>{t('dashboard.time')}</span>
-          <span>{t('employees.employee')}</span>
-          <span>{t('reports.actionCol')}</span>
-          <span>{t('orders.order')}</span>
-          <span>{t('reports.detailsCol')}</span>
-        </div>
-        {sorted.map((row) => (
-          <div className="table-row audit-row" key={row.id}>
-            <span>{new Date(row.at).toLocaleString()}</span>
-            <strong>{row.employee}</strong>
-            <span className="audit-action">{row.action}</span>
-            <span>{row.orderId || '—'}</span>
-            <small>{describeDetails(row.details)}</small>
-          </div>
-        ))}
-        {!sorted.length && (
-          <div className="empty-state">
-            <ShieldAlert size={22} />
-            <span>{t('reports.noAuditEvents')}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  )
 }
 
 /**
