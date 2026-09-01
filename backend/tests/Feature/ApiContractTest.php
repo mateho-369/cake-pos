@@ -17,7 +17,7 @@ use App\Jobs\SendStaffCategoryProposedNotification;
 use App\Services\ObjectUploadService;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\{Cache, DB, Http, Queue, Storage};
+use Illuminate\Support\Facades\{Cache, DB, Http, Log, Queue, Storage};
 use Illuminate\Support\Str;
 use App\Support\BotSeparation;
 use Tests\TestCase;
@@ -1210,6 +1210,10 @@ class ApiContractTest extends TestCase
             'first_name' => 'Bora',
             'username' => 'bora',
         ]);
+        // Mini App loads the menu first, which is what creates the Customer
+        // row. Updating the phone before that writes to 0 rows.
+        $this->postJson('/api/customer-products', ['initData' => $initData])
+            ->assertOk();
         Customer::where('telegram_user_id', '7')->update([
             'phone' => '+855 99 887 766',
         ]);
@@ -1334,6 +1338,8 @@ class ApiContractTest extends TestCase
             'first_name' => 'Chantrea',
             'username' => 'chantrea',
         ]);
+        $this->postJson('/api/customer-products', ['initData' => $initData])
+            ->assertOk();
         Customer::where('telegram_user_id', '77')->update([
             'phone' => '+855 92 111 222',
         ]);
@@ -1441,6 +1447,8 @@ class ApiContractTest extends TestCase
             'first_name' => 'Dara',
             'username' => 'dara',
         ]);
+        $this->postJson('/api/customer-products', ['initData' => $initData])
+            ->assertOk();
         Customer::where('telegram_user_id', '78')->update([
             'phone' => '+855 92 333 444',
         ]);
@@ -1585,6 +1593,8 @@ class ApiContractTest extends TestCase
             'first_name' => 'Vibol',
             'username' => 'vibol',
         ]);
+        $this->postJson('/api/customer-products', ['initData' => $initData])
+            ->assertOk();
         Customer::where('telegram_user_id', '88')->update([
             'phone' => '+855 92 333 444',
         ]);
@@ -2542,11 +2552,286 @@ class ApiContractTest extends TestCase
             $secondary = $buttons[1][0] ?? [];
             return str_contains($text, 'សូមស្វាគមន៍') &&
                 str_contains($text, 'Welcome to G-Cake') &&
+                str_contains($text, '+85512345678') &&
                 $primary['type'] === 'web_app' &&
                 $primary['web_app']['url'] === 'https://shop.gcake.test' &&
                 str_contains($primary['text'], 'Open Shop') &&
                 $secondary['type'] === 'url' &&
-                str_contains($secondary['url'], 'maps.google.com');
+                str_contains($secondary['url'], 'maps.google.com') &&
+                !str_starts_with((string) ($secondary['url'] ?? ''), 'tel:');
+        });
+    }
+
+    /**
+     * A shop with a phone but no address used to build `tel:+855…` as an
+     * inline URL button. Telegram only accepts http(s)/tg links there and
+     * rejects the *entire* sendMessage with 400 BUTTON_URL_INVALID — which
+     * is why /start showed nothing. The number now lives in the body.
+     */
+    public function test_shop_webhook_start_puts_phone_in_text_not_a_tel_button(): void
+    {
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        config([
+            'services.telegram.bot_token' => '123:shop-token',
+            'services.telegram.webhook_secret' => 'sekret',
+            'services.telegram.shop_mini_app_url' => 'https://shop.gcake.test',
+        ]);
+        Setting::updateOrCreate(
+            ['key' => 'business_profile'],
+            [
+                'value_json' => [
+                    'businessName' => 'G-Cake',
+                    'phone' => '+855 12 345 678',
+                ],
+                'updated_at' => now(),
+            ],
+        );
+
+        $this->postJson(
+            '/api/telegram/webhook',
+            [
+                'message' => [
+                    'text' => '/start',
+                    'from' => ['id' => 556, 'first_name' => 'Srey'],
+                ],
+            ],
+            ['X-Telegram-Bot-Api-Secret-Token' => 'sekret'],
+        )->assertOk();
+
+        Http::assertSent(function ($request) {
+            if (
+                !str_contains(
+                    $request->url(),
+                    'bot123:shop-token/sendMessage',
+                )
+            ) {
+                return false;
+            }
+            $markup = json_decode((string) $request['reply_markup'], true);
+            $buttons = $markup['inline_keyboard'] ?? [];
+            $urls = collect($buttons)
+                ->flatten(1)
+                ->pluck('url')
+                ->filter()
+                ->values();
+            return str_contains((string) $request['text'], '+855 12 345 678') &&
+                $urls->isEmpty() &&
+                count($buttons) === 1 &&
+                ($buttons[0][0]['type'] ?? '') === 'web_app';
+        });
+    }
+
+    public function test_shop_webhook_start_deep_link_still_sends_welcome(): void
+    {
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        config([
+            'services.telegram.bot_token' => '123:shop-token',
+            'services.telegram.webhook_secret' => 'sekret',
+            'services.telegram.shop_mini_app_url' => 'https://shop.gcake.test',
+        ]);
+
+        $this->postJson(
+            '/api/telegram/webhook',
+            [
+                'message' => [
+                    'text' => '/start ref-abc',
+                    'from' => ['id' => 557, 'first_name' => 'Dara'],
+                ],
+            ],
+            ['X-Telegram-Bot-Api-Secret-Token' => 'sekret'],
+        )->assertOk();
+
+        Http::assertSent(
+            fn($request) => str_contains(
+                $request->url(),
+                'bot123:shop-token/sendMessage',
+            ) &&
+                (string) $request['chat_id'] === '557' &&
+                str_contains((string) $request['text'], 'Welcome to'),
+        );
+    }
+
+    public function test_shop_webhook_start_logs_when_telegram_refuses_the_message(): void
+    {
+        Log::fake();
+        Http::fake([
+            'api.telegram.org/*' => Http::response(
+                [
+                    'ok' => false,
+                    'error_code' => 400,
+                    'description' => 'Bad Request: BUTTON_URL_INVALID',
+                ],
+                400,
+            ),
+        ]);
+        config([
+            'services.telegram.bot_token' => '123:shop-token',
+            'services.telegram.webhook_secret' => 'sekret',
+            'services.telegram.shop_mini_app_url' => 'https://shop.gcake.test',
+        ]);
+
+        $this->postJson(
+            '/api/telegram/webhook',
+            [
+                'message' => [
+                    'text' => '/start',
+                    'from' => ['id' => 558, 'first_name' => 'Dara'],
+                ],
+            ],
+            ['X-Telegram-Bot-Api-Secret-Token' => 'sekret'],
+        )->assertOk();
+
+        Log::assertLogged(function ($log) {
+            $level = is_array($log) ? ($log['level'] ?? '') : $log->level;
+            $message = is_array($log)
+                ? ($log['message'] ?? '')
+                : $log->message;
+            $context = is_array($log)
+                ? ($log['context'] ?? [])
+                : $log->context ?? [];
+            return $level === 'warning' &&
+                str_contains($message, 'refused by Telegram') &&
+                str_contains(
+                    (string) ($context['body'] ?? ''),
+                    'BUTTON_URL_INVALID',
+                );
+        });
+    }
+
+    public function test_shop_webhook_start_logs_when_bot_token_is_missing(): void
+    {
+        Log::fake();
+        Http::fake();
+        config([
+            'services.telegram.bot_token' => '',
+            'services.telegram.webhook_secret' => 'sekret',
+            'services.telegram.shop_mini_app_url' => 'https://shop.gcake.test',
+        ]);
+
+        $this->postJson(
+            '/api/telegram/webhook',
+            [
+                'message' => [
+                    'text' => '/start',
+                    'from' => ['id' => 559, 'first_name' => 'Dara'],
+                ],
+            ],
+            ['X-Telegram-Bot-Api-Secret-Token' => 'sekret'],
+        )->assertOk();
+
+        Http::assertNothingSent();
+        Log::assertLogged(function ($log) {
+            $level = is_array($log) ? ($log['level'] ?? '') : $log->level;
+            $message = is_array($log)
+                ? ($log['message'] ?? '')
+                : $log->message;
+            return $level === 'warning' &&
+                str_contains($message, 'SHOP_TELEGRAM_BOT_TOKEN');
+        });
+    }
+
+    public function test_telegram_webhook_command_prints_last_error_and_refuses_set_without_secret(): void
+    {
+        Http::fake(function ($request) {
+            $url = $request->url();
+            if (str_contains($url, '/getMe')) {
+                return Http::response([
+                    'ok' => true,
+                    'result' => ['username' => 'gcake_store', 'id' => 1],
+                ]);
+            }
+            if (str_contains($url, '/getWebhookInfo')) {
+                return Http::response([
+                    'ok' => true,
+                    'result' => [
+                        'url' => 'https://api.example.com/api/telegram/webhook',
+                        'pending_update_count' => 3,
+                        'last_error_message' =>
+                            'Wrong response from the webhook: 401 Unauthorized',
+                        'last_error_date' => 1_704_067_200,
+                    ],
+                ]);
+            }
+            return Http::response(['ok' => false, 'description' => 'unexpected'], 500);
+        });
+        config([
+            'services.telegram.bot_token' => '123:shop-token',
+            'services.telegram.webhook_secret' => '',
+            'services.telegram.shop_mini_app_url' => 'https://shop.gcake.test',
+        ]);
+
+        $this->artisan('telegram:webhook')
+            ->expectsOutputToContain('401 Unauthorized')
+            ->expectsOutputToContain('TELEGRAM_WEBHOOK_SECRET')
+            ->assertFailed();
+
+        $this->artisan('telegram:webhook', [
+            '--set' => true,
+            '--url' => 'https://api.example.com',
+        ])
+            ->expectsOutputToContain('TELEGRAM_WEBHOOK_SECRET')
+            ->assertFailed();
+
+        Http::assertNotSent(
+            fn($request) => str_contains($request->url(), 'setWebhook'),
+        );
+    }
+
+    public function test_telegram_webhook_command_registers_and_can_send_welcome(): void
+    {
+        Http::fake(function ($request) {
+            $url = $request->url();
+            if (str_contains($url, '/getMe')) {
+                return Http::response([
+                    'ok' => true,
+                    'result' => ['username' => 'gcake_store', 'id' => 1],
+                ]);
+            }
+            if (str_contains($url, '/getWebhookInfo')) {
+                return Http::response([
+                    'ok' => true,
+                    'result' => [
+                        'url' => 'https://api.example.com/api/telegram/webhook',
+                        'pending_update_count' => 0,
+                    ],
+                ]);
+            }
+            if (str_contains($url, '/setWebhook')) {
+                return Http::response([
+                    'ok' => true,
+                    'description' => 'Webhook was set',
+                ]);
+            }
+            if (str_contains($url, '/sendMessage')) {
+                return Http::response(['ok' => true, 'result' => ['message_id' => 9]]);
+            }
+            return Http::response(['ok' => false], 404);
+        });
+        config([
+            'services.telegram.bot_token' => '123:shop-token',
+            'services.telegram.webhook_secret' => 'sekret',
+            'services.telegram.shop_mini_app_url' => 'https://shop.gcake.test',
+        ]);
+
+        $this->artisan('telegram:webhook', [
+            '--set' => true,
+            '--url' => 'https://api.example.com',
+            '--send' => '555',
+        ])
+            ->expectsOutputToContain('Webhook was set')
+            ->expectsOutputToContain('555')
+            ->assertSuccessful();
+
+        Http::assertSent(function ($request) {
+            return str_contains($request->url(), 'setWebhook') &&
+                $request['url'] ===
+                    'https://api.example.com/api/telegram/webhook' &&
+                $request['secret_token'] === 'sekret';
+        });
+        Http::assertSent(function ($request) {
+            return str_contains($request->url(), 'sendMessage') &&
+                (string) $request['chat_id'] === '555' &&
+                str_contains((string) $request['text'], 'Welcome to');
         });
     }
 
@@ -2559,14 +2844,14 @@ class ApiContractTest extends TestCase
             'first_name' => 'Closed',
             'username' => 'closed_shop',
         ]);
-        Customer::where('telegram_user_id', '501')->update([
-            'phone' => '+855 12 000 501',
-        ]);
         $product = Product::first();
         $product->update(['price_cents' => 1000, 'stock' => 10]);
         $this->postJson('/api/customer-products', ['initData' => $initData])
             ->assertOk()
             ->assertJsonPath('storeOpen', false);
+        Customer::where('telegram_user_id', '501')->update([
+            'phone' => '+855 12 000 501',
+        ]);
         $this->postJson('/api/customer-orders', [
             'initData' => $initData,
             'items' => [['productId' => $product->id, 'quantity' => 1]],
@@ -3346,6 +3631,8 @@ class ApiContractTest extends TestCase
             'first_name' => 'Split',
             'username' => 'split_tender',
         ]);
+        $this->postJson('/api/customer-products', ['initData' => $initData])
+            ->assertOk();
         Customer::where('telegram_user_id', '503')->update([
             'phone' => '+855 12 000 503',
         ]);
@@ -3486,6 +3773,10 @@ final class MoneyForTest
 {
     public static function decimal(int $cents): float
     {
+        return $cents / 100;
+    }
+}
+   {
         return $cents / 100;
     }
 }
