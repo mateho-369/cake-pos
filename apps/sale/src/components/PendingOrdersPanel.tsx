@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import {
   AlertTriangle,
+  ArrowLeft,
   Banknote,
   MessageCircle,
   PauseCircle,
   Phone,
   ScanLine,
   Send,
+  StickyNote,
   Trash2,
   X,
 } from 'lucide-react'
@@ -29,6 +31,12 @@ type Props = {
   shiftOpen: boolean
   /** Opened from the header toolbar even when there are no pending orders. */
   open?: boolean
+  /**
+   * Close the queue and go back to the menu. The empty-state message is
+   * then never a dead end: it clears itself the moment a customer order
+   * lands, and the cashier can dismiss it by hand at any other time.
+   */
+  onClose?: () => void
   rate: number
   /** Perform the actual payment POST. */
   onPay: (
@@ -73,6 +81,7 @@ export default function PendingOrdersPanel({
   pending,
   shiftOpen,
   open = false,
+  onClose,
   onPay,
   onAccept,
   onReject,
@@ -207,9 +216,26 @@ export default function PendingOrdersPanel({
       <div className="pending-panel-head">
         <span>{t('pending.title')}</span>
         <em>{pending.length}</em>
+        {onClose && (
+          <button
+            className="queue-panel-close"
+            onClick={onClose}
+            aria-label={t('pending.queueBack')}
+            title={t('pending.queueBack')}
+          >
+            <X size={15} />
+          </button>
+        )}
       </div>
       {!pending.length ? (
-        <p className="pending-panel-empty">{t('pending.empty')}</p>
+        <div className="pending-panel-empty">
+          <p>{t('pending.empty')}</p>
+          {onClose && (
+            <button className="queue-empty-back" onClick={onClose}>
+              <ArrowLeft size={14} /> {t('pending.queueBack')}
+            </button>
+          )}
+        </div>
       ) : (
         <div className="pending-panel-list">
           {pending.map((order) => (
@@ -253,7 +279,31 @@ export default function PendingOrdersPanel({
                     )}
                   </div>
                 )}
-                <small>{order.detail.join('; ')}</small>
+                {order.lineItems?.length ? (
+                  // Per-line view, because a line can carry the customer's
+                  // own note ("Happy Birthday John") — staff must read it
+                  // before calling. Older payloads without lineItems keep
+                  // the one-line summary below.
+                  <ul className="pending-items">
+                    {order.lineItems.map((line, index) => (
+                      <li key={`${line.productId ?? 'x'}-${index}`}>
+                        <small>
+                          {line.description} × {line.quantity}
+                        </small>
+                        {line.note && (
+                          <span
+                            className="pending-item-note"
+                            title={t('pending.itemNote')}
+                          >
+                            <StickyNote size={11} /> {line.note}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <small>{order.detail.join('; ')}</small>
+                )}
               </div>
               <div className="pending-card-actions">
                 <button

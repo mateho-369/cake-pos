@@ -22,6 +22,15 @@ DB_COUNT() {
   mysql -h127.0.0.1 -uroot -proot -N -e "SELECT COUNT(*) FROM cake_pos.jobs;" 2>/dev/null || echo "?"
 }
 
+# Every exit path says WHY, and says it as a GitHub annotation as well as on
+# stdout: the raw job log is not always reachable, and "exit code 1" with no
+# message is how this step used to fail.
+fail() {
+  echo "FAIL — $*"
+  echo "::error::queue-verify: $*"
+  exit 1
+}
+
 echo "== starting local Telegram API stub on :$STUB_PORT =="
 rm -f "$STUB_LOG"
 node - "$STUB_PORT" "$STUB_LOG" <<'NODE' &
@@ -42,44 +51,85 @@ http
 NODE
 STUB_PID=$!
 trap 'kill $STUB_PID 2>/dev/null || true' EXIT
-sleep 1
+
+# Wait for the stub to actually accept connections instead of hoping one
+# second was enough — a slow runner used to fail the whole step here.
+for _ in $(seq 1 30); do
+  if curl -sS -o /dev/null -m 2 "http://127.0.0.1:$STUB_PORT/ping" 2>/dev/null; then
+    break
+  fi
+  sleep 0.5
+done
+curl -sS -o /dev/null -m 2 "http://127.0.0.1:$STUB_PORT/ping" ||
+  fail "the local Telegram stub never came up on :$STUB_PORT"
 
 echo "== login (admin) =="
-TOKEN=$(curl -sS -X POST "$API_URL/api/login" \
+LOGIN=$(curl -sS -X POST "$API_URL/api/login" \
   -H 'Content-Type: application/json' \
-  -d '{"email":"owner@atelier.local","password":"ChangeMe123!"}' |
-  python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+  -d '{"email":"owner@atelier.local","password":"ChangeMe123!"}')
+TOKEN=$(echo "$LOGIN" |
+  python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin).get("token", ""))
+except Exception:
+    print("")')
+[ -n "$TOKEN" ] || fail "login returned no token: $(echo "$LOGIN" | head -c 400)"
 AUTH="Authorization: Bearer $TOKEN"
 
 echo "== ensure an open shift (idempotent) =="
-curl -sS -f -X POST "$API_URL/api/shifts/open" \
-  -H "$AUTH" -H 'Content-Type: application/json' \
-  -d '{"openingCash":100,"openingCashKhr":40000}' >/dev/null ||
-  echo "   (shift already open — continuing)"
+CURRENT=$(curl -sS "$API_URL/api/shifts/current" -H "$AUTH")
+if ! echo "$CURRENT" | grep -q '"status":"Open"'; then
+  OPENED=$(curl -sS -X POST "$API_URL/api/shifts/open" \
+    -H "$AUTH" -H 'Content-Type: application/json' \
+    -d '{"openingCash":100,"openingCashKhr":40000}')
+  echo "$OPENED" | grep -q '"id"' ||
+    fail "could not open a shift for the sale: $(echo "$OPENED" | head -c 400)"
+else
+  echo "   (a shift is already open — continuing)"
+fi
 
-echo "== pick a product and pay it exactly in USD =="
-read -r PRODUCT_ID PRICE_CENTS <<<"$(curl -sS "$API_URL/api/products" -H "$AUTH" |
-  python3 -c 'import json,sys; p=json.load(sys.stdin)[0]; print(p["id"], round(p["price"]*100))')"
+echo "== pick a product that is actually sellable and pay it exactly in USD =="
+# The smoke test that runs before this one sells stock, so the first product
+# in the list is not necessarily still in stock: take the best-stocked one.
+read -r PRODUCT_ID PRICE_CENTS STOCK <<<"$(curl -sS "$API_URL/api/products" -H "$AUTH" |
+  python3 -c 'import json,sys
+items = json.load(sys.stdin)
+items = items if isinstance(items, list) else []
+sellable = [p for p in items if (p.get("stock") or 0) >= 1]
+if not sellable:
+    print("0 0 0")
+else:
+    p = max(sellable, key=lambda x: x.get("stock") or 0)
+    print(p["id"], round((p.get("price") or 0) * 100), p.get("stock"))')"
+[ "$PRODUCT_ID" != "0" ] ||
+  fail "no product with stock left to sell — the queue worker never gets a job"
+echo "   selling product $PRODUCT_ID at ${PRICE_CENTS}c (stock $STOCK)"
 
 IDEMPOTENCY="$(python3 -c 'import uuid;print(uuid.uuid4())')"
 ORDER=$(curl -sS -X POST "$API_URL/api/orders" \
   -H "$AUTH" -H 'Content-Type: application/json' \
   -d "{\"payment\":\"Cash\",\"items\":[{\"productId\":$PRODUCT_ID,\"quantity\":1}],\"idempotencyKey\":\"$IDEMPOTENCY\",\"usdReceivedCents\":$PRICE_CENTS,\"khrReceived\":0,\"changeUsdCents\":0,\"changeKhr\":0,\"exchangeRateKhrPerUsd\":4100}")
-ORDER_ID=$(echo "$ORDER" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+ORDER_ID=$(echo "$ORDER" |
+  python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin).get("id", ""))
+except Exception:
+    print("")')
+[ -n "$ORDER_ID" ] ||
+  fail "the sale was refused: $(echo "$ORDER" | head -c 400)"
 echo "   order completed: $ORDER_ID"
 
 BEFORE=$(DB_COUNT)
 echo "== jobs queued in MySQL right after the sale: $BEFORE =="
 if [ "$BEFORE" = "0" ] || [ "$BEFORE" = "?" ]; then
-  echo "FAIL — expected the notification job to be waiting in the database queue"
-  exit 1
+  fail "expected the notification job to be waiting in the database queue (count=$BEFORE)"
 fi
 
 echo "== run the REAL queue worker until the queue drains =="
 ( cd "$BACKEND_DIR" && php artisan queue:work database --stop-when-empty --tries=1 --sleep=0 )
 AFTER=$(DB_COUNT)
 echo "== jobs remaining after the worker: $AFTER =="
-[ "$AFTER" = "0" ] || { echo "FAIL — worker did not drain the queue"; exit 1; }
+[ "$AFTER" = "0" ] || fail "worker did not drain the queue (still $AFTER)"
 
 echo "== assert the stub actually received the staff sendMessage =="
 python3 - "$STUB_LOG" "$ORDER_ID" <<'PYTHON'
@@ -97,7 +147,8 @@ matches = [
 ]
 if not matches:
     print('FAIL — no staff sendMessage containing the order id reached the Telegram API stub')
-    print('stub captured:', json.dumps(sends, indent=2)[:2000])
+    print('::error::queue-verify: no staff sendMessage for order %s reached the stub; captured %s'
+          % (order_id, json.dumps(sends)[:900]))
     sys.exit(1)
 print(
     f"PASS — staff notification SENT via real queue worker: chat={matches[0]['chat_id']} order={order_id}"

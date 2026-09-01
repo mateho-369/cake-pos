@@ -88,6 +88,12 @@ export type SaleOrder = {
     productId: number | null
     description: string | null
     quantity: number
+    /**
+     * Free-text instruction the customer attached to THIS line in the
+     * Telegram Mini App ("Happy Birthday John", "less sugar"). Null on
+     * walk-in lines, and it survives Accept — the held order keeps it.
+     */
+    note?: string | null
     unitPriceCents: number
   }>
 }
@@ -111,6 +117,12 @@ export type PendingOrder = {
   status: string
   total: number | null
   detail: string[]
+  /**
+   * Line items with the customer's per-line notes (GET /api/orders/pending
+   * eager-loads them). Older payloads omit them, so the card falls back to
+   * the `detail` summary.
+   */
+  lineItems?: SaleOrder['lineItems']
   customer?: {
     name: string
     phone?: string

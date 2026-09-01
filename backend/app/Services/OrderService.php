@@ -136,7 +136,9 @@ class OrderService
                 $tenderKhr = null;
                 $changeUsd = null;
                 $changeKhr = null;
-                $roundingKhr = null;
+                // Not nullable in the schema (default 0): a KHQR sale has no
+                // riel rounding, and writing NULL fails the insert outright.
+                $roundingKhr = 0;
                 if ($method === 'cash') {
                     // Mixed-currency tender (USD notes + riel notes) is valid
                     // as long as the combined value covers the total — the
@@ -430,7 +432,7 @@ class OrderService
      */
     public function accept(Order $order, Employee $employee): Order
     {
-        return DB::transaction(function () use ($order, $employee) {
+        $accepted = DB::transaction(function () use ($order, $employee) {
             $order = Order::whereKey($order->id)
                 ->lockForUpdate()
                 ->firstOrFail();
@@ -473,6 +475,12 @@ class OrderService
             ]);
             return $order->fresh(['cashier', 'customer', 'orderItems']);
         });
+        // Tell the customer the shop took their order (status 'Held' — see
+        // CustomerNotificationService). Dispatched after the transaction
+        // commits, exactly like cancel() above, so the job can never read a
+        // row that was rolled back.
+        SendCustomerStatusNotification::dispatch($accepted->id);
+        return $accepted;
     }
 
     /**

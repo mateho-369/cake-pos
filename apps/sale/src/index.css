@@ -648,18 +648,14 @@ button:disabled {
  * Inside Telegram the header must clear BOTH the device notch
  * (env(safe-area-inset-top)) AND Telegram's own overlaid fullscreen
  * back/close button, which @cake-pos/telegram publishes as
- * --tg-content-safe-top (absent -> 0px in a plain browser, so nothing
+ * --tg-inset-top (absent -> 0px in a plain browser, so nothing
  * shifts there). Everything positioned relative to the header's height
  * follows the same max().
  */
 .telegram-app .terminal-header {
-  padding-top: max(
-    12px,
-    env(safe-area-inset-top),
-    var(--tg-content-safe-top, 0px)
-  );
+  padding-top: max(12px, env(safe-area-inset-top), var(--tg-inset-top, 0px));
   min-height: calc(
-    76px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
+    76px + max(env(safe-area-inset-top), var(--tg-inset-top, 0px))
   );
 }
 .terminal-brand {
@@ -952,12 +948,21 @@ button:disabled {
   font-size: calc(12px * var(--font-scale));
   font-weight: 800;
 }
+/*
+ * "Open your shift" reminder. It is INFORMATIONAL, not a gate: the real
+ * enforcement is the API's open-shift middleware plus promptOpenShift, so
+ * this must never behave like a modal. Docked in the normal page flow right
+ * under the sticky header, it pushes the product grid down instead of
+ * floating over it — which is what made the old position:fixed, centred box
+ * collide with the toolbar icons and the shift pill, with no way out but
+ * the open-shift flow. It now carries its own dismiss (X) next to the CTA.
+ * Being in flow, it needs no Telegram safe-area offset: the header above it
+ * already absorbs the notch and Telegram's overlaid controls.
+ */
 .shift-gate-banner {
-  position: fixed;
-  top: 87px;
-  left: 50%;
-  z-index: 35;
-  min-width: 380px;
+  position: relative;
+  z-index: 1;
+  margin: 12px 22px 0;
   padding: 8px 9px;
   display: flex;
   align-items: center;
@@ -968,27 +973,16 @@ button:disabled {
   border-radius: 14px;
   background: #fff8e8;
   box-shadow: 0 12px 32px rgba(82, 46, 10, 0.12);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  transform: translateX(-50%);
-  cursor: pointer;
   animation: banner-in 0.28s ease;
 }
 @keyframes banner-in {
   from {
     opacity: 0;
-    transform: translate(-50%, -8px);
+    transform: translateY(-8px);
   }
 }
-/* The banner hangs off the header's height, so it must follow the header
-   under Telegram's fullscreen chrome too (iPad portrait is wider than the
-   760px mobile breakpoint, so the desktop rule above is what runs there). */
-.telegram-app .shift-gate-banner {
-  top: calc(
-    87px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
-  );
-}
 .shift-gate-banner > span {
+  flex: 0 0 auto;
   width: 31px;
   height: 31px;
   display: grid;
@@ -1009,12 +1003,37 @@ button:disabled {
   color: #a28355;
   font-size: calc(12px * var(--font-scale));
 }
-.shift-gate-banner > b {
+.shift-gate-open {
   padding: 7px 9px;
   color: white;
+  border: 0;
   border-radius: 8px;
   background: #b8741d;
+  font-family: inherit;
   font-size: calc(12px * var(--font-scale));
+  font-weight: 600;
+  cursor: pointer;
+}
+.shift-gate-open:hover {
+  background: #a1650f;
+}
+/* Dismiss the reminder without opening a shift — for a cashier who is only
+   browsing. Enforcement is untouched; the next sale action asks again. */
+.shift-gate-dismiss {
+  flex: 0 0 auto;
+  width: 27px;
+  height: 27px;
+  display: grid;
+  place-items: center;
+  color: #a2793c;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+.shift-gate-dismiss:hover {
+  color: #795116;
+  background: rgba(184, 116, 29, 0.14);
 }
 .terminal-layout {
   min-height: calc(100vh - 76px);
@@ -1392,7 +1411,8 @@ button:disabled {
   position: sticky;
   top: 76px;
   height: calc(100vh - 76px);
-  padding: 15px 15px max(15px, env(safe-area-inset-bottom));
+  padding: 15px 15px
+    max(15px, env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   border-left: 1px solid rgba(69, 31, 49, 0.085);
@@ -1407,12 +1427,9 @@ button:disabled {
   backdrop-filter: blur(28px) saturate(140%);
 }
 .telegram-app .cart-panel {
-  top: calc(
-    76px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
-  );
+  top: calc(76px + max(env(safe-area-inset-top), var(--tg-inset-top, 0px)));
   height: calc(
-    100vh - 76px -
-      max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
+    100vh - 76px - max(env(safe-area-inset-top), var(--tg-inset-top, 0px))
   );
 }
 .cart-drag-handle {
@@ -1947,7 +1964,7 @@ button:disabled {
 .quick-add-fab {
   position: fixed;
   left: 24px;
-  bottom: max(22px, env(safe-area-inset-bottom));
+  bottom: max(22px, env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px));
   z-index: 30;
   min-width: 58px;
   height: 58px;
@@ -2117,6 +2134,18 @@ button:disabled {
   backdrop-filter: blur(12px) saturate(115%);
   -webkit-backdrop-filter: blur(12px) saturate(115%);
   cursor: default;
+}
+/*
+ * A tall centred modal (checkout, quick add, close-drawer count) is capped
+ * to the viewport, so in fullscreen its own header would run under
+ * Telegram's controls. Reserve that strip: the card starts below it and is
+ * shortened by the same amount, staying fully scrollable.
+ */
+.telegram-app .modal-layer {
+  padding-top: calc(18px + var(--tg-inset-top, 0px));
+}
+.telegram-app .modal-card {
+  max-height: calc(100vh - 36px - var(--tg-inset-top, 0px));
 }
 .modal-card {
   position: relative;
@@ -2890,13 +2919,9 @@ button:disabled {
   }
   .telegram-app .terminal-header {
     min-height: calc(
-      68px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
+      68px + max(env(safe-area-inset-top), var(--tg-inset-top, 0px))
     );
-    padding-top: max(
-      10px,
-      env(safe-area-inset-top),
-      var(--tg-content-safe-top, 0px)
-    );
+    padding-top: max(10px, env(safe-area-inset-top), var(--tg-inset-top, 0px));
   }
   .terminal-brand > span {
     width: 38px;
@@ -2933,9 +2958,7 @@ button:disabled {
   }
   .profile-popover {
     position: fixed;
-    top: calc(
-      66px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
-    );
+    top: calc(66px + max(env(safe-area-inset-top), var(--tg-inset-top, 0px)));
     right: 10px;
   }
   .terminal-layout {
@@ -2943,7 +2966,10 @@ button:disabled {
     display: block;
   }
   .product-workspace {
-    padding: 18px 12px calc(135px + env(safe-area-inset-bottom));
+    padding: 18px 12px
+      calc(
+        135px + max(env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px))
+      );
   }
   .sale-welcome h1 {
     font-size: calc(21px * var(--font-scale));
@@ -2993,11 +3019,7 @@ button:disabled {
     display: none;
   }
   .shift-gate-banner {
-    top: calc(
-      76px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
-    );
-    width: calc(100% - 24px);
-    min-width: 0;
+    margin: 10px 12px 0;
   }
   .cart-panel {
     position: fixed;
@@ -3005,7 +3027,8 @@ button:disabled {
     z-index: 95;
     width: 100%;
     height: min(86vh, 760px);
-    padding: 9px 14px max(14px, env(safe-area-inset-bottom));
+    padding: 9px 14px
+      max(14px, env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px));
     border-top: 1px solid rgba(255, 255, 255, 0.85);
     border-left: 0;
     border-radius: 25px 25px 0 0;
@@ -3049,7 +3072,7 @@ button:disabled {
     position: fixed;
     left: 12px;
     right: 12px;
-    bottom: max(12px, env(safe-area-inset-bottom));
+    bottom: max(12px, env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px));
     z-index: 36;
     height: 58px;
     padding: 0 17px;
@@ -3092,7 +3115,9 @@ button:disabled {
   .quick-add-fab {
     left: auto;
     right: 14px;
-    bottom: calc(84px + env(safe-area-inset-bottom));
+    bottom: calc(
+      84px + max(env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px))
+    );
     width: 52px;
     min-width: 52px;
     height: 52px;
@@ -3103,7 +3128,9 @@ button:disabled {
     display: none;
   }
   .sale-toast {
-    bottom: calc(82px + env(safe-area-inset-bottom));
+    bottom: calc(
+      82px + max(env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px))
+    );
     width: calc(100% - 24px);
     min-width: 0;
   }
@@ -3203,6 +3230,9 @@ button:disabled {
   .modal-card {
     max-height: calc(100vh - 16px);
     border-radius: 21px;
+  }
+  .telegram-app .modal-card {
+    max-height: calc(100vh - 16px - var(--tg-inset-top, 0px));
   }
   .modal-header {
     min-height: 65px;
@@ -3306,8 +3336,15 @@ button:disabled {
 }
 .pending-panel-empty {
   margin: 6px 0 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
   color: var(--muted);
   font-size: calc(12px * var(--font-scale));
+}
+.pending-panel-empty p {
+  margin: 0;
 }
 .pending-panel-head {
   display: flex;
@@ -3399,6 +3436,42 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Per-line list on a pending customer order. Each line can carry the
+   customer's own note ("Happy Birthday John") — it wraps instead of being
+   ellipsed, because staff have to read it in full before calling. */
+.pending-items {
+  margin: 2px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  list-style: none;
+}
+.pending-items li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pending-item-note {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 2px 7px;
+  align-self: flex-start;
+  max-width: 100%;
+  color: #7c4a03;
+  border: 1px solid rgba(206, 126, 23, 0.24);
+  border-radius: 8px;
+  background: #fff8e8;
+  font-size: calc(12px * var(--font-scale));
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.pending-item-note svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
 }
 .pending-phone {
   display: inline-flex;
@@ -3720,11 +3793,11 @@ button:disabled {
 
 /* Notch / gesture-bar safety when Telegram or the OS goes edge-to-edge. */
 .sale-terminal {
-  padding-left: env(safe-area-inset-left);
-  padding-right: env(safe-area-inset-right);
+  padding-left: max(env(safe-area-inset-left), var(--tg-inset-left, 0px));
+  padding-right: max(env(safe-area-inset-right), var(--tg-inset-right, 0px));
 }
 .mobile-cart-dock {
-  margin-bottom: env(safe-area-inset-bottom);
+  margin-bottom: max(env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px));
 }
 
 /* Subcategory chips on the sale terminal: subtle indent marker, mirroring
@@ -3780,8 +3853,55 @@ button:disabled {
 }
 .held-panel-empty {
   margin: 6px 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
   color: #92400e;
   font-size: calc(12px * var(--font-scale));
+}
+.held-panel-empty p {
+  margin: 0;
+}
+/*
+ * A queue panel is never a dead end. Its list clears itself as soon as an
+ * order lands (or the last one is paid/accepted/discarded), and while it is
+ * empty the cashier still has two explicit ways out: the X in the header
+ * and the "Back to menu" button inside the empty message itself.
+ */
+.queue-panel-close {
+  margin-left: auto;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  color: inherit;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.queue-panel-close:hover {
+  background: rgba(70, 31, 49, 0.08);
+  opacity: 1;
+}
+.queue-empty-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  color: inherit;
+  border: 1px solid rgba(70, 31, 49, 0.16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.7);
+  font-family: inherit;
+  font-size: calc(12px * var(--font-scale));
+  font-weight: 600;
+  cursor: pointer;
+}
+.queue-empty-back:hover {
+  background: #fff;
 }
 .held-panel {
   scroll-margin-top: 72px;
@@ -3829,6 +3949,40 @@ button:disabled {
   color: var(--subtle);
   font-size: calc(12px * var(--font-scale));
   line-height: 1.35;
+}
+/* An accepted Telegram order keeps its per-line customer notes; they read
+   the same on the held card as they did in the pending queue. */
+.held-items {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  list-style: none;
+}
+.held-items li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.held-item-note {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 2px 7px;
+  align-self: flex-start;
+  max-width: 100%;
+  color: #7c4a03;
+  border: 1px solid rgba(206, 126, 23, 0.24);
+  border-radius: 8px;
+  background: #fff8e8;
+  font-size: calc(12px * var(--font-scale));
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.held-item-note svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
 }
 .held-meta {
   color: var(--subtle);
@@ -4053,14 +4207,13 @@ button:disabled {
   inset: 0;
   top: 76px;
   z-index: 38;
-  padding: 16px 16px max(16px, env(safe-area-inset-bottom));
+  padding: 16px 16px
+    max(16px, env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px));
   overflow: auto;
   background: linear-gradient(145deg, #fffafb, var(--color-canvas, #faf5f7));
 }
 .telegram-app .queue-view {
-  top: calc(
-    76px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
-  );
+  top: calc(76px + max(env(safe-area-inset-top), var(--tg-inset-top, 0px)));
 }
 .queue-view-bar {
   display: flex;
@@ -4086,9 +4239,7 @@ button:disabled {
     top: 68px;
   }
   .telegram-app .queue-view {
-    top: calc(
-      68px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
-    );
+    top: calc(68px + max(env(safe-area-inset-top), var(--tg-inset-top, 0px)));
   }
 }
 
@@ -4096,6 +4247,15 @@ button:disabled {
 .queue-page {
   min-height: 100vh;
   background: linear-gradient(145deg, #fffafb, var(--color-canvas, #faf5f7));
+}
+/*
+ * The /held and /pending routes have their own sticky bar with the back
+ * arrow — in a fullscreen Mini App that is precisely where Telegram draws
+ * its back/close pill, so the two used to sit on top of each other. Start
+ * the bar below Telegram's chrome (--tg-inset-top; 0px outside Telegram).
+ */
+.telegram-app .queue-page-head {
+  padding-top: max(14px, env(safe-area-inset-top), var(--tg-inset-top, 0px));
 }
 .queue-page-head {
   position: sticky;
@@ -4131,5 +4291,9 @@ button:disabled {
 @media (max-width: 760px) {
   .queue-page-head {
     padding: max(12px, env(safe-area-inset-top)) 12px 12px;
+  }
+  .telegram-app .queue-page-head {
+    padding: max(12px, env(safe-area-inset-top), var(--tg-inset-top, 0px)) 12px
+      12px;
   }
 }

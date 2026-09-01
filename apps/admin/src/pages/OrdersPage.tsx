@@ -876,6 +876,14 @@ export default function OrdersPage({
                       <small>
                         {line.quantity} × {centsUsd(line.unitPriceCents)}
                       </small>
+                      {/* What the customer asked for on this line in the
+                          Telegram Mini App — kept visible after the order
+                          was accepted and paid. */}
+                      {'note' in line && line.note ? (
+                        <em className="receipt-line-note">
+                          {t('orders.itemNote')}: {line.note}
+                        </em>
+                      ) : null}
                     </span>
                     <strong className="numeric">
                       {centsUsd(line.unitPriceCents * line.quantity)}

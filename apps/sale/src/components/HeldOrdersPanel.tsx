@@ -1,5 +1,14 @@
 import { useCallback, useState } from 'react'
-import { Banknote, PauseCircle, RotateCcw, ScanLine, Trash2, X } from 'lucide-react'
+import {
+  ArrowLeft,
+  Banknote,
+  PauseCircle,
+  RotateCcw,
+  ScanLine,
+  StickyNote,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { useTranslation } from '../lib/i18n'
 import type { HeldOrder } from '../data'
 // A null/omitted total on a legacy payload must never throw in the held list.
@@ -13,6 +22,13 @@ type Props = {
   busy: boolean
   /** Opened from the header toolbar even when there are no held orders yet. */
   open?: boolean
+  /**
+   * Close the queue and go back to the menu. Given a way out, the panel —
+   * and above all its empty-state message — is never something the cashier
+   * is stuck looking at: it disappears on its own the moment an order
+   * arrives, and can be closed by hand at any other time.
+   */
+  onClose?: () => void
   rate: number
   /** Put a held order's lines back into the cart (the hold stays until paid). */
   onResume: (order: HeldOrder) => void
@@ -34,6 +50,7 @@ export default function HeldOrdersPanel({
   held,
   busy,
   open = false,
+  onClose,
   onResume,
   onPay,
   onVoid,
@@ -60,9 +77,26 @@ export default function HeldOrdersPanel({
           <PauseCircle size={13} /> {t('hold.title')}
         </span>
         <em>{held.length}</em>
+        {onClose && (
+          <button
+            className="queue-panel-close"
+            onClick={onClose}
+            aria-label={t('hold.queueBack')}
+            title={t('hold.queueBack')}
+          >
+            <X size={15} />
+          </button>
+        )}
       </div>
       {held.length === 0 ? (
-        <p className="held-panel-empty">{t('hold.empty')}</p>
+        <div className="held-panel-empty">
+          <p>{t('hold.empty')}</p>
+          {onClose && (
+            <button className="queue-empty-back" onClick={onClose}>
+              <ArrowLeft size={14} /> {t('hold.queueBack')}
+            </button>
+          )}
+        </div>
       ) : held.length > 1 ? (
         <p className="held-panel-hint">{t('hold.manyHeld')}</p>
       ) : null}
@@ -78,7 +112,30 @@ export default function HeldOrdersPanel({
               <b>{usd(order.total)}</b>
             </div>
             <div className="held-card-body">
-              <small>{order.detail.join('; ')}</small>
+              {order.lineItems?.some((line) => line.note) ? (
+                // An accepted Telegram order keeps the customer's per-line
+                // notes ("Happy Birthday John"): show them line by line so
+                // nothing is lost between Accept and pickup.
+                <ul className="held-items">
+                  {order.lineItems.map((line, index) => (
+                    <li key={`${line.productId ?? 'x'}-${index}`}>
+                      <small>
+                        {line.description} × {line.quantity}
+                      </small>
+                      {line.note && (
+                        <span
+                          className="held-item-note"
+                          title={t('hold.itemNote')}
+                        >
+                          <StickyNote size={11} /> {line.note}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <small>{order.detail.join('; ')}</small>
+              )}
               <span className="held-meta">
                 {order.time} · {t('hold.itemCount', { count: order.items })}
               </span>

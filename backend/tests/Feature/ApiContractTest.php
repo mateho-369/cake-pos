@@ -3,6 +3,7 @@ namespace Tests\Feature;
 
 use App\Models\{
     AuditEvent,
+    Category,
     Customer,
     Employee,
     Order,
@@ -587,8 +588,13 @@ class ApiContractTest extends TestCase
         $admin = Employee::where('role', 'admin')->first();
         $employee = Employee::where('role', 'cashier')->first();
         Product::query()->delete();
+        // Every product belongs to a category (NOT NULL since the catalog
+        // was introduced) — building one without it fails the insert before
+        // the report is ever computed.
+        $categoryId = Category::query()->value('id');
         Product::create([
             'name' => 'Fresh Cake',
+            'category_id' => $categoryId,
             'price_cents' => 1000,
             'stock' => 6,
             'made_at' => now()->toDateString(),
@@ -597,6 +603,7 @@ class ApiContractTest extends TestCase
         ]);
         Product::create([
             'name' => 'Today Cake',
+            'category_id' => $categoryId,
             'price_cents' => 1500,
             'stock' => 2,
             'made_at' => now()->toDateString(),
@@ -605,6 +612,7 @@ class ApiContractTest extends TestCase
         ]);
         Product::create([
             'name' => 'Tomorrow Cake',
+            'category_id' => $categoryId,
             'price_cents' => 2000,
             'stock' => 3,
             'made_at' => now()->toDateString(),
@@ -2623,6 +2631,313 @@ class ApiContractTest extends TestCase
             ->assertOk()
             ->json();
         $this->assertSame($orderId, collect($held)->first()['id'] ?? null);
+    }
+
+    /**
+     * A customer ordering in the Mini App can attach a free-text note to a
+     * LINE ("Happy Birthday John", "less sugar") — one basket can hold a
+     * birthday cake with an inscription next to a plain iced coffee. The
+     * note has to reach everyone who acts on it: the staff pending card,
+     * the Telegram notification, the Mini App when the customer reopens the
+     * same order, and the held order after Accept. A whitespace-only note
+     * is no note at all and must never become an empty line on that card.
+     */
+    public function test_customer_order_line_notes_reach_staff_and_survive_accept(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        $cashier = Employee::where('role', 'cashier')->first();
+        $this->openShiftIfNone($cashier);
+        $cake = Product::first();
+        $cake->update(['price_cents' => 1000, 'stock' => 10]);
+        $drink = Product::where('id', '!=', $cake->id)->first();
+        $drink->update(['price_cents' => 200, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 811,
+            'first_name' => 'Sokha',
+            'username' => 'sokha',
+        ]);
+        $this->postJson('/api/customer-products', [
+            'initData' => $initData,
+        ])->assertOk();
+        Customer::where('telegram_user_id', '811')->update([
+            'phone' => '+855 12 000 811',
+        ]);
+
+        $orderId = $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [
+                [
+                    'productId' => $cake->id,
+                    'quantity' => 1,
+                    'note' => '  Happy Birthday John  ',
+                ],
+                // Whitespace only: stored as no note, never as an empty one.
+                ['productId' => $drink->id, 'quantity' => 2, 'note' => '   '],
+            ],
+            'requestedTotal' => '14.00',
+        ])
+            ->assertCreated()
+            ->json('order.id');
+
+        $this->assertDatabaseHas('order_items', [
+            'order_id' => $orderId,
+            'product_id' => $cake->id,
+            'note' => 'Happy Birthday John',
+        ]);
+        $this->assertDatabaseHas('order_items', [
+            'order_id' => $orderId,
+            'product_id' => $drink->id,
+            'note' => null,
+        ]);
+        // The one-line summary staff read in the Telegram notification (and
+        // on any legacy screen) carries the note as well.
+        $this->assertStringContainsString(
+            'Happy Birthday John',
+            implode(' | ', Order::find($orderId)->detail_json),
+        );
+
+        // Staff pending card: the note travels on ITS line, not the order.
+        $entry = collect(
+            $this->getJson(
+                '/api/orders/pending',
+                $this->auth($cashier),
+            )->json(),
+        )->firstWhere('id', $orderId);
+        $lines = collect($entry['lineItems']);
+        $this->assertSame(
+            'Happy Birthday John',
+            $lines->firstWhere('productId', $cake->id)['note'],
+        );
+        $this->assertNull($lines->firstWhere('productId', $drink->id)['note']);
+
+        // Reopening the Mini App restores what the customer typed…
+        $open = $this->postJson('/api/customer-orders/open', [
+            'initData' => $initData,
+        ])->assertOk();
+        $this->assertSame(
+            'Happy Birthday John',
+            collect($open->json('items'))->firstWhere(
+                'productId',
+                $cake->id,
+            )['note'],
+        );
+
+        // …and editing the same open order replaces the note in place.
+        $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [
+                [
+                    'productId' => $cake->id,
+                    'quantity' => 1,
+                    'note' => 'Happy Birthday Jane',
+                ],
+            ],
+            'requestedTotal' => '10.00',
+        ])->assertCreated();
+        $this->assertDatabaseHas('order_items', [
+            'order_id' => $orderId,
+            'product_id' => $cake->id,
+            'note' => 'Happy Birthday Jane',
+        ]);
+
+        // Accept parks it in the held queue — the note goes with it, so it
+        // is still readable when the customer arrives to pay.
+        $this->postJson(
+            "/api/orders/$orderId/accept",
+            [],
+            $this->auth($cashier),
+        )->assertOk();
+        $held = collect(
+            $this->getJson('/api/orders/held', $this->auth($cashier))->json(),
+        )->firstWhere('id', $orderId);
+        $this->assertSame(
+            'Happy Birthday Jane',
+            collect($held['lineItems'])->firstWhere(
+                'productId',
+                $cake->id,
+            )['note'],
+        );
+    }
+
+    /**
+     * Notes are capped exactly like every other note field in the codebase
+     * (see MessageCustomerRequest): too long is a plain 422, and nothing is
+     * written — no half-placed order behind a rejected note.
+     */
+    public function test_customer_order_note_is_length_capped(): void
+    {
+        $cashier = Employee::where('role', 'cashier')->first();
+        $this->openShiftIfNone($cashier);
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 812,
+            'first_name' => 'Vichea',
+            'username' => 'vichea',
+        ]);
+        $this->postJson('/api/customer-products', [
+            'initData' => $initData,
+        ])->assertOk();
+        $customerId = Customer::where('telegram_user_id', '812')->value('id');
+        Customer::whereKey($customerId)->update([
+            'phone' => '+855 12 000 812',
+        ]);
+
+        $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [
+                [
+                    'productId' => $product->id,
+                    'quantity' => 1,
+                    'note' => str_repeat('a', 201),
+                ],
+            ],
+            'requestedTotal' => '10.00',
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('items.0.note');
+        $this->assertSame(
+            0,
+            Order::where('customer_id', $customerId)->count(),
+        );
+        $this->assertSame(0, (int) $product->fresh()->reserved_stock);
+    }
+
+    /**
+     * The customer hears back at every step, in their own bot chat:
+     * a receipt confirmation the moment the order lands, an acceptance
+     * message when staff take it, and the existing completion message when
+     * they pay. Every line is bilingual (Khmer first, English second) like
+     * the /start welcome. Editing the still-open order must NOT repeat the
+     * "we received it" message — that would be noise, not a confirmation.
+     */
+    public function test_customer_is_notified_on_receipt_acceptance_and_payment(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        $cashier = Employee::where('role', 'cashier')->first();
+        $this->openShiftIfNone($cashier);
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 813,
+            'first_name' => 'Chanda',
+            'username' => 'chanda',
+        ]);
+        $this->postJson('/api/customer-products', [
+            'initData' => $initData,
+        ])->assertOk();
+        Customer::where('telegram_user_id', '813')->update([
+            'phone' => '+855 12 000 813',
+        ]);
+        $sentToCustomer = fn(string $needle) => collect(
+            Http::recorded(
+                fn($request) => str_contains(
+                    $request->url(),
+                    'bot123:test-token/sendMessage',
+                ) &&
+                    (string) $request['chat_id'] === '813' &&
+                    str_contains((string) $request['text'], $needle),
+            ),
+        )->count();
+
+        $orderId = $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'requestedTotal' => '10.00',
+        ])
+            ->assertCreated()
+            ->json('order.id');
+
+        // 1. Receipt confirmation, bilingual, in the customer's bot chat.
+        $this->assertSame(1, $sentToCustomer('was received'));
+        $this->assertSame(1, $sentToCustomer('បានទទួលការបញ្ជាទិញ'));
+
+        // Adding another cake updates the SAME open order: no repeat.
+        $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 2]],
+            'requestedTotal' => '20.00',
+        ])->assertCreated();
+        $this->assertSame(
+            1,
+            $sentToCustomer('was received'),
+            'editing the open order must not re-send the receipt confirmation',
+        );
+
+        // 2. Accept: a message of its own, distinct from "confirmed".
+        $this->assertSame(0, $sentToCustomer('has been accepted'));
+        $this->postJson(
+            "/api/orders/$orderId/accept",
+            [],
+            $this->auth($cashier),
+        )
+            ->assertOk()
+            ->assertJsonPath('status', 'Held');
+        $this->assertSame(1, $sentToCustomer('has been accepted'));
+        $this->assertSame(1, $sentToCustomer('ហាងបានទទួលយកការបញ្ជាទិញ'));
+        $this->assertSame(0, $sentToCustomer('is confirmed'));
+
+        // 3. Regression: paying still sends the completion message.
+        $this->postJson(
+            "/api/orders/$orderId/pay",
+            ['method' => 'Cash', 'usdReceivedCents' => 2000],
+            $this->auth($cashier),
+        )->assertOk();
+        $this->assertSame(1, $sentToCustomer('is completed'));
+        $this->assertSame(1, $sentToCustomer('បានបញ្ចប់'));
+    }
+
+    /**
+     * Regression on the same dispatch pattern: a rejected order still tells
+     * the customer, and that message is bilingual too.
+     */
+    public function test_staff_reject_still_notifies_the_customer_bilingually(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        $cashier = Employee::where('role', 'cashier')->first();
+        $this->openShiftIfNone($cashier);
+        $product = Product::first();
+        $product->update(['price_cents' => 1000, 'stock' => 10]);
+        $initData = $this->signedInitData([
+            'id' => 814,
+            'first_name' => 'Rithy',
+            'username' => 'rithy',
+        ]);
+        $this->postJson('/api/customer-products', [
+            'initData' => $initData,
+        ])->assertOk();
+        Customer::where('telegram_user_id', '814')->update([
+            'phone' => '+855 12 000 814',
+        ]);
+        $orderId = $this->postJson('/api/customer-orders', [
+            'initData' => $initData,
+            'items' => [['productId' => $product->id, 'quantity' => 1]],
+            'requestedTotal' => '10.00',
+        ])
+            ->assertCreated()
+            ->json('order.id');
+
+        $this->postJson(
+            "/api/orders/$orderId/reject",
+            ['reason' => 'Customer says they never placed it'],
+            $this->auth($cashier),
+        )->assertOk();
+
+        Http::assertSent(
+            fn($request) => str_contains(
+                $request->url(),
+                'bot123:test-token/sendMessage',
+            ) &&
+                (string) $request['chat_id'] === '814' &&
+                str_contains((string) $request['text'], 'was cancelled') &&
+                str_contains(
+                    (string) $request['text'],
+                    'ត្រូវបានបោះបង់',
+                ),
+        );
     }
 
     /**

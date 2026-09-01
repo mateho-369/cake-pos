@@ -34,7 +34,17 @@ type OpenOrderItem = {
   name: string
   quantity: number
   price: number | null
+  /** What the customer asked for on this line ("Happy Birthday John"). */
+  note?: string | null
 }
+/**
+ * A note belongs to a LINE, not to the whole basket: one order can hold a
+ * birthday cake with an inscription next to a plain iced coffee. Kept in a
+ * map next to the cart so the text survives quantity edits, and capped at
+ * the same 200 characters the API accepts (StoreCustomerOrderRequest).
+ */
+type Notes = Record<number, string>
+const NOTE_MAX = 200
 const newPlaceKey = () =>
   globalThis.crypto?.randomUUID?.() ||
   `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
@@ -60,6 +70,7 @@ export default function CustomerApp() {
   const [selectedCategory, setSelectedCategory] = useState('All')
   const [activeGallery, setActiveGallery] = useState<Product | null>(null)
   const [cart, setCart] = useState<Cart>({})
+  const [notes, setNotes] = useState<Notes>({})
   const [cartOpen, setCartOpen] = useState(false)
   const [contactPrompt, setContactPrompt] = useState(false)
   const [order, setOrder] = useState<CustomerOrder | null>(null)
@@ -95,6 +106,7 @@ export default function CustomerApp() {
         if (open.order) {
           setOpenOrder(open.order)
           const restored: Cart = {}
+          const restoredNotes: Notes = {}
           const stockById = new Map(
             menuResponse.products.map((product) => [product.id, product.stock]),
           )
@@ -102,9 +114,13 @@ export default function CustomerApp() {
             const available = stockById.get(item.productId) ?? 0
             if (available > 0) {
               restored[item.productId] = Math.min(item.quantity, available)
+              // Keep the note the customer already sent with this line, so
+              // adding one more cake never quietly erases it.
+              if (item.note) restoredNotes[item.productId] = item.note
             }
           }
           setCart(restored)
+          setNotes(restoredNotes)
         }
       })
       .catch((reason) =>
@@ -206,6 +222,24 @@ export default function CustomerApp() {
       if (!quantity) delete next[product.id]
       return next
     })
+  const setNote = (productId: number, text: string) =>
+    setNotes((current) => ({
+      ...current,
+      [productId]: text.slice(0, NOTE_MAX),
+    }))
+
+  // A note belongs to its line: once the cake leaves the cart its note goes
+  // with it, so “Happy Birthday John” can never ride along on a later order.
+  useEffect(() => {
+    setNotes((current) => {
+      const kept = Object.fromEntries(
+        Object.entries(current).filter(([id]) => cart[Number(id)]),
+      )
+      return Object.keys(kept).length === Object.keys(current).length
+        ? current
+        : kept
+    })
+  }, [cart])
 
   const waitForPhone = async () => {
     for (let attempt = 0; attempt < 12; attempt += 1) {
@@ -261,10 +295,14 @@ export default function CustomerApp() {
           body: JSON.stringify({
             initData,
             idempotencyKey: placeKey,
-            items: items.map(({ product, quantity }) => ({
-              productId: product.id,
-              quantity,
-            })),
+            items: items.map(({ product, quantity }) => {
+              const note = (notes[product.id] || '').trim()
+              return {
+                productId: product.id,
+                quantity,
+                ...(note ? { note } : {}),
+              }
+            }),
             requestedTotal: safeNumber(total).toFixed(2),
           }),
         },
@@ -272,6 +310,7 @@ export default function CustomerApp() {
       setOrder(result.order)
       setOpenOrder(result.order)
       setCart({})
+      setNotes({})
       setCartOpen(false)
       setPlaceKey(newPlaceKey())
       webApp?.HapticFeedback?.notificationOccurred?.('success')
@@ -621,6 +660,21 @@ export default function CustomerApp() {
                         <Plus size={13} />
                       </button>
                     </span>
+                    {/* Optional per-line note: what the cake should say, or
+                        how it should be made. Staff read it on the pending
+                        card before they call to confirm. */}
+                    <label className="customer-cart-note">
+                      <span>{t('cart.noteLabel')}</span>
+                      <input
+                        type="text"
+                        maxLength={NOTE_MAX}
+                        value={notes[product.id] || ''}
+                        placeholder={t('cart.notePlaceholder')}
+                        onChange={(event) =>
+                          setNote(product.id, event.target.value)
+                        }
+                      />
+                    </label>
                   </div>
                   <b>{usd(safeNumber(product.price) * quantity)}</b>
                 </div>

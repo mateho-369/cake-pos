@@ -373,6 +373,32 @@ button:disabled {
   border-bottom: 1px solid rgba(78, 37, 55, 0.07);
   backdrop-filter: blur(24px) saturate(150%);
 }
+/*
+ * Inside Telegram the console is fullscreen, and Telegram draws its OWN
+ * back/close pill and "..." menu across the top of the page. The top bar
+ * and the sidebar therefore have to start BELOW that strip, or the menu
+ * button and the language toggle sit under controls that swallow the tap.
+ * @cake-pos/telegram publishes the needed space as --tg-inset-top (device
+ * notch + Telegram's chrome). Outside Telegram the property is absent and
+ * the 0px fallback leaves the layout exactly as it was.
+ */
+.telegram-app .topbar {
+  padding-top: max(15px, env(safe-area-inset-top), var(--tg-inset-top, 0px));
+  min-height: calc(
+    82px + max(env(safe-area-inset-top), var(--tg-inset-top, 0px))
+  );
+}
+.telegram-app .sidebar {
+  padding-top: max(20px, env(safe-area-inset-top), var(--tg-inset-top, 0px));
+  padding-bottom: max(
+    14px,
+    env(safe-area-inset-bottom),
+    var(--tg-inset-bottom, 0px)
+  );
+}
+.telegram-app .page-content {
+  padding-bottom: max(48px, calc(24px + var(--tg-inset-bottom, 0px)));
+}
 .page-heading {
   min-width: 0;
   display: flex;
@@ -1512,6 +1538,19 @@ kbd {
   backdrop-filter: blur(12px) saturate(115%);
   -webkit-backdrop-filter: blur(12px) saturate(115%);
   cursor: default;
+}
+/*
+ * In a fullscreen Mini App, Telegram's own controls float over the top of
+ * the page — including over a centred dialog's header and its X. Push the
+ * dialog below that strip and shorten it by the same amount so it stays
+ * fully scrollable. Outside Telegram --tg-inset-top is absent (0px).
+ */
+.telegram-app .modal-layer,
+.telegram-app .command-layer {
+  padding-top: calc(20px + var(--tg-inset-top, 0px));
+}
+.telegram-app .modal-card {
+  max-height: calc(100vh - 40px - var(--tg-inset-top, 0px));
 }
 .modal-card {
   position: relative;
@@ -2728,6 +2767,22 @@ button.order-full-row.selected {
 }
 .receipt-lines .numeric {
   white-space: nowrap;
+}
+/* The customer's own note for that line ("Happy Birthday John"), typed in
+   the Telegram Mini App — kept readable long after the order was paid. */
+.receipt-line-note {
+  margin-top: 3px;
+  padding: 2px 7px;
+  align-self: flex-start;
+  max-width: 100%;
+  color: #7c4a03;
+  border: 1px solid rgba(206, 126, 23, 0.24);
+  border-radius: 8px;
+  background: #fff8e8;
+  font-size: calc(11px * var(--font-scale));
+  font-style: normal;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 .receipt-total {
   padding: 11px 0;

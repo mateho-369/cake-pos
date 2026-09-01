@@ -10,7 +10,43 @@ Cake POS has three focused React frontends and a self-hosted Laravel API:
 | `backend`    | Laravel 11 + Sanctum + MySQL REST API                  |  8080 | `api.yourdomain.com`        | [README](backend/README.md)    |
 | `packages`   | Shared API client and Liquid Glass design tokens       |     — | bundled into frontends      | source-only workspaces         |
 
-`apps/sale` and `apps/shop` can both be opened from the Telegram bot. The shared `@cake-pos/telegram` package makes **every** Mini App surface open edge-to-edge: `ready()` → `expand()` → `requestFullscreen()` on Web App API 8.0+, with one retry after the first tap because iOS clients reject a programmatic request before any user gesture. Telegram remains only a shell: staff authentication is always PIN or email/password, and `apps/shop` keeps deliberately separate code, using signed Telegram `initData` as customer identity with no customer login screen.
+All three frontends can be opened from a Telegram bot — `apps/shop` from the
+customer bot, `apps/sale` and `apps/admin` from the private staff bot — so the
+shared `@cake-pos/telegram` package owns that behaviour once, for every
+surface. Telegram remains only a shell: staff authentication is always PIN or
+email/password, and `apps/shop` keeps deliberately separate code, using signed
+Telegram `initData` as customer identity with no customer login screen.
+
+### What the shared Mini App chrome does
+
+- **Opens edge-to-edge**: `ready()` → `expand()` → `requestFullscreen()` on Web
+  App API 8.0+, with one retry after the first tap because iOS clients reject a
+  programmatic request made before any user gesture.
+- **Reserves the space Telegram takes.** In fullscreen Telegram floats its own
+  back/close pill and "..." menu over the top of the page. The package
+  publishes three sets of custom properties on `<html>`:
+  `--tg-safe-*` (device notch), `--tg-content-safe-*` (Telegram's chrome) and
+  `--tg-inset-*`, **the sum** — which is what every header, sticky bar and
+  dialog pads by:
+  `max(12px, env(safe-area-inset-top), var(--tg-inset-top, 0px))`.
+  The sum is the whole point: `contentSafeAreaInset` is measured _inside_ the
+  device safe area, so reserving `max()` of the two (59px of notch, ignoring
+  46px of Telegram chrome) is exactly how the terminal's toolbar ended up
+  underneath Telegram's back button. In fullscreen with no usable numbers
+  reported — a real macOS/desktop client bug — 56px is reserved anyway, and a
+  runaway value from a buggy client is capped rather than pushing the UI
+  off-screen.
+- **Uses Telegram's own back button.** Whatever is layered on top owns it,
+  innermost first: dialogs and sheets on the terminal, overlays and then "back
+  to the dashboard" in the console, the queue pages' back arrow. With nothing
+  layered the button is hidden, so it can never be the control that drops
+  someone out of a sale.
+- **Stops swipe-to-minimise** (`disableVerticalSwipes`, 7.7+): a POS is one big
+  scroller and every scroll used to risk minimising the app mid-sale.
+- **Confirms before closing** while the cart has items, and never otherwise.
+- **Knows when it is not in Telegram**: `telegram-web-app.js` defines
+  `window.Telegram.WebApp` in any browser tab that loads it (reporting platform
+  `unknown`), so a laptop browser gets none of this padding.
 
 ## Held (parked) orders
 
@@ -57,6 +93,66 @@ other side gets a plain 409 (`This order has already been cancelled` /
 of a crash or a second stock release. Once the order has been **accepted**,
 `/reject` is refused — it is an ordinary hold at that point and goes through
 `POST /api/orders/{id}/cancel`.
+
+## What the customer hears from the shop bot
+
+Every step the customer cares about is confirmed in the same bot chat they
+ordered from (`CustomerNotificationService`, queued through
+`SendCustomerStatusNotification`), and **every message is bilingual — Khmer
+first, English second** — like the `/start` welcome:
+
+| When                                  | Order status | Message                            |
+| ------------------------------------- | ------------ | ---------------------------------- |
+| Order submitted in the Mini App       | `Pending`    | received, total, "we'll confirm"   |
+| Staff **Accept** (parks it as a hold) | `Held`       | accepted, "pay when you collect"   |
+| Marked ready                          | `Ready`      | ready for pickup                   |
+| Take Payment                          | `Completed`  | completed, amount + method, thanks |
+| Customer self-cancel or staff reject  | `Cancelled`  | cancelled, "message us to reorder" |
+
+The receipt confirmation fires **once, on first submission**: adding another
+cake updates the same open order in place, and re-sending "we received your
+order" on every edit would be noise rather than a confirmation.
+
+## Order notes (Telegram customer orders)
+
+A customer can attach a short free-text note to **each line** of their order in
+the Mini App — "Happy Birthday John" on the cake, nothing on the iced coffee
+next to it. It is optional, trimmed, and capped at 200 characters
+(`StoreCustomerOrderRequest`, the same trim-then-cap shape as
+`MessageCustomerRequest`); a whitespace-only note is stored as no note at all.
+
+The note is stored on the order item (`order_items.note`) and repeated in the
+order's one-line `detail_json` summary, so it follows the order all the way
+through the flow it matters in:
+
+- the **staff notification** the shop bot sends when the order lands,
+- the **pending orders** card on the sale terminal, per line, so the cashier
+  reads it before ringing the customer,
+- the **held orders** card after **Accept**, so it is still there at pickup,
+- the admin **Orders** detail view, next to the line it belongs to.
+
+Reopening the Mini App restores what the customer typed (the open-order
+payload carries the note), so adding one more cake to the same order never
+silently erases the inscription.
+
+## Shift reminder vs. the shift gate
+
+The "Open your shift" banner on the sale terminal is a **reminder, not a
+gate**. It sits in the page flow under the header (it can never cover the
+toolbar or the shift pill), offers the open-shift action, and has its own
+close button so an admin who is only browsing can dismiss it.
+
+Dismissing it changes nothing about enforcement: every sale-creating endpoint
+stays behind the `open-shift` middleware, and the terminal still routes each
+sale action through `promptOpenShift` / `requestShiftThen`, which opens the
+shift modal — and brings the dismissed reminder back — the moment a real
+action is attempted without a shift.
+
+The same rule applies to the held/pending queue panels: their empty-state
+message ("No orders are held yet…") clears itself the moment an order lands,
+and until then it carries a close (X) in the panel header plus a **Back to
+menu** button inside the message, so no informational panel is ever a dead
+end.
 
 ## Telegram order payment integrity
 

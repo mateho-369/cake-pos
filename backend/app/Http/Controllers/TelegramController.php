@@ -1,6 +1,7 @@
 <?php
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreCustomerOrderRequest;
 use App\Http\Resources\{OrderResource, ProductResource};
 use App\Models\{Order, Product, Setting, Shift};
 use App\Services\{
@@ -94,7 +95,7 @@ class TelegramController extends Controller
             'phone' => $customer->phone,
         ]);
     }
-    public function order(Request $request): JsonResponse
+    public function order(StoreCustomerOrderRequest $request): JsonResponse
     {
         $customer = $this->identity->customerFromInitData(
             $request->input('initData'),
@@ -141,6 +142,10 @@ class TelegramController extends Controller
                     'productId' => $item->product_id,
                     'name' => $item->description,
                     'quantity' => (int) $item->quantity,
+                    // The customer's own note for that line, so reopening
+                    // the Mini App restores what they typed instead of
+                    // silently dropping it on the next update.
+                    'note' => $item->note,
                     'price' => Money::toDecimal((int) $item->unit_price_cents),
                 ],
             )

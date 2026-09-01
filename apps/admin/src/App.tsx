@@ -36,6 +36,10 @@ import MediaPage from './pages/MediaPage'
 import CustomersPage from './pages/CustomersPage'
 import LoginPage from './pages/LoginPage'
 import { useStaffAuth } from './auth/StaffAuthContext'
+import {
+  useTelegramBackButton,
+  useTelegramChrome,
+} from '@cake-pos/telegram/react'
 import { translateCategory, useTranslation } from './lib/i18n'
 import { useAdminData } from './lib/data'
 
@@ -159,6 +163,13 @@ export default function App() {
     const timeout = window.setTimeout(() => setToast(null), 2800)
     return () => window.clearTimeout(timeout)
   }, [toast])
+  /*
+   * The console is opened from the staff bot as a Mini App too, so it gets
+   * the same chrome as the terminal: ready + expand + true fullscreen, no
+   * swipe-to-minimise, and the --tg-inset-* custom properties that keep the
+   * top bar clear of Telegram's own back/close controls.
+   */
+  const { inTelegram } = useTelegramChrome()
   const navigate = (nextPage: PageId) => {
     setPage(nextPage)
     setCommandOpen(false)
@@ -166,6 +177,27 @@ export default function App() {
     setProfileOpen(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
+  /*
+   * Telegram's back button, innermost layer first: close whatever overlay
+   * is open, then step back to the dashboard from any other page. On the
+   * dashboard with nothing open there is nowhere to go, so it is hidden
+   * (null) instead of quietly closing the whole console.
+   */
+  useTelegramBackButton(
+    commandOpen
+      ? () => setCommandOpen(false)
+      : addOpen
+        ? () => setAddOpen(false)
+        : notificationsOpen
+          ? () => setNotificationsOpen(false)
+          : profileOpen
+            ? () => setProfileOpen(false)
+            : sidebarOpen
+              ? () => setSidebarOpen(false)
+              : page !== 'overview'
+                ? () => navigate('overview')
+                : null,
+  )
   const openOrder = (id: string) => {
     setSelectedOrder(id)
     navigate('orders')
@@ -234,7 +266,11 @@ export default function App() {
   }
   if (!token) return <LoginPage />
   return (
-    <div className={`app-shell ${sidebarCollapsed ? 'app-collapsed' : ''}`}>
+    <div
+      className={`app-shell ${sidebarCollapsed ? 'app-collapsed' : ''} ${
+        inTelegram ? 'telegram-app' : ''
+      }`}
+    >
       <Sidebar
         page={page}
         onNavigate={navigate}

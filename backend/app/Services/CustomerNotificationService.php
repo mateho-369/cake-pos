@@ -59,21 +59,41 @@ final class CustomerNotificationService
         }
     }
 
+    /**
+     * Every customer-facing line the bot sends is bilingual — Khmer first,
+     * English second — exactly like the /start welcome. The two languages
+     * live side by side in one message so the customer never has to switch
+     * anything, and the English sentence is kept verbatim so nothing that
+     * already reads it (tests, support scripts) changes meaning.
+     */
     private function messageFor(Order $order): ?string
     {
+        $codeKm = $order->pickup_code ? " (លេខកូដ {$order->pickup_code})" : '';
         $code = $order->pickup_code ? " (code {$order->pickup_code})" : '';
         $total = '$' . number_format($order->total_cents / 100, 2);
+        $id = $order->id;
         return match ($order->status) {
             'Pending'
-                => "🎂 Your order {$order->id}{$code} was received — total {$total}. We'll confirm it shortly.",
+                => "🎂 បានទទួលការបញ្ជាទិញ {$id}{$codeKm} របស់អ្នក — សរុប {$total}។ យើងនឹងបញ្ជាក់ជូនក្នុងពេលឆាប់ៗ។\n" .
+                "🎂 Your order {$id}{$code} was received — total {$total}. We'll confirm it shortly.",
             'Confirmed'
-                => "✅ Your order {$order->id}{$code} is confirmed — total {$total}. See you soon!",
+                => "✅ ការបញ្ជាទិញ {$id}{$codeKm} ត្រូវបានបញ្ជាក់ — សរុប {$total}។ ជួបគ្នាឆាប់ៗ!\n" .
+                "✅ Your order {$id}{$code} is confirmed — total {$total}. See you soon!",
+            // Accepted by the shop: the order is now parked in the held
+            // queue, unpaid, waiting for the customer to collect it. Kept
+            // clearly distinct from "confirmed" so the two never read alike.
+            'Held'
+                => "🧁 ហាងបានទទួលយកការបញ្ជាទិញ {$id}{$codeKm} របស់អ្នក — សរុប {$total}។ យើងកំពុងរក្សាទុកជូន សូមបង់ប្រាក់ពេលមកយក។\n" .
+                "🧁 Your order {$id}{$code} has been accepted — total {$total}. We're holding it for you; pay when you collect it.",
             'Ready'
-                => "🛎 Your order {$order->id}{$code} is READY for pickup — total {$total}.",
+                => "🛎 ការបញ្ជាទិញ {$id}{$codeKm} រួចរាល់សម្រាប់មកយកហើយ — សរុប {$total}។\n" .
+                "🛎 Your order {$id}{$code} is READY for pickup — total {$total}.",
             'Completed'
-                => "🧾 Your order {$order->id}{$code} is completed. Paid {$total} ({$order->payment}). Thank you!",
+                => "🧾 ការបញ្ជាទិញ {$id}{$codeKm} បានបញ្ចប់។ បានបង់ {$total} ({$order->payment})។ សូមអរគុណ!\n" .
+                "🧾 Your order {$id}{$code} is completed. Paid {$total} ({$order->payment}). Thank you!",
             'Cancelled'
-                => "❌ Your order {$order->id}{$code} was cancelled. Message us if you'd like to reorder.",
+                => "❌ ការបញ្ជាទិញ {$id}{$codeKm} ត្រូវបានបោះបង់។ បើចង់បញ្ជាទិញឡើងវិញ សូមផ្ញើសារមកយើង។\n" .
+                "❌ Your order {$id}{$code} was cancelled. Message us if you'd like to reorder.",
             default => null,
         };
     }

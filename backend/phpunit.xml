@@ -24,6 +24,19 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
+        <!--
+          Telegram: the suite fakes and asserts against api.telegram.org, so
+          it must not inherit an ambient TELEGRAM_API_BASE. CI points that at
+          a throwaway stub (127.0.0.1:8090) for the queue-verify step, and
+          PHPUnit runs long after that stub is gone: every Http::fake()
+          missed, and every unfaked send died on a closed port. Blanking the
+          staff token keeps staff notifications from reaching for the
+          network at all — the two tests that assert on them set their own
+          token first.
+        -->
+        <env name="TELEGRAM_API_BASE" value="https://api.telegram.org" force="true"/>
+        <env name="STAFF_TELEGRAM_BOT_TOKEN" value="" force="true"/>
+        <env name="STAFF_NOTIFICATION_CHAT_ID" value="" force="true"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
     </php>
 </phpunit>

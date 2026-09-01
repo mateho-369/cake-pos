@@ -73,15 +73,20 @@ check(
 )
 
 // ---------------- tender.ts (sale app, real source) ----------------
-const tenderSrc = readFileSync(join(root, 'apps/sale/src/lib/tender.ts'), 'utf8')
+const tenderSrc = readFileSync(
+  join(root, 'apps/sale/src/lib/tender.ts'),
+  'utf8',
+)
 const { splitTender, cashTenderPayload } = await bundle(tenderSrc, 'tender')
 // Worked example from the shop owner: $10.00 total, customer pays
 // $8.00 + ៛8,200 at rate 4100 → exactly covered, change 0.
 r = splitTender(1000, 800, 8200, 4100)
 check(
   'splitTender($10, $8 + ៛8200 @4100) -> exact, change 0',
-  !r.short && Math.abs(r.totalReceivedUsd - 10) < 1e-9 &&
-    r.changeUsd === 0 && r.changeKhrRounded === 0,
+  !r.short &&
+    Math.abs(r.totalReceivedUsd - 10) < 1e-9 &&
+    r.changeUsd === 0 &&
+    r.changeKhrRounded === 0,
   JSON.stringify(r),
 )
 // Change rounding to nearest 100 riel: $10 total, $12 tendered →
@@ -221,7 +226,10 @@ const telegramEntry = `export * from '${join(
 const {
   requestTelegramFullscreen,
   prepareTelegramChrome,
-  syncTelegramContentSafeArea,
+  syncTelegramInsets,
+  setTelegramBackButton,
+  setTelegramClosingConfirmation,
+  isTelegramClient,
 } = await bundle(telegramEntry, 'telegram-chrome')
 
 // Minimal document stub: the package registers a pointerdown retry listener
@@ -373,61 +381,77 @@ check(
 prepareTelegramChrome(undefined)
 check('telegram: outside Telegram every helper is a safe no-op', true)
 
-// 7. Content safe area: Telegram's OWN fullscreen chrome (back/close
-//    button) overlays the top of a fullscreen Mini App — env(safe-area-*)
-//    can't see it. The package must publish it as --tg-content-safe-*
-//    custom properties, immediately (first paint) and on every change.
+// 7. Insets. Telegram's OWN fullscreen chrome (the back/close pill) floats
+//    over the top of the Mini App and env(safe-area-*) cannot see it, so
+//    the package publishes what layouts must pad by:
+//      --tg-safe-*         device notch / home indicator
+//      --tg-content-safe-* Telegram's chrome, measured INSIDE the safe area
+//      --tg-inset-*        the two ADDED — the value CSS actually uses
 const insetVars = () => ({
-  top: rootStyleProps['--tg-content-safe-top'],
-  bottom: rootStyleProps['--tg-content-safe-bottom'],
-  left: rootStyleProps['--tg-content-safe-left'],
-  right: rootStyleProps['--tg-content-safe-right'],
+  top: rootStyleProps['--tg-inset-top'],
+  bottom: rootStyleProps['--tg-inset-bottom'],
+  left: rootStyleProps['--tg-inset-left'],
+  right: rootStyleProps['--tg-inset-right'],
 })
 
-// 7a. Written immediately from contentSafeAreaInset — no event needed, so
-//     the first paint already pads below Telegram's overlaid button.
+// 7a. Written immediately — no event needed, so the first paint already
+//     clears Telegram's overlaid controls.
 app = fakeWebApp({
   contentSafeAreaInset: { top: 46, bottom: 0, left: 20, right: 20 },
-  safeAreaInset: { top: 24, bottom: 20, left: 0, right: 0 },
+  safeAreaInset: { top: 59, bottom: 34, left: 0, right: 0 },
 })
-let areaCleanup = syncTelegramContentSafeArea(app)
+let areaCleanup = syncTelegramInsets(app)
 check(
-  'telegram: content safe area published immediately on all four sides',
+  'telegram: insets published immediately on all four sides',
   JSON.stringify(insetVars()) ===
-    JSON.stringify({ top: '46px', bottom: '0px', left: '20px', right: '20px' }),
+    JSON.stringify({
+      top: '105px',
+      bottom: '34px',
+      left: '20px',
+      right: '20px',
+    }),
+  JSON.stringify(insetVars()),
+)
+// THE bug this fixes: contentSafeAreaInset is measured inside the device
+// safe area, so max() (59px) leaves the app header sitting under
+// Telegram's back button. Only the sum (59 + 46) clears it.
+check(
+  'telegram: the top inset is device + Telegram chrome, not the larger one',
+  insetVars().top === '105px',
   JSON.stringify(insetVars()),
 )
 check(
-  'telegram: contentSafeAreaInset wins over the plain device inset',
-  insetVars().top === '46px' && insetVars().bottom === '0px',
-  JSON.stringify(insetVars()),
+  'telegram: both halves stay readable on their own',
+  rootStyleProps['--tg-safe-top'] === '59px' &&
+    rootStyleProps['--tg-content-safe-top'] === '46px',
+  `${rootStyleProps['--tg-safe-top']} + ${rootStyleProps['--tg-content-safe-top']}`,
 )
 
 // 7b. contentSafeAreaChanged re-reads live values (rotation / chrome
 //     appearing), and fullscreenChanged re-syncs as belt-and-braces.
-app.contentSafeAreaInset = { top: 59, bottom: 34, left: 0, right: 0 }
+app.contentSafeAreaInset = { top: 0, bottom: 0, left: 0, right: 0 }
 app.fire('contentSafeAreaChanged')
 check(
   'telegram: contentSafeAreaChanged re-publishes the new insets',
   insetVars().top === '59px' && insetVars().bottom === '34px',
   JSON.stringify(insetVars()),
 )
-app.contentSafeAreaInset = { top: 24, bottom: 0, left: 0, right: 0 }
+app.safeAreaInset = { top: 24, bottom: 0, left: 0, right: 0 }
 app.fire('fullscreenChanged')
 check(
-  'telegram: fullscreenChanged re-syncs the content safe area',
+  'telegram: fullscreenChanged re-syncs the insets',
   insetVars().top === '24px',
   JSON.stringify(insetVars()),
 )
 
-// 7c. Older clients (Bot API < 8.0) only report the device safeAreaInset —
-//     the sync falls back to it (they cannot run fullscreen, so no
-//     Telegram chrome exists and the device inset alone is correct).
+// 7c. Older clients (Bot API < 8.0) only report the device safeAreaInset.
+//     They cannot run fullscreen, so no Telegram chrome exists and the
+//     device inset alone is correct.
 app.contentSafeAreaInset = undefined
 app.safeAreaInset = { top: 24, bottom: 20, left: 0, right: 0 }
 app.fire('safeAreaChanged')
 check(
-  'telegram: pre-8.0 clients fall back to safeAreaInset on change',
+  'telegram: pre-8.0 clients fall back to safeAreaInset alone',
   insetVars().top === '24px' && insetVars().bottom === '20px',
   JSON.stringify(insetVars()),
 )
@@ -436,8 +460,8 @@ check(
 const offBeforeCleanup = app.calls.offEvent
 areaCleanup()
 check(
-  'telegram: cleanup unsubscribes every safe-area listener',
-  app.calls.offEvent === offBeforeCleanup + 3,
+  'telegram: cleanup unsubscribes every inset listener',
+  app.calls.offEvent === offBeforeCleanup + 4,
   `${offBeforeCleanup} -> ${app.calls.offEvent}`,
 )
 app.safeAreaInset = { top: 99, bottom: 99, left: 99, right: 99 }
@@ -451,7 +475,7 @@ check(
 
 // 7e. A client reporting neither inset still yields a usable 0px value.
 app = fakeWebApp()
-areaCleanup = syncTelegramContentSafeArea(app)
+areaCleanup = syncTelegramInsets(app)
 check(
   'telegram: client without insets publishes 0px on all sides',
   JSON.stringify(insetVars()) ===
@@ -460,69 +484,221 @@ check(
 )
 areaCleanup()
 
-// 7f. The combined entry point wires the same publication (sale terminal,
-//     shop storefront and /customer all run through it) and still cleans
-//     up both halves.
+// 7f. Fullscreen with zeroed insets (a real macOS/desktop client bug):
+//     reserve room anyway, or Telegram's close button lands on top of the
+//     terminal's own controls with nothing to push them down.
+app = fakeWebApp({ isFullscreen: true })
+areaCleanup = syncTelegramInsets(app)
+check(
+  'telegram: fullscreen with no reported inset still reserves the top strip',
+  insetVars().top === '56px' && insetVars().bottom === '0px',
+  JSON.stringify(insetVars()),
+)
+areaCleanup()
+// …but a real reported inset always wins over that floor.
+app = fakeWebApp({
+  isFullscreen: true,
+  safeAreaInset: { top: 59, bottom: 0, left: 0, right: 0 },
+  contentSafeAreaInset: { top: 46, bottom: 0, left: 0, right: 0 },
+})
+areaCleanup = syncTelegramInsets(app)
+check(
+  'telegram: a real fullscreen inset is used as-is (no clamping to the floor)',
+  insetVars().top === '105px',
+  JSON.stringify(insetVars()),
+)
+areaCleanup()
+
+// 7g. A client reporting nonsense (the web client once reported the whole
+//     window height as the bottom inset) must not push the UI off-screen.
+app = fakeWebApp({
+  safeAreaInset: { top: 0, bottom: 9000, left: 0, right: 0 },
+})
+areaCleanup = syncTelegramInsets(app)
+check(
+  'telegram: a runaway inset is capped instead of shoving the UI away',
+  insetVars().bottom === '200px',
+  JSON.stringify(insetVars()),
+)
+areaCleanup()
+
+// 7h. The combined entry point wires the same publication (sale terminal,
+//     admin console, shop storefront and /customer all run through it),
+//     turns off swipe-to-minimise, and still cleans up both halves.
+let swipesDisabled = 0
 app = fakeWebApp({
   contentSafeAreaInset: { top: 46, bottom: 0, left: 0, right: 0 },
+  disableVerticalSwipes: () => {
+    swipesDisabled++
+  },
 })
 const combinedCleanup = prepareTelegramChrome(app)
 check(
-  'telegram: prepareTelegramChrome publishes the content safe area too',
+  'telegram: prepareTelegramChrome publishes the insets too',
   insetVars().top === '46px' && app.calls.ready === 1 && app.calls.expand === 1,
   JSON.stringify(insetVars()),
+)
+check(
+  'telegram: scrolling a grid can no longer minimise the Mini App',
+  swipesDisabled === 1,
 )
 combinedCleanup()
 app.contentSafeAreaInset = { top: 88, bottom: 0, left: 0, right: 0 }
 app.fire('contentSafeAreaChanged')
 check(
-  'telegram: prepareTelegramChrome cleanup stops the safe-area sync',
+  'telegram: prepareTelegramChrome cleanup stops the inset sync',
   insetVars().top === '46px',
   JSON.stringify(insetVars()),
 )
-syncTelegramContentSafeArea(undefined)
+syncTelegramInsets(undefined)
 check(
-  'telegram: safe-area sync outside Telegram is a safe no-op',
+  'telegram: inset sync outside Telegram is a safe no-op',
   insetVars().top === '46px',
 )
 
-// 7g. Regression guard: every header-side rule that pads for the device
-//     inset must also take the Telegram content inset, on all three Mini
-//     App surfaces (sale terminal, sale /customer, shop storefront).
+// 8. Telegram's native BackButton: the control a Mini App user reaches for
+//    first. A screen owns it while mounted and gives it back on unmount.
+{
+  const events = []
+  const backButton = {
+    show: () => events.push('show'),
+    hide: () => events.push('hide'),
+    onClick: (handler) => events.push(['onClick', handler]),
+    offClick: (handler) => events.push(['offClick', handler]),
+  }
+  const withBack = fakeWebApp({ BackButton: backButton })
+  const handler = () => events.push('tapped')
+  const stop = setTelegramBackButton(withBack, handler)
+  check(
+    'telegram: a screen that can go back shows the native back button',
+    events[0][0] === 'onClick' &&
+      events[0][1] === handler &&
+      events[1] === 'show',
+    JSON.stringify(events.map((e) => (Array.isArray(e) ? e[0] : e))),
+  )
+  stop()
+  check(
+    'telegram: leaving the screen unsubscribes AND hides it again',
+    events[2][0] === 'offClick' &&
+      events[2][1] === handler &&
+      events[3] === 'hide',
+    JSON.stringify(events.map((e) => (Array.isArray(e) ? e[0] : e))),
+  )
+  events.length = 0
+  setTelegramBackButton(withBack, null)
+  check(
+    'telegram: a screen with nowhere to go back to never shows the button',
+    events.length === 0,
+  )
+  check(
+    'telegram: back button on a client without one is a safe no-op',
+    setTelegramBackButton(fakeWebApp(), () => {}) instanceof Function,
+  )
+}
+
+// 9. Closing confirmation: only while there is a cart to lose.
+{
+  let enabled = 0
+  let disabled = 0
+  const withConfirm = fakeWebApp({
+    enableClosingConfirmation: () => enabled++,
+    disableClosingConfirmation: () => disabled++,
+  })
+  const stop = setTelegramClosingConfirmation(withConfirm, true)
+  check(
+    'telegram: a cart in progress arms the closing confirmation',
+    enabled === 1,
+  )
+  stop()
+  check('telegram: emptying the cart disarms it again', disabled === 1)
+  setTelegramClosingConfirmation(withConfirm, false)
+  check(
+    'telegram: an empty cart never arms it (no nagging on every close)',
+    enabled === 1,
+  )
+}
+
+// 10. telegram-web-app.js defines window.Telegram.WebApp in ANY browser tab
+//     it is loaded in, reporting platform 'unknown'. Staff opening the
+//     terminal on a laptop must not get padding reserved for chrome that
+//     is not there.
+check(
+  'telegram: platform "unknown" (plain browser tab) is not a Telegram client',
+  isTelegramClient(fakeWebApp({ platform: 'unknown' })) === false,
+)
+check(
+  'telegram: a real client is detected',
+  isTelegramClient(fakeWebApp({ platform: 'ios' })) === true,
+)
+check(
+  'telegram: a wrapper without platform stays treated as Telegram',
+  isTelegramClient(fakeWebApp()) === true,
+)
+check(
+  'telegram: no wrapper at all is not Telegram',
+  isTelegramClient(undefined) === false,
+)
+
+// 11. Regression guard: every header-side rule that pads for the device
+//     inset must also take the Telegram inset, on all FOUR surfaces
+//     (sale terminal, sale /customer, shop storefront, admin console).
 {
   const count = (file, needle) =>
     readFileSync(join(root, file), 'utf8').split(needle).length - 1
   const saleTerminal = count(
     'apps/sale/src/index.css',
-    'var(--tg-content-safe-top, 0px)',
+    'var(--tg-inset-top, 0px)',
   )
   const saleCustomer = count(
     'apps/sale/src/customer.css',
-    'var(--tg-content-safe-top, 0px)',
+    'var(--tg-inset-top, 0px)',
   )
   const shopCustomer = count(
     'apps/shop/src/customer.css',
-    'var(--tg-content-safe-top, 0px)',
+    'var(--tg-inset-top, 0px)',
+  )
+  const adminConsole = count(
+    'apps/admin/src/index.css',
+    'var(--tg-inset-top, 0px)',
   )
   // Sale terminal: header padding + header height, cart panel top/height
   // (desktop), mobile header height/padding, profile popover, shift-gate
-  // banner (mobile + desktop) = 9 call sites.
+  // banner, queue view/page heads, modals = 9+ call sites.
   check(
-    'telegram: sale terminal header stack uses --tg-content-safe-top (>=9)',
+    'telegram: sale terminal header stack uses --tg-inset-top (>=9)',
     saleTerminal >= 9,
     `found ${saleTerminal}`,
   )
   check(
-    'telegram: sale /customer header uses --tg-content-safe-top (>=3)',
+    'telegram: sale /customer header uses --tg-inset-top (>=3)',
     saleCustomer >= 3,
     `found ${saleCustomer}`,
   )
-  // Shop: header height/padding, order-status padding (x2), fullscreen
-  // block (app padding + error + status/state) = 6 call sites.
   check(
-    'telegram: shop storefront header uses --tg-content-safe-top (>=6)',
+    'telegram: shop storefront header uses --tg-inset-top (>=6)',
     shopCustomer >= 6,
     `found ${shopCustomer}`,
+  )
+  // Admin console: top bar padding + height, sidebar, dialogs = 4+.
+  check(
+    'telegram: admin console top bar uses --tg-inset-top (>=4)',
+    adminConsole >= 4,
+    `found ${adminConsole}`,
+  )
+  // The old max() shape is the bug: it reserves the LARGER of the two
+  // insets, leaving the header under Telegram's back button.
+  const stale = [
+    'apps/sale/src/index.css',
+    'apps/sale/src/customer.css',
+    'apps/shop/src/customer.css',
+    'apps/admin/src/index.css',
+  ]
+    .map((file) => count(file, 'var(--tg-content-safe-top'))
+    .reduce((total, n) => total + n, 0)
+  check(
+    'telegram: no surface still pads by the content inset alone',
+    stale === 0,
+    `found ${stale}`,
   )
 }
 
@@ -554,10 +730,7 @@ globalThis.document = originalDocument
     'normalizeCurrentShift({}) -> null  (the production ghost shift)',
     normalizeCurrentShift({}) === null,
   )
-  check(
-    'normalizeCurrentShift([]) -> null',
-    normalizeCurrentShift([]) === null,
-  )
+  check('normalizeCurrentShift([]) -> null', normalizeCurrentShift([]) === null)
   const realShift = { id: 7, status: 'Open', openingCashUsdCents: 10000 }
   check(
     'normalizeCurrentShift(shift with id) passes the object through',

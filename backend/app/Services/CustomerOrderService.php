@@ -33,6 +33,17 @@ class CustomerOrderService
             ->first();
     }
 
+    /**
+     * Place (or update) the customer's open Telegram order.
+     *
+     * `$requestedItems` is `[{ productId, quantity, note? }]`: the optional
+     * per-line note is the customer's own instruction for that product
+     * ("Happy Birthday John", "less sugar"). It is stored on the order item
+     * and repeated in `detail_json`, so staff see it on the pending card,
+     * in the Telegram notification, and again after the order is accepted.
+     *
+     * @return array{0: Order, 1: bool}
+     */
     public function create(
         Customer $customer,
         array $requestedItems,
@@ -104,9 +115,7 @@ class CustomerOrderService
                     'subtotal_cents' => $subtotal,
                     'total_cents' => $subtotal,
                     'time' => now()->format('g:i A'),
-                    'detail_json' => collect($lines)
-                        ->map(fn($l) => $l[0]->name . ' × ' . $l[1])
-                        ->all(),
+                    'detail_json' => $this->detailLines($lines),
                     'updated_at' => now(),
                 ]);
                 return [$existing, false];
@@ -126,11 +135,9 @@ class CustomerOrderService
                 'status' => 'Pending',
                 'payment_status' => 'unpaid',
                 'fulfillment_status' => 'Held',
-                'detail_json' => collect($lines)
-                    ->map(fn($line) => $line[0]->name . ' × ' . $line[1])
-                    ->all(),
+                'detail_json' => $this->detailLines($lines),
             ]);
-            foreach ($lines as [$product, $quantity]) {
+            foreach ($lines as [$product, $quantity, $note]) {
                 // Held-order mechanism: reserve the stock so nobody else can
                 // sell it while the customer hasn't paid yet.
                 $product->increment('reserved_stock', $quantity);
@@ -140,6 +147,9 @@ class CustomerOrderService
                     'description' => $product->name,
                     'category_snapshot' => $product->category?->name,
                     'quantity' => $quantity,
+                    // What the customer asked for on THIS line ("Happy
+                    // Birthday John") — staff read it before calling.
+                    'note' => $note,
                     'unit_price_cents' => $product->price_cents,
                     'line_subtotal_cents' => $product->price_cents * $quantity,
                     'line_total_cents' => $product->price_cents * $quantity,
@@ -160,9 +170,22 @@ class CustomerOrderService
                 'totalCents' => $order->total_cents,
             ]);
         }
+        if ($created) {
+            // Confirm receipt to the customer in the same bot chat they
+            // ordered from — the counterpart of the staff notification
+            // below, and the same dispatch cancel()/rejectByStaff() use.
+            // Only on the FIRST placement: adding another cake updates this
+            // same open order in place, and re-sending "we received your
+            // order" for every edit would just be noise.
+            SendCustomerStatusNotification::dispatch($order->id);
+        }
         return [$order, $created && $this->notifyAdmin($customer, $order)];
     }
 
+    /**
+     * @return array<int, array{0: Product, 1: int, 2: ?string}> product,
+     *         quantity and the customer's optional note for that line.
+     */
     private function lockAndValidateLines(array $requestedItems): array
     {
         $lines = [];
@@ -192,9 +215,44 @@ class CustomerOrderService
             if ($product->stock - $product->reserved_stock < $quantity) {
                 abort(409, "{$product->name} does not have enough stock");
             }
-            $lines[] = [$product, $quantity];
+            $lines[] = [$product, $quantity, $this->lineNote($item)];
         }
         return $lines;
+    }
+
+    /**
+     * The customer's free-text instruction for one line ("Happy Birthday
+     * John", "less sugar"). StoreCustomerOrderRequest already trims it and
+     * caps it at 200 chars; this is the service-side guard so a caller that
+     * bypasses the form request can never write an oversized note.
+     */
+    private function lineNote(array $item): ?string
+    {
+        $note = $item['note'] ?? null;
+        if (!is_scalar($note)) {
+            return null;
+        }
+        $note = trim((string) $note);
+        return $note === '' ? null : mb_substr($note, 0, 200);
+    }
+
+    /**
+     * One human-readable line per item, note included — this is what the
+     * staff Telegram notification, the pending card fallback and the
+     * customer's own order screen print.
+     *
+     * @param array<int, array{0: Product, 1: int, 2: ?string}> $lines
+     */
+    private function detailLines(array $lines): array
+    {
+        return collect($lines)
+            ->map(
+                fn($line) => $line[0]->name .
+                    ' × ' .
+                    $line[1] .
+                    ($line[2] ? ' — ' . $line[2] : ''),
+            )
+            ->all();
     }
 
     private function replaceLines(Order $order, array $lines): void
@@ -216,7 +274,7 @@ class CustomerOrderService
             }
             $item->delete();
         }
-        foreach ($lines as [$product, $quantity]) {
+        foreach ($lines as [$product, $quantity, $note]) {
             $product->increment('reserved_stock', $quantity);
             OrderItem::create([
                 'order_id' => $order->id,
@@ -224,6 +282,7 @@ class CustomerOrderService
                 'description' => $product->name,
                 'category_snapshot' => $product->category?->name,
                 'quantity' => $quantity,
+                'note' => $note,
                 'unit_price_cents' => $product->price_cents,
                 'line_subtotal_cents' => $product->price_cents * $quantity,
                 'line_total_cents' => $product->price_cents * $quantity,

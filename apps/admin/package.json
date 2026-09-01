@@ -14,6 +14,7 @@
     "@cake-pos/api-client": "*",
     "@cake-pos/brand": "*",
     "@cake-pos/design-tokens": "*",
+    "@cake-pos/telegram": "*",
     "@cake-pos/uploads": "*",
     "@vitejs/plugin-react": "latest",
     "docx": "^9.7.1",

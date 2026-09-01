@@ -3,7 +3,9 @@
 .customer-order-status,
 .customer-state {
   min-height: 100vh;
-  padding-bottom: calc(92px + env(safe-area-inset-bottom));
+  padding-bottom: calc(
+    92px + max(env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px))
+  );
   background:
     radial-gradient(
       circle at 10% 0,
@@ -35,15 +37,13 @@
 
 /*
  * Telegram fullscreen overlays its own back/close button at the top;
- * @cake-pos/telegram publishes that as --tg-content-safe-top (absent ->
+ * @cake-pos/telegram publishes that as --tg-inset-top (absent ->
  * 0px outside Telegram, so a plain browser renders exactly as before).
  */
 .customer-header {
-  height: calc(
-    70px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
-  );
-  padding: max(12px, env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
-    18px 10px;
+  height: calc(70px + max(env(safe-area-inset-top), var(--tg-inset-top, 0px)));
+  padding: max(12px, env(safe-area-inset-top), var(--tg-inset-top, 0px)) 18px
+    10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -314,7 +314,7 @@
   position: fixed;
   left: 12px;
   right: 12px;
-  bottom: max(12px, env(safe-area-inset-bottom));
+  bottom: max(12px, env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px));
   z-index: 30;
   height: 61px;
   padding: 0 17px;
@@ -368,7 +368,8 @@
   bottom: 0;
   z-index: 85;
   max-height: 88vh;
-  padding: 8px 15px max(15px, env(safe-area-inset-bottom));
+  padding: 8px 15px
+    max(15px, env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   border-radius: 27px 27px 0 0;
@@ -439,6 +440,37 @@
 }
 .customer-cart-row > .customer-cart-row > b {
   font-size: calc(12px * var(--font-scale));
+}
+/* Optional per-line note ("Happy Birthday John", "less sugar"). Plain and
+   quiet: it must never look like a required field. */
+.customer-cart-note {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.customer-cart-note > span {
+  color: var(--subtle);
+  font-size: calc(11px * var(--font-scale));
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.customer-cart-note input {
+  width: 100%;
+  padding: 8px 10px;
+  color: inherit;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  font: inherit;
+  font-size: calc(12px * var(--font-scale));
+}
+.customer-cart-note input::placeholder {
+  color: var(--subtle);
+}
+.customer-cart-note input:focus {
+  border-color: var(--pink-deep);
+  outline: none;
 }
 .customer-cart-sheet footer {
   padding-top: 12px;
@@ -537,7 +569,10 @@
   position: fixed;
   left: 12px;
   right: 12px;
-  bottom: max(85px, calc(85px + env(safe-area-inset-bottom)));
+  bottom: max(
+    85px,
+    calc(85px + max(env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px)))
+  );
   z-index: 150;
   padding: 11px 12px;
   display: flex;
@@ -588,10 +623,9 @@
   animation: customer-pulse 1.3s ease infinite;
 }
 .customer-order-status {
-  padding: calc(
-      10px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
-    )
-    16px calc(30px + env(safe-area-inset-bottom));
+  padding: calc(10px + max(env(safe-area-inset-top), var(--tg-inset-top, 0px)))
+    16px
+    calc(30px + max(env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px)));
 }
 .customer-order-status > header {
   height: 50px;
@@ -889,7 +923,8 @@
   max-height: 92vh;
   display: flex;
   flex-direction: column;
-  padding: 22px 18px calc(18px + env(safe-area-inset-bottom));
+  padding: 22px 18px
+    calc(18px + max(env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px)));
   color: var(--ink);
   border-radius: 24px 24px 0 0;
   background: linear-gradient(160deg, #fffafb, #fdf1f6);
@@ -1059,31 +1094,35 @@
    Fullscreen Mini App (Web App API 8.0+): with viewport-fit=cover
    the app extends under the notch / home indicator, so pad the
    scroll container and lift fixed docks by the safe-area insets.
-   The TOP insets also take --tg-content-safe-top (published by
+   The TOP insets also take --tg-inset-top (published by
    @cake-pos/telegram), which additionally accounts for Telegram's
    own overlaid back/close button — absent outside Telegram (0px).
    ============================================================ */
 .customer-app {
-  padding-top: max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px));
-  padding-bottom: env(safe-area-inset-bottom);
-  padding-left: env(safe-area-inset-left);
-  padding-right: env(safe-area-inset-right);
+  padding-top: max(env(safe-area-inset-top), var(--tg-inset-top, 0px));
+  padding-bottom: max(env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px));
+  padding-left: max(env(safe-area-inset-left), var(--tg-inset-left, 0px));
+  padding-right: max(env(safe-area-inset-right), var(--tg-inset-right, 0px));
 }
 .customer-cart-dock {
-  margin-bottom: calc(14px + env(safe-area-inset-bottom));
+  margin-bottom: calc(
+    14px + max(env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px))
+  );
 }
 .customer-error {
-  top: calc(
-    10px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
-  );
+  top: calc(10px + max(env(safe-area-inset-top), var(--tg-inset-top, 0px)));
 }
 .customer-order-status,
 .customer-state {
   padding-top: calc(
-    18px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
+    18px + max(env(safe-area-inset-top), var(--tg-inset-top, 0px))
   );
-  padding-left: max(18px, env(safe-area-inset-left));
-  padding-right: max(18px, env(safe-area-inset-right));
+  padding-left: max(18px, env(safe-area-inset-left), var(--tg-inset-left, 0px));
+  padding-right: max(
+    18px,
+    env(safe-area-inset-right),
+    var(--tg-inset-right, 0px)
+  );
 }
 
 /* One-level category grouping in the storefront nav. */

@@ -3,7 +3,9 @@
 .customer-order-status,
 .customer-state {
   min-height: 100vh;
-  padding-bottom: calc(92px + env(safe-area-inset-bottom));
+  padding-bottom: calc(
+    92px + max(env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px))
+  );
   background:
     radial-gradient(
       circle at 10% 0,
@@ -15,15 +17,13 @@
 }
 /*
  * Telegram fullscreen overlays its own back/close button at the top;
- * @cake-pos/telegram publishes that as --tg-content-safe-top (absent ->
+ * @cake-pos/telegram publishes that as --tg-inset-top (absent ->
  * 0px outside Telegram, so a plain browser renders exactly as before).
  */
 .customer-header {
-  height: calc(
-    70px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
-  );
-  padding: max(12px, env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
-    18px 10px;
+  height: calc(70px + max(env(safe-area-inset-top), var(--tg-inset-top, 0px)));
+  padding: max(12px, env(safe-area-inset-top), var(--tg-inset-top, 0px)) 18px
+    10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -289,7 +289,7 @@
   position: fixed;
   left: 12px;
   right: 12px;
-  bottom: max(12px, env(safe-area-inset-bottom));
+  bottom: max(12px, env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px));
   z-index: 30;
   height: 61px;
   padding: 0 17px;
@@ -343,7 +343,8 @@
   bottom: 0;
   z-index: 85;
   max-height: 88vh;
-  padding: 8px 15px max(15px, env(safe-area-inset-bottom));
+  padding: 8px 15px
+    max(15px, env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   border-radius: 27px 27px 0 0;
@@ -506,7 +507,10 @@
   position: fixed;
   left: 12px;
   right: 12px;
-  bottom: max(85px, calc(85px + env(safe-area-inset-bottom)));
+  bottom: max(
+    85px,
+    calc(85px + max(env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px)))
+  );
   z-index: 150;
   padding: 11px 12px;
   display: flex;
@@ -557,10 +561,9 @@
   animation: customer-pulse 1.3s ease infinite;
 }
 .customer-order-status {
-  padding: calc(
-      10px + max(env(safe-area-inset-top), var(--tg-content-safe-top, 0px))
-    )
-    16px calc(30px + env(safe-area-inset-bottom));
+  padding: calc(10px + max(env(safe-area-inset-top), var(--tg-inset-top, 0px)))
+    16px
+    calc(30px + max(env(safe-area-inset-bottom), var(--tg-inset-bottom, 0px)));
 }
 .customer-order-status > header {
   height: 50px;
