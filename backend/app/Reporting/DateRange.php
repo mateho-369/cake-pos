@@ -52,7 +52,16 @@ final readonly class DateRange
                 'to' => ['Report range cannot exceed one year'],
             ]);
         }
-        return new self($from->utc(), $to->utc());
+        // NOT ->utc(): every `created_at`/`recorded_at`/etc. in this app is
+        // written by bare now() calls, and config('app.timezone') is
+        // Asia/Phnom_Penh (not UTC) — so those columns already hold local
+        // wall-clock values, uncorrected. Converting these bounds to UTC
+        // before comparing against that column double-shifts by the
+        // timezone offset: any order placed after ~17:00 local (10:00 UTC)
+        // fell outside "today"'s query window entirely, and reappeared
+        // misattributed to the next calendar day. Keep bounds in the same
+        // (local, unconverted) frame the data is actually stored in.
+        return new self($from, $to);
     }
     public function previous(): self
     {
