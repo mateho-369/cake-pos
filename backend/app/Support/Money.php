@@ -26,7 +26,10 @@ final class Money
     }
     public static function toDecimal(?int $cents): ?float
     {
-        return $cents === null ? null : $cents / 100;
+        // PHP's / returns an int, not a float, whenever both operands divide
+        // evenly (any whole-dollar amount, $0 included) — cast explicitly so
+        // this always honors its own ?float return type.
+        return $cents === null ? null : (float) $cents / 100;
     }
     public static function percentToBasisPoints(mixed $value): int
     {
