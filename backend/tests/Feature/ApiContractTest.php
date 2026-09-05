@@ -215,7 +215,7 @@ class ApiContractTest extends TestCase
             $this->auth($cashier),
         )
             ->assertForbidden()
-            ->assertJsonPath('maxCashierDiscountPercent', 10.0);
+            ->assertJsonPath('maxCashierDiscountPercent', 10);
         $fixed = $this->postJson(
             '/api/orders',
             [
@@ -227,8 +227,8 @@ class ApiContractTest extends TestCase
             $this->auth($admin),
         )->assertCreated();
         $fixed
-            ->assertJsonPath('total', 0.0)
-            ->assertJsonPath('discountAmount', 10.0)
+            ->assertJsonPath('total', 0)
+            ->assertJsonPath('discountAmount', 10)
             ->assertJsonPath('discountType', 'fixed');
         $this->assertSame(
             1000,
@@ -339,7 +339,7 @@ class ApiContractTest extends TestCase
         $correction
             ->assertJsonPath('originalOrderId', $id)
             ->assertJsonPath('status', 'Refunded')
-            ->assertJsonPath('total', -1.0);
+            ->assertJsonPath('total', -1);
         $this->assertSame($total, $original->fresh()->total_cents);
     }
     public function test_shift_variance_uses_integer_cents(): void
@@ -2198,7 +2198,9 @@ class ApiContractTest extends TestCase
             ['closingCash' => '108.00', 'closingCashKhr' => 48200],
             $headers,
         )->assertOk()->json();
-        $this->assertSame(0.0, $closed['variance']);
+        // json_encode() writes a whole-dollar float as "0", which decodes
+        // back as int — compare the value, not PHP's scalar type.
+        $this->assertSame(0.0, (float) $closed['variance']);
         $shift = DB::table('shifts')->latest('id')->first();
         $this->assertSame(0, (int) $shift->variance_usd_cents);
         $this->assertSame(0, (int) $shift->variance_khr);
@@ -3394,7 +3396,9 @@ class ApiContractTest extends TestCase
         )
             ->assertOk()
             ->json();
-        $this->assertSame(0.0, $closed['variance']);
+        // json_encode() writes a whole-dollar float as "0", which decodes
+        // back as int — compare the value, not PHP's scalar type.
+        $this->assertSame(0.0, (float) $closed['variance']);
         $shift = DB::table('shifts')->latest('id')->first();
         $this->assertSame(11000, (int) $shift->expected_cash_usd_cents);
         $this->assertSame(0, (int) $shift->variance_usd_cents);
@@ -3605,7 +3609,9 @@ class ApiContractTest extends TestCase
         )
             ->assertOk()
             ->json();
-        $this->assertSame(0.0, $closed['variance']);
+        // json_encode() writes a whole-dollar float as "0", which decodes
+        // back as int — compare the value, not PHP's scalar type.
+        $this->assertSame(0.0, (float) $closed['variance']);
         $shift = DB::table('shifts')->latest('id')->first();
         $this->assertSame(0, (int) $shift->variance_usd_cents);
         $this->assertSame(0, (int) $shift->variance_khr);
