@@ -6713,6 +6713,7 @@ img.qr-placeholder {
   .audit-filters select,
   .report-export-actions input,
   .report-filter-field select,
+  .table-pagination-size select,
   .admin-price-input input {
     font-size: max(16px, 1em);
   }
@@ -6721,12 +6722,20 @@ img.qr-placeholder {
      of pushing the whole page wider than the viewport. */
   .category-list-card,
   .access-activity,
+  .product-performance,
   .product-table {
     overflow-x: auto;
     scrollbar-width: thin;
   }
-  .categories-layout {
+  .product-performance .table-row {
+    min-width: 0;
+  }
+  .categories-layout,
+  .dashboard-secondary-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .page-toolbar .toolbar-actions {
+    flex-wrap: wrap;
   }
   .reason-options {
     grid-template-columns: 1fr;
@@ -6995,6 +7004,13 @@ img.qr-placeholder {
 .report-filter-field select:focus {
   outline: 2px solid var(--pink, #e75480);
   outline-offset: 1px;
+}
+/* Declared after the 16px mobile floor above, so it would otherwise win on
+   source order; restate the floor here. */
+@media (max-width: 760px) {
+  .report-filter-field select {
+    font-size: max(16px, 1em);
+  }
 }
 .report-filter-panel-actions {
   display: flex;
