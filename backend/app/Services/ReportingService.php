@@ -12,6 +12,7 @@ use App\Models\{
     Shift,
 };
 use App\Support\ExchangeRate;
+use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use Carbon\CarbonImmutable;
 final class ReportingService
@@ -87,7 +88,7 @@ final class ReportingService
             'qrRevenueCents' => $this->paid($r)
                 ->where('payment', 'KHQR')
                 ->sum('total_cents'),
-            'yesterdaySalesTotal' => (int) ($y->net ?? 0) / 100,
+            'yesterdaySalesTotal' => Money::toDecimal((int) ($y->net ?? 0)),
             'yesterdayOrdersCount' => (int) ($y->count ?? 0),
             'itemsSold' => (int) $itemsSold,
             'qrPaymentCount' => OrderPayment::where('method', 'qr_manual')
@@ -594,7 +595,7 @@ final class ReportingService
             $key = $cursor->format('Y-m-d');
             $daily[] = [
                 'day' => $key,
-                'value' => (int) ($dailyRows[$key] ?? 0) / 100,
+                'value' => Money::toDecimal((int) ($dailyRows[$key] ?? 0)),
             ];
             $cursor = $cursor->addDay();
         }
@@ -628,7 +629,9 @@ final class ReportingService
                     'category' => $row->category_snapshot,
                     'quantity' => (int) $row->quantity,
                     'reason' => $row->reason,
-                    'retailValue' => (int) $row->retail_value_cents / 100,
+                    'retailValue' => Money::toDecimal(
+                        (int) $row->retail_value_cents,
+                    ),
                     'recordedAt' => $row->recorded_at,
                     'recordedBy' => $row->recorded_by,
                 ],

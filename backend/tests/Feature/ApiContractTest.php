@@ -599,12 +599,14 @@ class ApiContractTest extends TestCase
 
         // Today: $40 + $20 = $60.00 net, 2 completed orders, 3 items sold,
         // 1 KHQR payment confirmed.
-        $this->assertSame(60.0, $summary['todaySalesTotal']);
+        // assertEquals, not assertSame: json_encode() drops the ".0" from a
+        // whole-dollar float with no way to preserve it round-trip.
+        $this->assertEquals(60.0, $summary['todaySalesTotal']);
         $this->assertSame(2, $summary['todayOrdersCount']);
         $this->assertSame(3, $summary['itemsSold']);
         $this->assertSame(1, $summary['qrPaymentCount']);
         // Yesterday: one $20.00 order.
-        $this->assertSame(20.0, $summary['yesterdaySalesTotal']);
+        $this->assertEquals(20.0, $summary['yesterdaySalesTotal']);
         $this->assertSame(1, $summary['yesterdayOrdersCount']);
         // ordersData spans the last 7 days for the "today" preset so the
         // dashboard can compare today's pace against previous days. Days are
@@ -687,8 +689,9 @@ class ApiContractTest extends TestCase
         $this->assertCount(1, $report['events']);
         $this->assertSame('Today Cake', $report['events'][0]['productName']);
         // retail_value_cents is 1500 above ($15.00, the Today Cake's own
-        // price_cents) — not $1.50.
-        $this->assertSame(15.0, $report['events'][0]['retailValue']);
+        // price_cents) — not $1.50. assertEquals, not assertSame: json_encode()
+        // drops the ".0" from a whole-dollar float with no way to preserve it.
+        $this->assertEquals(15.0, $report['events'][0]['retailValue']);
     }
 
     public function test_record_waste_decrements_stock_and_appends_audit_event(): void
@@ -2216,7 +2219,12 @@ class ApiContractTest extends TestCase
             ['closingCash' => '108.00', 'closingCashKhr' => 48200],
             $headers,
         )->assertOk()->json();
-        $this->assertSame(0.0, $closed['variance']);
+        // json_encode() drops the ".0" from a whole-number float (a $0.00
+        // variance) with no way to preserve it once the response has already
+        // been through JsonResponse's own encode/decode cycle — assertEquals
+        // (not assertSame) so this doesn't assert a distinction JSON itself
+        // cannot carry.
+        $this->assertEquals(0.0, $closed['variance']);
         $shift = DB::table('shifts')->latest('id')->first();
         $this->assertSame(0, (int) $shift->variance_usd_cents);
         $this->assertSame(0, (int) $shift->variance_khr);
@@ -3412,7 +3420,7 @@ class ApiContractTest extends TestCase
         )
             ->assertOk()
             ->json();
-        $this->assertSame(0.0, $closed['variance']);
+        $this->assertEquals(0.0, $closed['variance']);
         $shift = DB::table('shifts')->latest('id')->first();
         $this->assertSame(11000, (int) $shift->expected_cash_usd_cents);
         $this->assertSame(0, (int) $shift->variance_usd_cents);
@@ -3623,7 +3631,7 @@ class ApiContractTest extends TestCase
         )
             ->assertOk()
             ->json();
-        $this->assertSame(0.0, $closed['variance']);
+        $this->assertEquals(0.0, $closed['variance']);
         $shift = DB::table('shifts')->latest('id')->first();
         $this->assertSame(0, (int) $shift->variance_usd_cents);
         $this->assertSame(0, (int) $shift->variance_khr);

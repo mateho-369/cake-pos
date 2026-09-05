@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Middleware\EnsureActiveEmployee;
-use App\Http\Middleware\PreserveJsonZeroFraction;
 use App\Http\Middleware\RequireAdmin;
 use App\Http\Middleware\RequireOpenShift;
 use Illuminate\Foundation\Application;
@@ -24,7 +23,6 @@ return Application::configure(basePath: dirname(__DIR__))
             'open-shift' => RequireOpenShift::class,
         ]);
         $middleware->redirectGuestsTo(fn() => null);
-        $middleware->api(append: [PreserveJsonZeroFraction::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(fn() => true);

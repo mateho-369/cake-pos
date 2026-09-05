@@ -59,8 +59,13 @@ class OrderResource extends JsonResource
             'statusChange' => $this->whenLoaded(
                 'statusEvents',
                 function () {
+                    // Sort by id, not created_at: two events can land in the
+                    // same wall-clock second (created_at has only second
+                    // precision — e.g. a hold resumed and paid within the
+                    // same second it was placed), and id is both always
+                    // unique and always insertion-ordered.
                     $event = $this->statusEvents
-                        ->sortByDesc('created_at')
+                        ->sortByDesc('id')
                         ->values()
                         ->first();
                     if (!$event) {
@@ -136,7 +141,7 @@ class OrderResource extends JsonResource
         }
 
         return $this->discount_type === 'percentage'
-            ? $this->discount_value / 100
+            ? (float) $this->discount_value / 100
             : Money::toDecimal($this->discount_value);
     }
 }

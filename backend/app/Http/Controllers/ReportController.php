@@ -2,6 +2,7 @@
 namespace App\Http\Controllers;
 use App\Http\Requests\ReportFilterRequest;
 use App\Services\ReportingService;
+use App\Support\Money;
 use Illuminate\Http\JsonResponse;
 class ReportController extends Controller
 {
@@ -33,12 +34,12 @@ class ReportController extends Controller
         $t = $this->reports->trend($v);
         return response()->json(
             array_merge($s, [
-                'todaySalesTotal' => $s['netRevenueCents'] / 100,
+                'todaySalesTotal' => Money::toDecimal($s['netRevenueCents']),
                 'todayOrdersCount' => $s['completedOrderCount'],
                 'revenueData' => array_map(
                     fn($p) => [
                         'day' => $p['period'],
-                        'value' => $p['netRevenueCents'] / 100,
+                        'value' => Money::toDecimal($p['netRevenueCents']),
                     ],
                     $t,
                 ),
