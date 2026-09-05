@@ -753,11 +753,19 @@ await page.waitForSelector('.success-layer', {
   await paceLogin()
   await page.getByRole('button', { name: 'Sign in securely' }).click()
   await page.waitForSelector('text=What are we serving?', { timeout: 30000 })
+  // The menu heading renders as soon as the token is accepted; the badge
+  // flips to open one render later, once /api/shifts/current has been
+  // applied. Wait for that state instead of sampling the class immediately.
+  const badgeOpenAfterRelogin = await page
+    .waitForSelector('.shift-status.open', { timeout: 15000 })
+    .then(
+      () => true,
+      () => false,
+    )
   check(
     'shift badge still Open after logout/login (shift survives)',
-    (await page.locator('.shift-status').getAttribute('class')).includes(
-      'open',
-    ),
+    badgeOpenAfterRelogin,
+    await page.locator('.shift-status').getAttribute('class'),
   )
 
   // --- Close the shift through the UI, counting BOTH currency piles ---
