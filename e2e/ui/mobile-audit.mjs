@@ -381,6 +381,22 @@ async function run() {
         path: join(artifacts, `${viewport.name}-sale-terminal.png`),
       })
 
+      // Shift modal (open/close + dual-currency counting) on a phone.
+      // Must run BEFORE anything is added to the cart: with an open shift
+      // and a non-empty cart the badge deliberately refuses to open the
+      // modal ("complete the order first" toast).
+      const shiftButton = salePage.locator('.shift-status').first()
+      if (await shiftButton.count()) {
+        await shiftButton.click()
+        await salePage.waitForSelector('.shift-modal-body', { timeout: 15000 })
+        await salePage.waitForTimeout(400)
+        await auditPage(salePage, 'sale:shift-modal', viewport.name)
+        await salePage.screenshot({
+          path: join(artifacts, `${viewport.name}-sale-shift-modal.png`),
+        })
+        await closeModals(salePage)
+      }
+
       // Add a real product so the mobile cart dock + sheet are auditable.
       const card = salePage.locator('.product-card').first()
       if (await card.count()) {
@@ -402,18 +418,6 @@ async function run() {
         fail(`[${viewport.name}] sale:cart-panel: no mobile cart dock`)
       }
 
-      // Shift modal (open/close + dual-currency counting) on a phone.
-      const shiftButton = salePage.locator('.shift-status').first()
-      if (await shiftButton.count()) {
-        await shiftButton.click()
-        await salePage.waitForSelector('.shift-modal-body', { timeout: 15000 })
-        await salePage.waitForTimeout(400)
-        await auditPage(salePage, 'sale:shift-modal', viewport.name)
-        await salePage.screenshot({
-          path: join(artifacts, `${viewport.name}-sale-shift-modal.png`),
-        })
-        await closeModals(salePage)
-      }
     } catch (error) {
       fail(`[${viewport.name}] sale terminal: ${error.message}`)
     }

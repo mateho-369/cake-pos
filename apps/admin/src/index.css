@@ -6727,11 +6727,12 @@ img.qr-placeholder {
     overflow-x: auto;
     scrollbar-width: thin;
   }
-  .product-performance .table-row {
-    min-width: 0;
-  }
+  /* `1fr` alone lets a wide table row (min-width 560px) stretch the grid
+     column past the phone viewport; minmax(0, 1fr) keeps the column at
+     viewport width so the card above scrolls instead. */
   .categories-layout,
-  .dashboard-secondary-grid {
+  .dashboard-secondary-grid,
+  .dashboard-bottom-grid {
     grid-template-columns: minmax(0, 1fr);
   }
   .page-toolbar .toolbar-actions {
@@ -7005,10 +7006,12 @@ img.qr-placeholder {
   outline: 2px solid var(--pink, #e75480);
   outline-offset: 1px;
 }
-/* Declared after the 16px mobile floor above, so it would otherwise win on
+/* Declared after the 16px mobile floor above (and `font: inherit` on the
+   pagination select resets font-size), so they would otherwise win on
    source order; restate the floor here. */
 @media (max-width: 760px) {
-  .report-filter-field select {
+  .report-filter-field select,
+  .table-pagination-size select {
     font-size: max(16px, 1em);
   }
 }
