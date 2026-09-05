@@ -322,7 +322,7 @@ async function run() {
         if (pg !== 'Overview') await navigateAdmin(page, pg)
         await auditPage(page, label, viewport.name)
         await page.screenshot({
-          path: join(artifacts, `${viewport.name}-${label}.png`),
+          path: join(artifacts, `${viewport.name}-${label.replace(/:/g, '-')}.png`),
           fullPage: false,
         })
       } catch (error) {
