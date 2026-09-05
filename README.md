@@ -266,4 +266,4 @@ The backend uses Eloquent migrations, MySQL transactions, pessimistic stock lock
 
 ## CORS
 
-The backend accepts exactly `ADMIN_ORIGIN` and `SALE_ORIGIN`, never `*`, and permits `Accept`, `Authorization`, and `Content-Type`. Host the shop under the sale origin through the same edge/reverse proxy when retaining this strict two-origin deployment policy.
+The backend accepts exactly `ADMIN_ORIGIN`, `SALE_ORIGIN`, and `SHOP_ORIGIN` (see `backend/config/cors.php`), never `*`, and permits `Accept`, `Authorization`, and `Content-Type`. Each separately hosted app must be configured with its own exact HTTPS origin.

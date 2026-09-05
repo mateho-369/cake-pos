@@ -3924,6 +3924,43 @@ class ApiContractTest extends TestCase
         )->assertOk();
         $this->travelBack();
     }
+    /**
+     * The Telegram storefront must advertise only what a customer can
+     * actually order: on-hand stock minus units already reserved by other
+     * open customer orders. Staff catalog keeps the raw on-hand figure.
+     */
+    public function test_customer_products_show_available_stock_net_of_reservations(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        $product = Product::first();
+        $product->update([
+            'price_cents' => 1000,
+            'stock' => 5,
+            'reserved_stock' => 2,
+            'active' => true,
+        ]);
+        $initData = $this->signedInitData([
+            'id' => 909,
+            'first_name' => 'Nary',
+            'username' => 'nary',
+        ]);
+        $menu = $this->postJson('/api/customer-products', [
+            'initData' => $initData,
+        ])->assertOk();
+        $row = collect($menu->json('products'))->firstWhere(
+            'id',
+            $product->id,
+        );
+        $this->assertSame(3, $row['stock']);
+
+        // Staff/admin catalog still reports on-hand stock for inventory.
+        $admin = Employee::where('role', 'admin')->first();
+        $catalog = $this->getJson('/api/products', $this->auth($admin))
+            ->assertOk()
+            ->json();
+        $staffRow = collect($catalog)->firstWhere('id', $product->id);
+        $this->assertSame(5, $staffRow['stock']);
+    }
 }
 
 final class MoneyForTest

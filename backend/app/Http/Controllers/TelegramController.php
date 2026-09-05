@@ -49,9 +49,18 @@ class TelegramController extends Controller
                 'username' => $customer->telegram_username,
                 'phone' => $customer->phone,
             ],
-            'products' => $products->map(
-                fn($product) => ProductResource::make($product)->resolve(),
-            ),
+            'products' => $products->map(function ($product) {
+                $row = ProductResource::make($product)->resolve();
+                // The storefront can only sell what is not already held by
+                // another open customer order — the same check
+                // CustomerOrderService applies on submit. Staff/admin
+                // screens keep the raw on-hand figure for reporting.
+                $row['stock'] = max(
+                    0,
+                    (int) $product->stock - (int) $product->reserved_stock,
+                );
+                return $row;
+            }),
             // Flat name list (back-compat) plus the hierarchy grouping so
             // the storefront can indent subcategories under their parent.
             'categories' => $products

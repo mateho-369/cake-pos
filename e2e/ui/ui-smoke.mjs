@@ -87,7 +87,29 @@ async function api(path, { method = 'GET', body, token } = {}) {
   return { status: res.status, json }
 }
 
+// The API throttles POST /api/login to 5 per minute per IP (RateLimiter
+// 'login' in AppServiceProvider). Every login in this script — Node-side
+// and browser-side — comes from 127.0.0.1, so a sixth attempt inside one
+// minute is refused with 429 and the terminal never renders. Pace the
+// logins here rather than weakening the limiter.
+const LOGIN_LIMIT_PER_MINUTE = 5
+const loginTimes = []
+async function paceLogin() {
+  const now = Date.now()
+  while (loginTimes.length && now - loginTimes[0] > 61_000) loginTimes.shift()
+  if (loginTimes.length >= LOGIN_LIMIT_PER_MINUTE) {
+    const wait = 61_000 - (now - loginTimes[0])
+    console.log(
+      `  (pausing ${Math.ceil(wait / 1000)}s for the login rate limit)`,
+    )
+    await new Promise((resolve) => setTimeout(resolve, wait))
+    loginTimes.shift()
+  }
+  loginTimes.push(Date.now())
+}
+
 async function login(email, password) {
+  await paceLogin()
   const r = await api('/api/login', {
     method: 'POST',
     body: { email, password },
@@ -144,6 +166,7 @@ check('admin login via API returns token', adminToken.length > 10)
 await page.goto(ADMIN_URL, { waitUntil: 'networkidle' })
 await page.getByLabel('Email address').fill(ADMIN_EMAIL)
 await page.getByLabel('Password', { exact: true }).fill(ADMIN_PASS)
+await paceLogin()
 await page.getByRole('button', { name: 'Sign in securely' }).click()
 await page.waitForSelector('text=Net sales', { timeout: 30000 })
 await shot('admin-overview-empty')
@@ -259,9 +282,14 @@ await page
   .click()
 await page.waitForTimeout(600)
 const empText = await page.locator('.page-content').innerText()
+// The seeder ships two staff accounts; a third is only created when
+// SEED_CASHIER_3_* credentials are supplied, so compare with the API.
+const seededStaff = await api('/api/employees', { token: adminToken })
 check(
-  'employees: 3 team members (real seeded count)',
-  empText.includes('3 team members'),
+  'employees: team member count matches the API',
+  seededStaff.status === 200 &&
+    empText.includes(`${seededStaff.json.length} team members`),
+  `${seededStaff.status} ${JSON.stringify(seededStaff.json).slice(0, 120)}`,
 )
 check(
   'employees: 0 clocked in',
@@ -532,6 +560,7 @@ await page.evaluate(() => {
 await page.goto(ADMIN_URL, { waitUntil: 'networkidle' })
 await page.getByLabel('Email address').fill(ADMIN_EMAIL)
 await page.getByLabel('Password', { exact: true }).fill(ADMIN_PASS)
+await paceLogin()
 await page.getByRole('button', { name: 'Sign in securely' }).click()
 await page.waitForSelector('text=Net sales', { timeout: 30000 })
 // Wait until the dashboard reflects the real API sale; the "Net sales"
@@ -641,6 +670,7 @@ await page.getByRole('button', { name: 'Email' }).click()
 await page.waitForTimeout(300)
 await page.getByLabel('Email address').fill(CASHIER_EMAIL)
 await page.getByLabel('Password', { exact: true }).fill(CASHIER_PASS)
+await paceLogin()
 await page.getByRole('button', { name: 'Sign in securely' }).click()
 await page.waitForSelector('text=What are we serving?', { timeout: 30000 })
 await shot('sale-menu')
@@ -720,6 +750,7 @@ await page.waitForSelector('.success-layer', {
   await page.waitForTimeout(300)
   await page.getByLabel('Email address').fill(CASHIER_EMAIL)
   await page.getByLabel('Password', { exact: true }).fill(CASHIER_PASS)
+  await paceLogin()
   await page.getByRole('button', { name: 'Sign in securely' }).click()
   await page.waitForSelector('text=What are we serving?', { timeout: 30000 })
   check(
@@ -904,6 +935,7 @@ console.log('\n########## PHASE F — HOLD / PARK AN ORDER, THEN PAY IT ########
     await page.waitForTimeout(300)
     await page.getByLabel('Email address').fill(CASHIER_EMAIL)
     await page.getByLabel('Password', { exact: true }).fill(CASHIER_PASS)
+    await paceLogin()
     await page.getByRole('button', { name: 'Sign in securely' }).click()
     await page.waitForSelector('.product-workspace', { timeout: 30000 })
   }

@@ -57,7 +57,10 @@ type MenuResponse = {
   storeOpen?: boolean
 }
 type Cart = Record<number, number>
-const statusSteps = ['Pending', 'Confirmed', 'Paid', 'Ready']
+// Held = the shop accepted the order and is holding the items (reserved
+// stock, unpaid until collection). It sits between "received" and
+// "confirmed" so the customer sees the acceptance the bot message announces.
+const statusSteps = ['Pending', 'Held', 'Confirmed', 'Paid', 'Ready']
 const safeNumber = (value: number | null | undefined) =>
   Number.isFinite(value as number) ? (value as number) : 0
 const usd = (value: number | null | undefined) =>
@@ -845,6 +848,7 @@ function OrderStatus({
                   {
                     [
                       t('status.pending'),
+                      t('status.held'),
                       t('status.confirmed'),
                       t('status.paid'),
                       t('status.ready'),
