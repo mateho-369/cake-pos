@@ -585,12 +585,14 @@ class ApiContractTest extends TestCase
 
         // Today: $40 + $20 = $60.00 net, 2 completed orders, 3 items sold,
         // 1 KHQR payment confirmed.
-        $this->assertSame(60.0, $summary['todaySalesTotal']);
+        // Whole-dollar floats round-trip through JSON as integers — compare
+        // the value, not PHP's scalar type.
+        $this->assertSame(60.0, (float) $summary['todaySalesTotal']);
         $this->assertSame(2, $summary['todayOrdersCount']);
         $this->assertSame(3, $summary['itemsSold']);
         $this->assertSame(1, $summary['qrPaymentCount']);
         // Yesterday: one $20.00 order.
-        $this->assertSame(20.0, $summary['yesterdaySalesTotal']);
+        $this->assertSame(20.0, (float) $summary['yesterdaySalesTotal']);
         $this->assertSame(1, $summary['yesterdayOrdersCount']);
         // ordersData spans the last 7 days for the "today" preset so the
         // dashboard can compare today's pace against previous days. Days are
@@ -674,7 +676,7 @@ class ApiContractTest extends TestCase
         $this->assertSame('Today Cake', $report['events'][0]['productName']);
         // retail_value_cents is 1500 above ($15.00, the Today Cake's own
         // price_cents) — not $1.50.
-        $this->assertSame(15.0, $report['events'][0]['retailValue']);
+        $this->assertSame(15.0, (float) $report['events'][0]['retailValue']);
     }
 
     public function test_record_waste_decrements_stock_and_appends_audit_event(): void
