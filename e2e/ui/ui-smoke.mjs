@@ -147,6 +147,19 @@ await page.addInitScript(() => {
     sessionStorage.setItem('atelier.language', 'en')
   } catch {}
 })
+// CI serves each built app from a plain static file server, which has no
+// SPA fallback. The sale terminal's held/pending queues are real paths
+// (window.location.assign('/held')), so mirror what the production host
+// does and answer those paths with the app shell.
+await page.route(
+  (url) =>
+    url.origin === new URL(SALE_URL).origin &&
+    /^\/(held|pending)\/?$/.test(url.pathname),
+  async (route) => {
+    const shell = await route.fetch({ url: `${SALE_URL}/index.html` })
+    await route.fulfill({ response: shell })
+  },
+)
 page.on('console', (msg) => {
   if (msg.type() === 'error')
     console.log(`  [browser console.error] ${msg.text()}`)
@@ -987,15 +1000,23 @@ console.log('\n########## PHASE F — HOLD / PARK AN ORDER, THEN PAY IT ########
       afterHold.json.find((p) => p.id === product.id)?.stock
     }`,
   )
+  // Holding hands the cashier over to the dedicated /held queue page.
+  await page.waitForSelector('.held-panel', { timeout: 15000 })
+  await page
+    .locator('.held-panel', { hasText: 'Dara — pays on collection' })
+    .waitFor({ timeout: 15000 })
+    .catch(() => {})
   const heldText = await page.locator('.held-panel').innerText()
   check(
     'held panel shows the order at the terminal',
     heldText.includes('Dara — pays on collection'),
+    heldText.replace(/\n/g, ' ').slice(0, 200),
   )
 
   // 2. Resume it into the cart: it must STAY held until the sale is paid.
+  // Resuming navigates back to the terminal, which restores the lines.
   await page.locator('.held-resume').first().click()
-  await page.waitForTimeout(800)
+  await page.waitForSelector('.cart-item', { timeout: 20000 }).catch(() => {})
   const stillHeld = await api('/api/orders/held', { token: adminToken })
   check(
     'resuming keeps the hold parked until payment',
