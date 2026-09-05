@@ -84,9 +84,7 @@ class ApiContractTest extends TestCase
                 ->assertUnauthorized();
         }
         $blocked = $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.10'])
-            ->postJson('/api/login', ['pin_code' => '0000']);
-        fwrite(STDERR, "DIAG blocked-status=" . $blocked->getStatusCode() . " body=" . $blocked->getContent() . "\n");
-        $blocked
+            ->postJson('/api/login', ['pin_code' => '0000'])
             ->assertStatus(429)
             ->assertJsonStructure(['message', 'retryAfter']);
         $this->assertGreaterThan(

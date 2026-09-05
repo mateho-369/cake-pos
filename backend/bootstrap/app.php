@@ -46,6 +46,17 @@ return Application::configure(basePath: dirname(__DIR__))
             if (! in_array($request->getHost(), ['127.0.0.1', 'localhost'], true)) {
                 return null;
             }
+            // HttpResponseException (thrown by throttle: middleware and
+            // friends) already carries the real, correctly-built response
+            // (e.g. the 429 from RateLimiter::for('login', ...)'s own
+            // ->response() callback) — it isn't an error to describe, it IS
+            // the response. Laravel's default handler unwraps this via
+            // getResponse(); this diagnostic override must do the same, or
+            // every throttled/short-circuited request comes back as a
+            // generic 500 for any request against localhost/127.0.0.1.
+            if ($e instanceof \Illuminate\Http\Exceptions\HttpResponseException) {
+                return $e->getResponse();
+            }
             // Preserve the exception's real status (abort(409, ...) and
             // friends) instead of forcing 500 on everything — this
             // diagnostic handler was turning every intentional 4xx abort()
