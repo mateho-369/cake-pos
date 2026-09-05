@@ -59,10 +59,19 @@ class OrderResource extends JsonResource
             'statusChange' => $this->whenLoaded(
                 'statusEvents',
                 function () {
+                    // created_at has second precision: a hold parked and
+                    // paid within the same second has two events with an
+                    // identical timestamp, so break the tie on id (newest
+                    // row wins) or the release could read as a plain
+                    // cancellation.
                     $event = $this->statusEvents
-                        ->sortByDesc('created_at')
-                        ->values()
-                        ->first();
+                        ->sortBy(
+                            fn($e) => [
+                                $e->created_at?->getTimestamp() ?? 0,
+                                (int) $e->id,
+                            ],
+                        )
+                        ->last();
                     if (!$event) {
                         return null;
                     }

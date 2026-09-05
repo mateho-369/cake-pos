@@ -6704,8 +6704,39 @@ img.qr-placeholder {
 @media (max-width: 820px) {
   input,
   select,
-  textarea {
+  textarea,
+  /* Scoped inputs (search boxes, price fields, filters) set 12–13px
+     with a two-part selector, which outranks the bare element rule
+     above; repeat the floor at matching specificity. */
+  .inline-search input,
+  .command-card > label input,
+  .audit-filters select,
+  .report-export-actions input,
+  .report-filter-field select,
+  .table-pagination-size select,
+  .admin-price-input input {
     font-size: max(16px, 1em);
+  }
+  /* Data rows keep their desktop min-width so columns stay legible; on a
+     phone the CARD scrolls sideways (same as .table-responsive) instead
+     of pushing the whole page wider than the viewport. */
+  .category-list-card,
+  .access-activity,
+  .product-performance,
+  .product-table {
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  /* `1fr` alone lets a wide table row (min-width 560px) stretch the grid
+     column past the phone viewport; minmax(0, 1fr) keeps the column at
+     viewport width so the card above scrolls instead. */
+  .categories-layout,
+  .dashboard-secondary-grid,
+  .dashboard-bottom-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .page-toolbar .toolbar-actions {
+    flex-wrap: wrap;
   }
   .reason-options {
     grid-template-columns: 1fr;
@@ -6974,6 +7005,15 @@ img.qr-placeholder {
 .report-filter-field select:focus {
   outline: 2px solid var(--pink, #e75480);
   outline-offset: 1px;
+}
+/* Declared after the 16px mobile floor above (and `font: inherit` on the
+   pagination select resets font-size), so they would otherwise win on
+   source order; restate the floor here. */
+@media (max-width: 760px) {
+  .report-filter-field select,
+  .table-pagination-size select {
+    font-size: max(16px, 1em);
+  }
 }
 .report-filter-panel-actions {
   display: flex;

@@ -55,6 +55,24 @@ class ApiContractTest extends TestCase
             $this->auth($employee),
         )->assertCreated();
     }
+    /**
+     * Symfony's ResponseHeaderBag re-parses and re-serializes Cache-Control
+     * every time it's set, in its own directive order — not the order the
+     * app wrote it in. Asserting a literal string is asserting an
+     * implementation detail no controller can control; assert the
+     * directive *set* instead, which is what actually matters to a client.
+     */
+    private function assertNeverCached(\Illuminate\Testing\TestResponse $response): void
+    {
+        $actual = array_map(
+            'trim',
+            explode(',', $response->headers->get('Cache-Control') ?? ''),
+        );
+        sort($actual);
+        $expected = ['max-age=0', 'no-store', 'private'];
+        sort($expected);
+        $this->assertSame($expected, $actual);
+    }
     private function signedInitData(array $user): string
     {
         $params = [
@@ -301,11 +319,17 @@ class ApiContractTest extends TestCase
         $id = $created->json('id');
         $original = Order::findOrFail($id);
         $total = $original->total_cents;
+        // PATCH /api/orders/{order} never accepts Paid/Completed as a status
+        // value at all (not even for a still-Pending order) — the FormRequest
+        // rejects it as invalid input (422) before the order's own current
+        // status is ever considered, and points staff at Take Payment instead.
         $this->patchJson(
             "/api/orders/$id",
             ['total' => 0, 'status' => 'Completed'],
             $headers,
-        )->assertStatus(409);
+        )
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('status');
         $this->assertSame($total, $original->fresh()->total_cents);
         $correction = $this->postJson(
             "/api/orders/$id/corrections",
@@ -541,9 +565,9 @@ class ApiContractTest extends TestCase
         $cashier = Employee::where('role', 'cashier')->first();
         $product = Product::first();
         $product->update(['price_cents' => 2000, 'stock' => 50]);
-        // Cash order today: $20.00, 2 units.
+        // $20.00/unit: cash order today buys 2 units ($40.00).
         $this->createPaidOrder($cashier, $product, 'Cash', 2);
-        // KHQR order today: $10.00, 1 unit, manually confirmed.
+        // KHQR order today: 1 unit ($20.00), manually confirmed.
         $this->createPaidOrder($cashier, $product, 'KHQR', 1, true);
         // One more cash order yesterday so yesterdaySalesTotal is non-zero.
         $yesterdayId = $this->createPaidOrder($cashier, $product, 'Cash', 1);
@@ -559,14 +583,16 @@ class ApiContractTest extends TestCase
             ->assertOk()
             ->json();
 
-        // Today: $20 + $10 = $30.00 net, 2 completed orders, 3 items sold,
+        // Today: $40 + $20 = $60.00 net, 2 completed orders, 3 items sold,
         // 1 KHQR payment confirmed.
-        $this->assertSame(30.0, $summary['todaySalesTotal']);
+        // Whole-dollar floats round-trip through JSON as integers — compare
+        // the value, not PHP's scalar type.
+        $this->assertSame(60.0, (float) $summary['todaySalesTotal']);
         $this->assertSame(2, $summary['todayOrdersCount']);
         $this->assertSame(3, $summary['itemsSold']);
         $this->assertSame(1, $summary['qrPaymentCount']);
         // Yesterday: one $20.00 order.
-        $this->assertSame(20.0, $summary['yesterdaySalesTotal']);
+        $this->assertSame(20.0, (float) $summary['yesterdaySalesTotal']);
         $this->assertSame(1, $summary['yesterdayOrdersCount']);
         // ordersData spans the last 7 days for the "today" preset so the
         // dashboard can compare today's pace against previous days. Days are
@@ -648,7 +674,9 @@ class ApiContractTest extends TestCase
         $this->assertSame(1500, $report['wasteThisWeekCents']);
         $this->assertCount(1, $report['events']);
         $this->assertSame('Today Cake', $report['events'][0]['productName']);
-        $this->assertSame(1.5, $report['events'][0]['retailValue']);
+        // retail_value_cents is 1500 above ($15.00, the Today Cake's own
+        // price_cents) — not $1.50.
+        $this->assertSame(15.0, (float) $report['events'][0]['retailValue']);
     }
 
     public function test_record_waste_decrements_stock_and_appends_audit_event(): void
@@ -748,25 +776,25 @@ class ApiContractTest extends TestCase
         $headers = $this->auth($admin);
 
         // No open shift: the null answer is still live state.
-        $this->getJson('/api/shifts/current', $headers)
-            ->assertOk()
-            ->assertHeader('Cache-Control', 'no-store, private, max-age=0');
+        $this->assertNeverCached(
+            $this->getJson('/api/shifts/current', $headers)->assertOk(),
+        );
 
-        $this->postJson(
-            '/api/shifts/open',
-            ['openingCash' => '100.00'],
-            $headers,
-        )
-            ->assertCreated()
-            ->assertHeader('Cache-Control', 'no-store, private, max-age=0');
+        $this->assertNeverCached(
+            $this->postJson(
+                '/api/shifts/open',
+                ['openingCash' => '100.00'],
+                $headers,
+            )->assertCreated(),
+        );
 
-        $this->getJson('/api/shifts/current', $headers)
-            ->assertOk()
-            ->assertHeader('Cache-Control', 'no-store, private, max-age=0');
+        $this->assertNeverCached(
+            $this->getJson('/api/shifts/current', $headers)->assertOk(),
+        );
 
-        $this->getJson('/api/shifts', $headers)
-            ->assertOk()
-            ->assertHeader('Cache-Control', 'no-store, private, max-age=0');
+        $this->assertNeverCached(
+            $this->getJson('/api/shifts', $headers)->assertOk(),
+        );
     }
 
     public function test_sale_endpoints_require_an_open_shift(): void
@@ -1070,6 +1098,109 @@ class ApiContractTest extends TestCase
         $this->assertNotNull($adminRow, 'admin row missing');
         $this->assertSame(1, $adminRow['voidCount']);
         $this->assertSame(500, $adminRow['voidAmountCents']);
+    }
+
+    /**
+     * Staff sign-in/out, catalog edits and employee changes are
+     * accountability events too — not only the money-sensitive ones.
+     * Credentials themselves must never land in the trail.
+     */
+    public function test_audit_log_records_login_logout_product_and_employee_changes(): void
+    {
+        $admin = Employee::where('role', 'admin')->first();
+        $token = $this->postJson('/api/login', [
+            'email' => $admin->email,
+            'password' => 'ChangeMe123!',
+        ])
+            ->assertOk()
+            ->json('token');
+        $headers = ['Authorization' => 'Bearer ' . $token];
+        $this->assertDatabaseHas('audit_events', [
+            'action' => 'auth.login',
+            'employee_id' => $admin->id,
+        ]);
+        // Token lifetime comes from sanctum.expiration (minutes), not a
+        // second hardcoded number.
+        $expires = DB::table('personal_access_tokens')
+            ->latest('id')
+            ->value('expires_at');
+        $this->assertEqualsWithDelta(
+            now()->addMinutes((int) config('sanctum.expiration'))->getTimestamp(),
+            strtotime($expires),
+            5,
+        );
+
+        $categoryId = Category::query()->value('id');
+        $productId = $this->postJson(
+            '/api/products',
+            [
+                'name' => 'Audit Cake',
+                'categoryId' => $categoryId,
+                'price' => '4.50',
+                'stock' => 3,
+            ],
+            $headers,
+        )
+            ->assertCreated()
+            ->json('id');
+        $this->putJson(
+            "/api/products/{$productId}",
+            ['price' => '5.00'],
+            $headers,
+        )->assertOk();
+        $this->deleteJson("/api/products/{$productId}", [], $headers)
+            ->assertOk();
+        $actions = AuditEvent::where('action', 'like', 'product.%')
+            ->orderBy('id')
+            ->get()
+            ->filter(fn($e) => ($e->details_json['productId'] ?? null) === $productId)
+            ->pluck('action')
+            ->values()
+            ->all();
+        $this->assertSame(
+            ['product.created', 'product.updated', 'product.deleted'],
+            $actions,
+        );
+        $update = AuditEvent::where('action', 'product.updated')->first();
+        $this->assertSame(450, $update->details_json['before']['price_cents']);
+        $this->assertSame(500, $update->details_json['after']['price_cents']);
+
+        $employeeId = $this->postJson(
+            '/api/employees',
+            ['name' => 'Audit Cashier', 'pin_code' => '2468', 'role' => 'cashier'],
+            $headers,
+        )
+            ->assertCreated()
+            ->json('id');
+        $this->putJson(
+            "/api/employees/{$employeeId}",
+            ['pin_code' => '1357'],
+            $headers,
+        )->assertOk();
+        $this->deleteJson("/api/employees/{$employeeId}", [], $headers)
+            ->assertNoContent();
+        $this->assertSame(
+            ['employee.created', 'employee.updated', 'employee.deactivated'],
+            AuditEvent::where('action', 'like', 'employee.%')
+                ->orderBy('id')
+                ->get()
+                ->filter(fn($e) => ($e->details_json['employeeId'] ?? null) === $employeeId)
+                ->pluck('action')
+                ->values()
+                ->all(),
+        );
+        $rotated = AuditEvent::where('action', 'employee.updated')->first();
+        $this->assertTrue($rotated->details_json['pinChanged']);
+        $this->assertStringNotContainsString(
+            '1357',
+            json_encode($rotated->details_json),
+        );
+
+        $this->postJson('/api/logout', [], $headers)->assertOk();
+        $this->assertDatabaseHas('audit_events', [
+            'action' => 'auth.logout',
+            'employee_id' => $admin->id,
+        ]);
     }
 
     public function test_audit_log_records_discount_void_cancel_and_conversion(): void
@@ -1390,11 +1521,15 @@ class ApiContractTest extends TestCase
             'customer',
             $audit->details_json['source'],
         );
+        // Eloquent's value('json_column->key') isn't JSON-path-aware — it
+        // treats '->' as a plain attribute name, not a MySQL JSON operator,
+        // and always returns null. Read the cast array attribute instead.
         $this->assertSame(
             'customer',
             OrderStatusEvent::where('order_id', $orderId)
                 ->where('to_status', 'Cancelled')
-                ->value('metadata->source'),
+                ->first()
+                ->metadata['source'],
         );
         // The customer was told (shop bot, sync queue -> inline send).
         Http::assertSent(function ($request) {
@@ -1501,7 +1636,8 @@ class ApiContractTest extends TestCase
             'staff',
             OrderStatusEvent::where('order_id', $orderId)
                 ->where('to_status', 'Cancelled')
-                ->value('metadata->source'),
+                ->first()
+                ->metadata['source'],
         );
         // The customer is told on Telegram, same as a self-cancel.
         Http::assertSent(
@@ -1598,6 +1734,8 @@ class ApiContractTest extends TestCase
         Customer::where('telegram_user_id', '88')->update([
             'phone' => '+855 92 333 444',
         ]);
+        // A Telegram order can only be placed while a cashier is on shift.
+        $this->openShiftIfNone($cashier);
         $orderId = $this->postJson('/api/customer-orders', [
             'initData' => $initData,
             'items' => [['productId' => $product->id, 'quantity' => 1]],
@@ -1788,7 +1926,7 @@ class ApiContractTest extends TestCase
         $child = $this->postJson(
             '/api/categories',
             [
-                'name' => 'Coffee',
+                'name' => 'House Coffee',
                 'active' => true,
                 'parentCategoryId' => $parent['id'],
             ],
@@ -1899,7 +2037,7 @@ class ApiContractTest extends TestCase
         );
 
         // Owner nudge + accountability.
-        Queue::assertPushedTimes(SendStaffCategoryProposedNotification::class, 1);
+        Queue::assertPushed(SendStaffCategoryProposedNotification::class, 1);
         $this->assertDatabaseHas('audit_events', [
             'action' => 'category.created_by_cashier',
             'employee_id' => $cashier->id,
@@ -1916,7 +2054,7 @@ class ApiContractTest extends TestCase
             ->assertJsonPath('pendingReview', false)
             ->json();
         $this->assertNull($adminMade['createdBy']);
-        Queue::assertPushedTimes(SendStaffCategoryProposedNotification::class, 1);
+        Queue::assertPushed(SendStaffCategoryProposedNotification::class, 1);
 
         // Rejecting a category still in use is refused — no product is left
         // pointing at a dead category.
@@ -2035,8 +2173,12 @@ class ApiContractTest extends TestCase
         )->assertOk();
         $this->assertFalse((bool) $product->fresh()->active);
 
-        // Manually zeroing stock needs its own reason event.
-        $evergreen = Product::where('stock', '>', 0)->first();
+        // Manually zeroing stock needs its own reason event — on a
+        // DIFFERENT product, since $product was just deactivated above but
+        // still has stock > 0 and would otherwise be picked right back up.
+        $evergreen = Product::where('stock', '>', 0)
+            ->where('id', '!=', $product->id)
+            ->first();
         $this->putJson(
             "/api/products/{$evergreen->id}",
             ['stock' => 0, 'reasonCode' => 'out_of_stock'],
@@ -2161,7 +2303,9 @@ class ApiContractTest extends TestCase
             ['closingCash' => '108.00', 'closingCashKhr' => 48200],
             $headers,
         )->assertOk()->json();
-        $this->assertSame(0.0, $closed['variance']);
+        // json_encode() writes a whole-dollar float as "0", which decodes
+        // back as int — compare the value, not PHP's scalar type.
+        $this->assertSame(0.0, (float) $closed['variance']);
         $shift = DB::table('shifts')->latest('id')->first();
         $this->assertSame(0, (int) $shift->variance_usd_cents);
         $this->assertSame(0, (int) $shift->variance_khr);
@@ -2177,6 +2321,10 @@ class ApiContractTest extends TestCase
         Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
         config([
             'services.telegram.staff_bot_token' => '123:staff-token',
+            // StaffNotificationService::send() refuses to send with no
+            // destination chat configured — phpunit.xml forces this env var
+            // empty for every test so a real chat is never notified.
+            'services.telegram.staff_notification_chat_id' => '-100123456',
         ]);
         $cashier = Employee::where('role', 'cashier')->first();
         $product = Product::first();
@@ -2398,8 +2546,13 @@ class ApiContractTest extends TestCase
             'order_id' => $held['id'],
         ]);
         // The status history explains why the old order looks "cancelled".
+        // created_at has only second precision, and the hold's own creation
+        // event can land in the same second as its release — order by id too
+        // (the repo's own tiebreaker convention, e.g. ReportingService::audit())
+        // so this reliably picks the newer row.
         $event = OrderStatusEvent::where('order_id', $held['id'])
             ->orderByDesc('created_at')
+            ->orderByDesc('id')
             ->first();
         $this->assertSame('Held', $event->from_status);
         $this->assertSame('Cancelled', $event->to_status);
@@ -2653,7 +2806,10 @@ class ApiContractTest extends TestCase
 
     public function test_shop_webhook_start_logs_when_telegram_refuses_the_message(): void
     {
-        Log::fake();
+        // There is no built-in Log fake in this Laravel install (no
+        // spatie/laravel-log-fake dependency) — Log::spy() is the stock
+        // Mockery-backed equivalent every facade supports.
+        Log::spy();
         Http::fake([
             'api.telegram.org/*' => Http::response(
                 [
@@ -2681,26 +2837,21 @@ class ApiContractTest extends TestCase
             ['X-Telegram-Bot-Api-Secret-Token' => 'sekret'],
         )->assertOk();
 
-        Log::assertLogged(function ($log) {
-            $level = is_array($log) ? ($log['level'] ?? '') : $log->level;
-            $message = is_array($log)
-                ? ($log['message'] ?? '')
-                : $log->message;
-            $context = is_array($log)
-                ? ($log['context'] ?? [])
-                : $log->context ?? [];
-            return $level === 'warning' &&
-                str_contains($message, 'refused by Telegram') &&
+        Log::shouldHaveReceived('warning')->withArgs(
+            fn($message, $context = []) => str_contains(
+                $message,
+                'refused by Telegram',
+            ) &&
                 str_contains(
                     (string) ($context['body'] ?? ''),
                     'BUTTON_URL_INVALID',
-                );
-        });
+                ),
+        );
     }
 
     public function test_shop_webhook_start_logs_when_bot_token_is_missing(): void
     {
-        Log::fake();
+        Log::spy();
         Http::fake();
         config([
             'services.telegram.bot_token' => '',
@@ -2720,14 +2871,9 @@ class ApiContractTest extends TestCase
         )->assertOk();
 
         Http::assertNothingSent();
-        Log::assertLogged(function ($log) {
-            $level = is_array($log) ? ($log['level'] ?? '') : $log->level;
-            $message = is_array($log)
-                ? ($log['message'] ?? '')
-                : $log->message;
-            return $level === 'warning' &&
-                str_contains($message, 'SHOP_TELEGRAM_BOT_TOKEN');
-        });
+        Log::shouldHaveReceived('warning')->withArgs(
+            fn($message) => str_contains($message, 'SHOP_TELEGRAM_BOT_TOKEN'),
+        );
     }
 
     public function test_telegram_webhook_command_prints_last_error_and_refuses_set_without_secret(): void
@@ -3355,7 +3501,9 @@ class ApiContractTest extends TestCase
         )
             ->assertOk()
             ->json();
-        $this->assertSame(0.0, $closed['variance']);
+        // json_encode() writes a whole-dollar float as "0", which decodes
+        // back as int — compare the value, not PHP's scalar type.
+        $this->assertSame(0.0, (float) $closed['variance']);
         $shift = DB::table('shifts')->latest('id')->first();
         $this->assertSame(11000, (int) $shift->expected_cash_usd_cents);
         $this->assertSame(0, (int) $shift->variance_usd_cents);
@@ -3566,7 +3714,9 @@ class ApiContractTest extends TestCase
         )
             ->assertOk()
             ->json();
-        $this->assertSame(0.0, $closed['variance']);
+        // json_encode() writes a whole-dollar float as "0", which decodes
+        // back as int — compare the value, not PHP's scalar type.
+        $this->assertSame(0.0, (float) $closed['variance']);
         $shift = DB::table('shifts')->latest('id')->first();
         $this->assertSame(0, (int) $shift->variance_usd_cents);
         $this->assertSame(0, (int) $shift->variance_khr);
@@ -3735,6 +3885,12 @@ class ApiContractTest extends TestCase
         // close. At the configured 4,100៛/$ that is exactly $5.00 short and
         // it must land in cashShortagesCents, not vanish because the USD
         // variance happened to be zero.
+        //
+        // Shift sales are attributed by confirmed_at >= opened_at at second
+        // resolution; step the clock so the first shift's $18 cash sale
+        // cannot also land in this one when the whole test runs inside a
+        // single second.
+        $this->travel(1)->seconds();
         $this->postJson(
             '/api/shifts/open',
             ['openingCash' => '0.00', 'openingCashKhr' => 41000],
@@ -3766,6 +3922,44 @@ class ApiContractTest extends TestCase
             '/api/reports/losses?preset=this_year',
             $this->auth($admin),
         )->assertOk();
+        $this->travelBack();
+    }
+    /**
+     * The Telegram storefront must advertise only what a customer can
+     * actually order: on-hand stock minus units already reserved by other
+     * open customer orders. Staff catalog keeps the raw on-hand figure.
+     */
+    public function test_customer_products_show_available_stock_net_of_reservations(): void
+    {
+        config(['services.telegram.bot_token' => '123:test-token']);
+        $product = Product::first();
+        $product->update([
+            'price_cents' => 1000,
+            'stock' => 5,
+            'reserved_stock' => 2,
+            'active' => true,
+        ]);
+        $initData = $this->signedInitData([
+            'id' => 909,
+            'first_name' => 'Nary',
+            'username' => 'nary',
+        ]);
+        $menu = $this->postJson('/api/customer-products', [
+            'initData' => $initData,
+        ])->assertOk();
+        $row = collect($menu->json('products'))->firstWhere(
+            'id',
+            $product->id,
+        );
+        $this->assertSame(3, $row['stock']);
+
+        // Staff/admin catalog still reports on-hand stock for inventory.
+        $admin = Employee::where('role', 'admin')->first();
+        $catalog = $this->getJson('/api/products', $this->auth($admin))
+            ->assertOk()
+            ->json();
+        $staffRow = collect($catalog)->firstWhere('id', $product->id);
+        $this->assertSame(5, $staffRow['stock']);
     }
 }
 

@@ -2932,6 +2932,9 @@ button:disabled {
   }
   .terminal-header-actions {
     gap: 6px;
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
   .shift-status {
     width: 40px;
@@ -3037,7 +3040,14 @@ button:disabled {
     backdrop-filter: blur(36px) saturate(145%);
     -webkit-backdrop-filter: blur(36px) saturate(145%);
     transform: translateY(105%);
-    transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+    /* Slid off-screen it is still a fixed, z-index 95 box that overlaps
+       the bottom of the viewport, so it swallowed taps meant for the cart
+       dock beneath it. */
+    pointer-events: none;
+    visibility: hidden;
+    transition:
+      transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+      visibility 0s 0.3s;
   }
   .telegram-app .cart-panel {
     top: auto;
@@ -3045,6 +3055,9 @@ button:disabled {
   }
   .cart-panel.mobile-open {
     transform: translateY(0);
+    pointer-events: auto;
+    visibility: visible;
+    transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
   .cart-drag-handle {
     width: 42px;
@@ -3780,7 +3793,15 @@ button:disabled {
 @media (max-width: 760px) {
   input,
   select,
-  textarea {
+  textarea,
+  /* Scoped inputs set 12px with a two-part selector, which outranks the
+     bare element rule; repeat the floor at matching specificity. */
+  .terminal-search input,
+  .mobile-product-search input,
+  .discount-control input,
+  .cash-input input,
+  .pending-reject-reason input,
+  .pending-pay-amount input {
     font-size: max(16px, 1em);
   }
   .tender-inputs {
