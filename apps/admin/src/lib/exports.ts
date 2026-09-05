@@ -26,6 +26,8 @@ export type ExportMeta = {
   filters?: Array<{ label: string; value: string }>
   /** Optional footer figures (totals, counts) printed under the table. */
   totals?: Array<{ label: string; value: string }>
+  /** Shown instead of the generic "—" when the table has no rows. */
+  emptyLabel?: string
 }
 
 const metaLines = (meta: ExportMeta, rowCount: number) => {
@@ -200,7 +202,11 @@ export async function exportTableWord(
                           columnSpan: header.length,
                           children: [
                             new Paragraph({
-                              children: [run('—', { color: '999999' })],
+                              children: [
+                                run(meta.emptyLabel ?? '—', {
+                                  color: '999999',
+                                }),
+                              ],
                             }),
                           ],
                         }),
@@ -213,9 +219,15 @@ export async function exportTableWord(
             (total) =>
               new Paragraph({
                 spacing: { before: 120 },
+                // One run, not label/value split across two: a reader
+                // (or a raw XML substring check) must see one contiguous
+                // "label<colon> value" — two <w:r> runs never merge back
+                // into adjacent text once serialized.
                 children: [
-                  run(`${total.label}: `, { bold: true }),
-                  run(total.value, { bold: true, color: 'BE185D' }),
+                  run(`${total.label}${strings.colon}${total.value}`, {
+                    bold: true,
+                    color: 'BE185D',
+                  }),
                 ],
               }),
           ),
@@ -523,6 +535,7 @@ export async function exportSummaryWord(
         average: 'Average order value',
         subtitle: 'Top selling products',
       }
+  const strings = reportStrings(language)
   await exportTableWord(
     {
       title: labels.title,
@@ -532,6 +545,7 @@ export async function exportSummaryWord(
       branding: options.branding,
       language,
       filters: options.filters,
+      emptyLabel: strings.noProductSales,
       totals: [
         { label: labels.revenue, value: `$${revenue.toFixed(2)}` },
         { label: labels.orders, value: String(completed.length) },

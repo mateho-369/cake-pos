@@ -3776,7 +3776,3 @@ final class MoneyForTest
         return $cents / 100;
     }
 }
-   {
-        return $cents / 100;
-    }
-}

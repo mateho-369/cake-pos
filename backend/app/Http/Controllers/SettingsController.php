@@ -68,8 +68,11 @@ class SettingsController extends Controller
             'shiftClosingPolicy' => 'opener_or_admin',
             'defaultShelfLifeDays' => 3,
             'warningDays' => 1,
-            // Language exported reports are written in (en/km).
-            'reportLanguage' => 'en',
+            // Language exported reports are written in (en/km). This is a
+            // Cambodia-first shop (the shop bot's /start welcome, the admin
+            // UI copy, etc. are all Khmer-first) — reports match that until
+            // an owner explicitly picks English in Settings.
+            'reportLanguage' => 'km',
         ];
         $stored = Setting::find('pos_rules')?->value_json ?? [];
         return response()->json(array_merge($defaults, $stored));

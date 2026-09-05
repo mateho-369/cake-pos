@@ -29,6 +29,11 @@ import {
   exportSummaryWord,
   ordersInRange,
 } from '../lib/exports'
+import {
+  defaultBranding,
+  type ReportBranding,
+  type ReportLanguage,
+} from '../lib/reportBranding'
 
 // Money is safe even when the API omits a field (a null/undefined value must
 // never throw `toFixed is not a function` on the admin dashboard).
@@ -489,6 +494,8 @@ export default function OrdersPage({
   const [from, setFrom] = useState(today)
   const [to, setTo] = useState(today)
   const [rate, setRate] = useState(4100)
+  const [branding, setBranding] = useState<ReportBranding>(defaultBranding)
+  const [language, setLanguage] = useState<ReportLanguage>('en')
   const [takePayment, setTakePayment] = useState<Order | null>(null)
   const [payBusy, setPayBusy] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
@@ -509,15 +516,55 @@ export default function OrdersPage({
     }
   }, [exportOpen])
   useEffect(() => {
-    apiRequest<{ exchangeRateKhrPerUsd?: number }>('/api/settings/pos-rules')
-      .then((value) =>
+    apiRequest<{ exchangeRateKhrPerUsd?: number; reportLanguage?: string }>(
+      '/api/settings/pos-rules',
+    )
+      .then((value) => {
         setRate(
           Number.isFinite(value?.exchangeRateKhrPerUsd as number)
             ? (value?.exchangeRateKhrPerUsd as number)
             : 4100,
-        ),
-      )
+        )
+        if (value?.reportLanguage === 'km' || value?.reportLanguage === 'en') {
+          setLanguage(value.reportLanguage)
+        }
+      })
       .catch(() => undefined)
+  }, [])
+  // Word/Excel exports carry the shop's own letterhead (Settings →
+  // Business profile / Receipts), matching the Reports page — otherwise
+  // the Orders export ships the default demo branding.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const profile = await apiRequest<{
+          businessName?: string
+          locationName?: string
+          address?: string
+          phone?: string
+        }>('/api/settings/business-profile')
+        if (!cancelled && profile) {
+          setBranding({
+            businessName: profile.businessName || defaultBranding.businessName,
+            locationName: profile.locationName || '',
+            address: profile.address || '',
+            phone: profile.phone || '',
+          })
+        }
+        const receipt = await apiRequest<{ logoUrl?: string }>(
+          '/api/settings/receipt-template',
+        )
+        if (!cancelled && receipt?.logoUrl) {
+          setBranding((current) => ({ ...current, logoUrl: receipt.logoUrl }))
+        }
+      } catch {
+        // Offline or unauthorised: fall back to the default letterhead.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [])
   const selected = orders.find((order) => order.id === selectedId) || null
   const selectedHasConfirmedPayment =
@@ -706,9 +753,10 @@ export default function OrdersPage({
                   role="menuitem"
                   onClick={() => {
                     setExportOpen(false)
-                    void exportSummaryWord(visible, from, to).catch((error) =>
-                      onToast(error.message),
-                    )
+                    void exportSummaryWord(visible, from, to, {
+                      branding,
+                      language,
+                    }).catch((error) => onToast(error.message))
                   }}
                 >
                   <FileText size={15} /> Word

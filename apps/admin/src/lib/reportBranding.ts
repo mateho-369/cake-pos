@@ -178,6 +178,9 @@ type Dictionary = {
   total: string
   page: string
   confidential: string
+  /** Khmer uses "៖" (no leading space) where English uses ": ". */
+  colon: string
+  noProductSales: string
 }
 
 const DICTIONARIES: Record<ReportLanguage, Dictionary> = {
@@ -193,6 +196,8 @@ const DICTIONARIES: Record<ReportLanguage, Dictionary> = {
     total: 'Total',
     page: 'Page',
     confidential: 'Internal management report',
+    colon: ': ',
+    noProductSales: 'No completed product sales',
   },
   km: {
     reportBy: 'រៀបចំដោយ',
@@ -206,6 +211,8 @@ const DICTIONARIES: Record<ReportLanguage, Dictionary> = {
     total: 'សរុប',
     page: 'ទំព័រ',
     confidential: 'របាយការណ៍ខាងក្នុងសម្រាប់ការគ្រប់គ្រង',
+    colon: '៖ ',
+    noProductSales: 'គ្មានការលក់ផលិតផលដែលបានបញ្ចប់',
   },
 }
 

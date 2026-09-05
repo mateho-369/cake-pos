@@ -101,15 +101,14 @@ final class ReportingService
     {
         $rows = $this->paid($r)
             ->selectRaw(
-                "DATE_FORMAT(CONVERT_TZ(orders.created_at,'UTC','Asia/Phnom_Penh'),'%Y-%m-%d') bucket,COUNT(*) count",
+                "DATE_FORMAT(orders.created_at,'%Y-%m-%d') bucket,COUNT(*) count",
             )
             ->groupBy('bucket')
             ->pluck('count', 'bucket');
         $out = [];
-        // DateRange returns UTC bounds; the SQL above buckets by the shop
-        // timezone, so iterate in the same timezone or the last bucket before
-        // midnight local is labelled with yesterday's UTC date (and the order
-        // looks like it landed on the wrong day).
+        // created_at is already stored in the shop's local timezone (see
+        // DateRange), so no CONVERT_TZ is needed above — DateRange's bounds
+        // are in that same frame, so iterate them directly.
         $cursor = $r->from->copy()->tz('Asia/Phnom_Penh');
         $to = $r->to->copy()->tz('Asia/Phnom_Penh');
         while ($cursor <= $to) {
@@ -129,7 +128,7 @@ final class ReportingService
             ($input['granularity'] ?? 'day') === 'month' ? '%Y-%m' : '%Y-%m-%d';
         $rows = $this->paid($r)
             ->selectRaw(
-                "DATE_FORMAT(CONVERT_TZ(orders.created_at,'UTC','Asia/Phnom_Penh'),?) bucket,SUM(orders.subtotal_cents) gross,SUM(orders.discount_amount_cents) discounts,SUM(orders.total_cents) net",
+                "DATE_FORMAT(orders.created_at,?) bucket,SUM(orders.subtotal_cents) gross,SUM(orders.discount_amount_cents) discounts,SUM(orders.total_cents) net",
                 [$format],
             )
             ->groupBy('bucket')
@@ -221,7 +220,7 @@ final class ReportingService
         $r = DateRange::from($input);
         return $this->paid($r)
             ->selectRaw(
-                'HOUR(CONVERT_TZ(orders.created_at,"UTC","Asia/Phnom_Penh")) hour,COUNT(*) orders,SUM(orders.total_cents) revenueCents',
+                'HOUR(orders.created_at) hour,COUNT(*) orders,SUM(orders.total_cents) revenueCents',
             )
             ->groupBy('hour')
             ->orderBy('hour')
@@ -585,7 +584,7 @@ final class ReportingService
         $dailyRows = DB::table('inventory_waste_events')
             ->whereBetween('recorded_at', [$r->from, $r->to])
             ->selectRaw(
-                "DATE_FORMAT(CONVERT_TZ(recorded_at,'UTC','Asia/Phnom_Penh'),'%Y-%m-%d') day,SUM(retail_value_cents) value",
+                "DATE_FORMAT(recorded_at,'%Y-%m-%d') day,SUM(retail_value_cents) value",
             )
             ->groupBy('day')
             ->pluck('value', 'day');

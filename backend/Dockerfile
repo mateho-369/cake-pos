@@ -33,6 +33,7 @@ RUN apk add --no-cache freetype-dev libjpeg-turbo-dev libpng-dev \
     && sed -i 's/^;\?clear_env[[:space:]]*=.*/clear_env = no/' "$WWW_CONF" \
     && grep -Eq '^clear_env[[:space:]]*=[[:space:]]*no' "$WWW_CONF"
 COPY docker/opcache.ini /usr/local/etc/php/conf.d/opcache.ini
+COPY docker/error-reporting.ini /usr/local/etc/php/conf.d/error-reporting.ini
 COPY --from=vendor /app /var/www/html
 RUN mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache
