@@ -155,10 +155,10 @@ await page.route(
   (url) =>
     url.origin === new URL(SALE_URL).origin &&
     /^\/(held|pending)\/?$/.test(url.pathname),
-  async (route) => {
-    const shell = await route.fetch({ url: `${SALE_URL}/index.html` })
-    await route.fulfill({ response: shell })
-  },
+  // Rewrite the path but let the request hit the real static server:
+  // a synthetic (fulfilled) document is not "loopback" to Chrome's Local
+  // Network Access check and its API calls to 127.0.0.1 would be refused.
+  (route) => route.continue({ url: `${SALE_URL}/index.html` }),
 )
 page.on('console', (msg) => {
   if (msg.type() === 'error')
