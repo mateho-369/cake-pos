@@ -161,12 +161,6 @@ class ApiContractTest extends TestCase
         $headers = ['Authorization' => 'Bearer ' . $plain];
         $this->postJson('/api/logout', [], $headers)->assertOk();
         $this->assertDatabaseCount('personal_access_tokens', 0);
-        // Sanctum's RequestGuard cached the user it resolved for this token
-        // while handling the logout call itself, and that guard instance is
-        // reused for every request in this test method — production has no
-        // such carryover (a fresh app boot per request), but here the next
-        // call would still authenticate as that employee unless we forget it.
-        app('auth')->forgetGuards();
         $this->getJson('/api/products', $headers)->assertUnauthorized();
     }
     public function test_money_is_stored_and_calculated_only_as_integer_cents(): void
@@ -221,7 +215,7 @@ class ApiContractTest extends TestCase
             $this->auth($cashier),
         )
             ->assertForbidden()
-            ->assertJsonPath('maxCashierDiscountPercent', 10);
+            ->assertJsonPath('maxCashierDiscountPercent', 10.0);
         $fixed = $this->postJson(
             '/api/orders',
             [
@@ -233,8 +227,8 @@ class ApiContractTest extends TestCase
             $this->auth($admin),
         )->assertCreated();
         $fixed
-            ->assertJsonPath('total', 0)
-            ->assertJsonPath('discountAmount', 10)
+            ->assertJsonPath('total', 0.0)
+            ->assertJsonPath('discountAmount', 10.0)
             ->assertJsonPath('discountType', 'fixed');
         $this->assertSame(
             1000,
@@ -345,7 +339,7 @@ class ApiContractTest extends TestCase
         $correction
             ->assertJsonPath('originalOrderId', $id)
             ->assertJsonPath('status', 'Refunded')
-            ->assertJsonPath('total', -1);
+            ->assertJsonPath('total', -1.0);
         $this->assertSame($total, $original->fresh()->total_cents);
     }
     public function test_shift_variance_uses_integer_cents(): void
@@ -2042,10 +2036,6 @@ class ApiContractTest extends TestCase
             ['action' => 'approve'],
             $this->auth($cashier),
         )->assertForbidden();
-        // $adminHeaders was captured before the cashier calls above re-cached
-        // the guard for a different employee; forget it so this reused
-        // bearer token is actually re-resolved as the admin again.
-        app('auth')->forgetGuards();
         $this->postJson(
             "/api/categories/{$parent['id']}/review",
             ['action' => 'keep'],
@@ -3784,6 +3774,12 @@ class ApiContractTest extends TestCase
         // close. At the configured 4,100៛/$ that is exactly $5.00 short and
         // it must land in cashShortagesCents, not vanish because the USD
         // variance happened to be zero.
+        //
+        // Shift sales are attributed by confirmed_at >= opened_at at second
+        // resolution; step the clock so the first shift's $18 cash sale
+        // cannot also land in this one when the whole test runs inside a
+        // single second.
+        $this->travel(1)->seconds();
         $this->postJson(
             '/api/shifts/open',
             ['openingCash' => '0.00', 'openingCashKhr' => 41000],
@@ -3815,6 +3811,7 @@ class ApiContractTest extends TestCase
             '/api/reports/losses?preset=this_year',
             $this->auth($admin),
         )->assertOk();
+        $this->travelBack();
     }
 }
 
