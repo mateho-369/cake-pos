@@ -771,8 +771,11 @@ await page.waitForSelector('.success-layer', {
   // --- Close the shift through the UI, counting BOTH currency piles ---
   await page.locator('.shift-status').click()
   await page.waitForSelector('.shift-modal-body', { timeout: 10000 })
+  // Read the "Counted cash in drawer" row only: the summary's first line
+  // is the opening float, whose ៛0 would otherwise be picked up as the
+  // expected KHR pile.
   const closeSummary = await page
-    .locator('.shift-close-summary')
+    .locator('.shift-close-summary .expected-row')
     .innerText()
   const expectedUsd = closeSummary.match(/\$([\d,]+\.\d{2})/)?.[1] ?? ''
   const expectedKhr = closeSummary.match(/៛([\d,]+)/)?.[1] ?? '0'
@@ -949,6 +952,16 @@ console.log('\n########## PHASE F — HOLD / PARK AN ORDER, THEN PAY IT ########
   }
 
   const product = prod.json // the "Smoke Cake" created in phase B
+  // Phases C–E sold every unit of it; the terminal hides out-of-stock
+  // products, so restock before parking an order against it.
+  const restock = await api('/api/products/' + product.id, {
+    method: 'PUT',
+    token: adminToken,
+    body: { stock: 5 },
+  })
+  check('phase F: restock Smoke Cake', restock.status === 200, `${restock.status}`)
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForSelector('.product-workspace', { timeout: 30000 })
   const before = await api('/api/products', { token: adminToken })
   const stockBefore = before.json.find((p) => p.id === product.id)?.stock
 
