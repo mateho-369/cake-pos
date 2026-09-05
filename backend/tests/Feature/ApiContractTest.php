@@ -1100,6 +1100,109 @@ class ApiContractTest extends TestCase
         $this->assertSame(500, $adminRow['voidAmountCents']);
     }
 
+    /**
+     * Staff sign-in/out, catalog edits and employee changes are
+     * accountability events too — not only the money-sensitive ones.
+     * Credentials themselves must never land in the trail.
+     */
+    public function test_audit_log_records_login_logout_product_and_employee_changes(): void
+    {
+        $admin = Employee::where('role', 'admin')->first();
+        $token = $this->postJson('/api/login', [
+            'email' => $admin->email,
+            'password' => 'ChangeMe123!',
+        ])
+            ->assertOk()
+            ->json('token');
+        $headers = ['Authorization' => 'Bearer ' . $token];
+        $this->assertDatabaseHas('audit_events', [
+            'action' => 'auth.login',
+            'employee_id' => $admin->id,
+        ]);
+        // Token lifetime comes from sanctum.expiration (minutes), not a
+        // second hardcoded number.
+        $expires = DB::table('personal_access_tokens')
+            ->latest('id')
+            ->value('expires_at');
+        $this->assertEqualsWithDelta(
+            now()->addMinutes((int) config('sanctum.expiration'))->getTimestamp(),
+            strtotime($expires),
+            5,
+        );
+
+        $categoryId = Category::query()->value('id');
+        $productId = $this->postJson(
+            '/api/products',
+            [
+                'name' => 'Audit Cake',
+                'categoryId' => $categoryId,
+                'price' => '4.50',
+                'stock' => 3,
+            ],
+            $headers,
+        )
+            ->assertCreated()
+            ->json('id');
+        $this->putJson(
+            "/api/products/{$productId}",
+            ['price' => '5.00'],
+            $headers,
+        )->assertOk();
+        $this->deleteJson("/api/products/{$productId}", [], $headers)
+            ->assertOk();
+        $actions = AuditEvent::where('action', 'like', 'product.%')
+            ->orderBy('id')
+            ->get()
+            ->filter(fn($e) => ($e->details_json['productId'] ?? null) === $productId)
+            ->pluck('action')
+            ->values()
+            ->all();
+        $this->assertSame(
+            ['product.created', 'product.updated', 'product.deleted'],
+            $actions,
+        );
+        $update = AuditEvent::where('action', 'product.updated')->first();
+        $this->assertSame(450, $update->details_json['before']['price_cents']);
+        $this->assertSame(500, $update->details_json['after']['price_cents']);
+
+        $employeeId = $this->postJson(
+            '/api/employees',
+            ['name' => 'Audit Cashier', 'pin_code' => '2468', 'role' => 'cashier'],
+            $headers,
+        )
+            ->assertCreated()
+            ->json('id');
+        $this->putJson(
+            "/api/employees/{$employeeId}",
+            ['pin_code' => '1357'],
+            $headers,
+        )->assertOk();
+        $this->deleteJson("/api/employees/{$employeeId}", [], $headers)
+            ->assertNoContent();
+        $this->assertSame(
+            ['employee.created', 'employee.updated', 'employee.deactivated'],
+            AuditEvent::where('action', 'like', 'employee.%')
+                ->orderBy('id')
+                ->get()
+                ->filter(fn($e) => ($e->details_json['employeeId'] ?? null) === $employeeId)
+                ->pluck('action')
+                ->values()
+                ->all(),
+        );
+        $rotated = AuditEvent::where('action', 'employee.updated')->first();
+        $this->assertTrue($rotated->details_json['pinChanged']);
+        $this->assertStringNotContainsString(
+            '1357',
+            json_encode($rotated->details_json),
+        );
+
+        $this->postJson('/api/logout', [], $headers)->assertOk();
+        $this->assertDatabaseHas('audit_events', [
+            'action' => 'auth.logout',
+            'employee_id' => $admin->id,
+        ]);
+    }
+
     public function test_audit_log_records_discount_void_cancel_and_conversion(): void
     {
         config(['services.telegram.bot_token' => '123:test-token']);
