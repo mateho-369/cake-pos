@@ -736,7 +736,6 @@ class OrderService
                 : Money::fromDecimal($discount['amount'], 'discount.amount');
         $amount = Money::discountCents($subtotal, $type, $value);
 
-        fwrite(STDERR, "DIAG3 type=" . $type . " amount=" . ($discount['amount'] ?? '?') . " class=" . get_class($employee) . " id=" . $employee->id . " role=" . var_export($employee->role, true) . "\n");
         if ($employee->role !== 'admin') {
             $maxPercent =
                 (string) (Setting::find('pos_rules')?->value_json[
