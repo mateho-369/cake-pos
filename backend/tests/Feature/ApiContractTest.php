@@ -207,7 +207,9 @@ class ApiContractTest extends TestCase
                 'idempotencyKey' => (string) Str::uuid(),
             ],
             $this->auth($admin),
-        )->assertCreated();
+        );
+        fwrite(STDERR, "DIAG2 status=" . $fixed->getStatusCode() . " body=" . $fixed->getContent() . "\n");
+        $fixed->assertCreated();
         $fixed
             ->assertJsonPath('total', 0)
             ->assertJsonPath('discountAmount', 10)
