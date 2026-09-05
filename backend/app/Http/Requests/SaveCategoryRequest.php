@@ -1,6 +1,7 @@
 <?php
 namespace App\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class SaveCategoryRequest extends FormRequest
 {
@@ -12,9 +13,14 @@ class SaveCategoryRequest extends FormRequest
     public function rules(): array
     {
         $presence = $this->isMethod('post') ? 'required' : 'sometimes';
+        $category = $this->route('category');
 
         return [
-            'name' => [$presence, 'string'],
+            'name' => [
+                $presence,
+                'string',
+                Rule::unique('categories', 'name')->ignore($category?->id),
+            ],
             'color' => ['nullable', 'string'],
             'active' => ['sometimes', 'boolean'],
             'sortOrder' => ['sometimes', 'integer', 'min:0'],
