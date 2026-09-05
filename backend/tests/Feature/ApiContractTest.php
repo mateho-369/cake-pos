@@ -3792,6 +3792,14 @@ class ApiContractTest extends TestCase
         // close. At the configured 4,100៛/$ that is exactly $5.00 short and
         // it must land in cashShortagesCents, not vanish because the USD
         // variance happened to be zero.
+        //
+        // cashSalesSince() has only second-precision timestamps to compare
+        // against and matches confirmed_at >= shift.opened_at — a real,
+        // narrow race (flagged separately) where a payment confirmed in the
+        // same wall-clock second as the NEXT shift's open is double-counted
+        // into that next shift's expected cash too. Advance the clock so
+        // this shift's own window can't tie with the order 1 payment above.
+        $this->travel(2)->seconds();
         $this->postJson(
             '/api/shifts/open',
             ['openingCash' => '0.00', 'openingCashKhr' => 41000],

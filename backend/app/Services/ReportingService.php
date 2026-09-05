@@ -491,11 +491,10 @@ final class ReportingService
         // on Tuesday, and each currency is judged on its own.
         $rate = max(1, ExchangeRate::current());
         $cashShortagesCents = 0;
-        $__debugShifts = [];
         foreach (
             Shift::where('status', 'Closed')
                 ->whereBetween('closed_at', [$r->from, $r->to])
-                ->get(['id', 'variance_usd_cents', 'variance_khr', 'closed_at'])
+                ->get(['variance_usd_cents', 'variance_khr'])
             as $shift
         ) {
             $usdShort = min(0, (int) $shift->variance_usd_cents);
@@ -508,19 +507,7 @@ final class ReportingService
                     $rate,
                 );
             }
-            $__debugShifts[] = [
-                'id' => $shift->id,
-                'usd' => $shift->variance_usd_cents,
-                'khr' => $shift->variance_khr,
-                'closed_at' => (string) $shift->closed_at,
-            ];
         }
-        fwrite(
-            STDERR,
-            "\n__LOSSES_DEBUG__ rate={$rate} from={$r->from} to={$r->to} shifts=" .
-                json_encode($__debugShifts) .
-                " cashShortagesCents={$cashShortagesCents}\n",
-        );
         return [
             'wasteCents' => $wasteCents,
             'discountsCents' => $discountsCents,
