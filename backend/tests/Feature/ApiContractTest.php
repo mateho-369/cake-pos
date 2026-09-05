@@ -32,6 +32,14 @@ class ApiContractTest extends TestCase
     }
     private function auth(Employee $employee): array
     {
+        // Sanctum's RequestGuard caches the resolved user for the lifetime
+        // of the guard instance, and that instance is reused across every
+        // postJson() call within one test method (only production's
+        // per-request app boot avoids this — this is a test-only quirk).
+        // Without forgetting it, a second auth() call for a *different*
+        // employee in the same test still resolves $request->user() to
+        // whichever employee was authenticated first.
+        app('auth')->forgetGuards();
         return [
             'Authorization' =>
                 'Bearer ' .
