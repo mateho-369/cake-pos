@@ -1899,7 +1899,7 @@ class ApiContractTest extends TestCase
         );
 
         // Owner nudge + accountability.
-        Queue::assertPushedTimes(SendStaffCategoryProposedNotification::class, 1);
+        Queue::assertPushed(SendStaffCategoryProposedNotification::class, 1);
         $this->assertDatabaseHas('audit_events', [
             'action' => 'category.created_by_cashier',
             'employee_id' => $cashier->id,
@@ -1916,7 +1916,7 @@ class ApiContractTest extends TestCase
             ->assertJsonPath('pendingReview', false)
             ->json();
         $this->assertNull($adminMade['createdBy']);
-        Queue::assertPushedTimes(SendStaffCategoryProposedNotification::class, 1);
+        Queue::assertPushed(SendStaffCategoryProposedNotification::class, 1);
 
         // Rejecting a category still in use is refused — no product is left
         // pointing at a dead category.
