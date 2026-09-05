@@ -55,6 +55,24 @@ class ApiContractTest extends TestCase
             $this->auth($employee),
         )->assertCreated();
     }
+    /**
+     * Symfony's ResponseHeaderBag re-parses and re-serializes Cache-Control
+     * every time it's set, in its own directive order — not the order the
+     * app wrote it in. Asserting a literal string is asserting an
+     * implementation detail no controller can control; assert the
+     * directive *set* instead, which is what actually matters to a client.
+     */
+    private function assertNeverCached(\Illuminate\Testing\TestResponse $response): void
+    {
+        $actual = array_map(
+            'trim',
+            explode(',', $response->headers->get('Cache-Control') ?? ''),
+        );
+        sort($actual);
+        $expected = ['max-age=0', 'no-store', 'private'];
+        sort($expected);
+        $this->assertSame($expected, $actual);
+    }
     private function signedInitData(array $user): string
     {
         $params = [
@@ -748,25 +766,25 @@ class ApiContractTest extends TestCase
         $headers = $this->auth($admin);
 
         // No open shift: the null answer is still live state.
-        $this->getJson('/api/shifts/current', $headers)
-            ->assertOk()
-            ->assertHeader('Cache-Control', 'no-store, private, max-age=0');
+        $this->assertNeverCached(
+            $this->getJson('/api/shifts/current', $headers)->assertOk(),
+        );
 
-        $this->postJson(
-            '/api/shifts/open',
-            ['openingCash' => '100.00'],
-            $headers,
-        )
-            ->assertCreated()
-            ->assertHeader('Cache-Control', 'no-store, private, max-age=0');
+        $this->assertNeverCached(
+            $this->postJson(
+                '/api/shifts/open',
+                ['openingCash' => '100.00'],
+                $headers,
+            )->assertCreated(),
+        );
 
-        $this->getJson('/api/shifts/current', $headers)
-            ->assertOk()
-            ->assertHeader('Cache-Control', 'no-store, private, max-age=0');
+        $this->assertNeverCached(
+            $this->getJson('/api/shifts/current', $headers)->assertOk(),
+        );
 
-        $this->getJson('/api/shifts', $headers)
-            ->assertOk()
-            ->assertHeader('Cache-Control', 'no-store, private, max-age=0');
+        $this->assertNeverCached(
+            $this->getJson('/api/shifts', $headers)->assertOk(),
+        );
     }
 
     public function test_sale_endpoints_require_an_open_shift(): void
