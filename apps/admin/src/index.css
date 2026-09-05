@@ -6704,8 +6704,29 @@ img.qr-placeholder {
 @media (max-width: 820px) {
   input,
   select,
-  textarea {
+  textarea,
+  /* Scoped inputs (search boxes, price fields, filters) set 12–13px
+     with a two-part selector, which outranks the bare element rule
+     above; repeat the floor at matching specificity. */
+  .inline-search input,
+  .command-card > label input,
+  .audit-filters select,
+  .report-export-actions input,
+  .report-filter-field select,
+  .admin-price-input input {
     font-size: max(16px, 1em);
+  }
+  /* Data rows keep their desktop min-width so columns stay legible; on a
+     phone the CARD scrolls sideways (same as .table-responsive) instead
+     of pushing the whole page wider than the viewport. */
+  .category-list-card,
+  .access-activity,
+  .product-table {
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .categories-layout {
+    grid-template-columns: minmax(0, 1fr);
   }
   .reason-options {
     grid-template-columns: 1fr;

@@ -240,7 +240,7 @@ async function loginSale(page, email, password) {
   await page.waitForTimeout(300)
   await page.getByLabel('Email address').fill(email)
   await page.getByLabel('Password', { exact: true }).fill(password)
-  await page.getByRole('button', { name: 'Continue' }).click()
+  await page.getByRole('button', { name: 'Sign in securely' }).click()
   await page.waitForSelector('.product-workspace', { timeout: 30000 })
 }
 
@@ -277,7 +277,9 @@ async function ensureOpenShift() {
     token,
   })
   if (opened.status === 201) pass('sale setup: shift opened for the audit')
-  else if (opened.status === 200 || opened.status === 422)
+  // The API answers 409 when a store shift is already open (the smoke
+  // script that runs before this audit leaves one open) — that is fine.
+  else if ([200, 409, 422].includes(opened.status))
     pass('sale setup: a shift is already open')
   else
     fail(
