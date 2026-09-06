@@ -48,6 +48,7 @@
     "body": "We’ll confirm your final price and any special details with you in Telegram.",
     "label": "ORDER STATUS",
     "pending": "We received your request",
+    "held": "Accepted — we’re holding it for you",
     "confirmed": "Price and details agreed",
     "paid": "Payment confirmed",
     "ready": "Ready for pickup",

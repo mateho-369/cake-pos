@@ -3,10 +3,12 @@ namespace App\Http\Controllers;
 use App\Http\Requests\SaveEmployeeRequest;
 use App\Http\Resources\EmployeeResource;
 use App\Models\Employee;
+use App\Services\AuditService;
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\Hash;
 class EmployeeController extends Controller
 {
+    public function __construct(private readonly AuditService $audit) {}
     public function index(): JsonResponse
     {
         $employees = Employee::orderByDesc('active')->orderBy('id')->get();
@@ -32,6 +34,11 @@ class EmployeeController extends Controller
             'active' => $request->boolean('active', true),
             'created_at' => now(),
         ]);
+        $this->audit->log($request->user(), 'employee.created', null, [
+            'employeeId' => $employee->id,
+            'employeeName' => $employee->name,
+            'role' => $employee->role,
+        ]);
         return response()->json(
             EmployeeResource::make($employee)->resolve(),
             201,
@@ -41,6 +48,7 @@ class EmployeeController extends Controller
         SaveEmployeeRequest $request,
         Employee $employee,
     ): JsonResponse {
+        $before = $employee->only(['name', 'email', 'role', 'active']);
         $employee->update([
             'name' => $request->input('name', $employee->name),
             'email' => $request->input('email', $employee->email),
@@ -60,6 +68,16 @@ class EmployeeController extends Controller
                 ? $request->boolean('active')
                 : $employee->active,
         ]);
+        // Credentials are never written to the trail — only whether they
+        // were rotated.
+        $this->audit->log($request->user(), 'employee.updated', null, [
+            'employeeId' => $employee->id,
+            'employeeName' => $employee->name,
+            'before' => $before,
+            'after' => $employee->only(['name', 'email', 'role', 'active']),
+            'passwordChanged' => (bool) $request->password,
+            'pinChanged' => (bool) $request->input('pin_code'),
+        ]);
         return response()->json(EmployeeResource::make($employee)->resolve());
     }
     public function destroy(Request $request, Employee $employee)
@@ -72,6 +90,10 @@ class EmployeeController extends Controller
         }
         $employee->tokens()->delete();
         $employee->update(['active' => false]);
+        $this->audit->log($request->user(), 'employee.deactivated', null, [
+            'employeeId' => $employee->id,
+            'employeeName' => $employee->name,
+        ]);
         return response()->noContent();
     }
 }

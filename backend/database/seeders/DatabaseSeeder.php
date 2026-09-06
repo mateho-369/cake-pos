@@ -12,6 +12,30 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $now = now();
+        // Production safety: this seeder runs on every deploy (db:seed
+        // --force), so the staff credentials must come from the
+        // environment there — never from the fallbacks below, which exist
+        // only so local/CI databases come up without configuration.
+        // Deliberately env('APP_ENV'), not app()->environment(): the
+        // latter defaults to production when .env has no APP_ENV at all
+        // (CI), and the guard is about a deploy that explicitly says so.
+        if (env('APP_ENV') === 'production') {
+            foreach (
+                [
+                    'SEED_ADMIN_PASSWORD',
+                    'SEED_ADMIN_PIN',
+                    'SEED_CASHIER_PASSWORD',
+                    'SEED_CASHIER_PIN',
+                ]
+                as $key
+            ) {
+                if (env($key) === null || env($key) === '') {
+                    throw new \RuntimeException(
+                        "Seeder aborted: {$key} must be set in production.",
+                    );
+                }
+            }
+        }
         $employees = [
             [
                 'name' => 'Makara Piseth',
@@ -31,16 +55,18 @@ class DatabaseSeeder extends Seeder
                 ),
                 'pin_hash' => Hash::make(env('SEED_CASHIER_PIN', '1234')),
             ],
-            [
-                'name' => 'Dara Lim',
-                'email' => 'dara@atelier.local',
-                'role' => 'cashier',
-                'password_hash' => Hash::make(
-                    env('SEED_CASHIER_PASSWORD', 'ChangeMe123!'),
-                ),
-                'pin_hash' => Hash::make('5678'),
-            ],
         ];
+        // Optional third staff member: only seeded when BOTH credentials
+        // are supplied, so no account ever ships with a fixed PIN.
+        if (env('SEED_CASHIER_3_PASSWORD') && env('SEED_CASHIER_3_PIN')) {
+            $employees[] = [
+                'name' => 'Dara Lim',
+                'email' => env('SEED_CASHIER_3_EMAIL', 'dara@atelier.local'),
+                'role' => 'cashier',
+                'password_hash' => Hash::make(env('SEED_CASHIER_3_PASSWORD')),
+                'pin_hash' => Hash::make(env('SEED_CASHIER_3_PIN')),
+            ];
+        }
         foreach ($employees as $row) {
             Employee::firstOrCreate(
                 ['email' => $row['email']],

@@ -455,15 +455,19 @@ function SaleTerminal() {
   // A hold resumed from the dedicated /held page stores its id here; the
   // new terminal page waits for the held list to hydrate and restores the
   // hold's lines into the cart (the page itself clears the id after use).
+  // Both the held list AND the catalogue must be loaded: resumeHold looks
+  // each line's product up in `products`, and /api/orders/held usually
+  // answers before the catalogue batch, so acting on `held` alone would
+  // drop every line as "missing" and discard the resume id.
   useEffect(() => {
     const resumeId = sessionStorage.getItem('cake-pos-resume-hold-id')
-    if (!resumeId || !held.length) return
+    if (!resumeId || !held.length || !products.length) return
     const order = held.find((candidate) => candidate.id === resumeId)
     if (!order) return
     sessionStorage.removeItem('cake-pos-resume-hold-id')
     resumeHold(order)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [held])
+  }, [held, products])
 
   /** Park the cart: the customer pays when they come back. */
   const holdCart = async (label: string) => {

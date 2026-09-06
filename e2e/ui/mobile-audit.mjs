@@ -240,7 +240,7 @@ async function loginSale(page, email, password) {
   await page.waitForTimeout(300)
   await page.getByLabel('Email address').fill(email)
   await page.getByLabel('Password', { exact: true }).fill(password)
-  await page.getByRole('button', { name: 'Continue' }).click()
+  await page.getByRole('button', { name: 'Sign in securely' }).click()
   await page.waitForSelector('.product-workspace', { timeout: 30000 })
 }
 
@@ -277,7 +277,9 @@ async function ensureOpenShift() {
     token,
   })
   if (opened.status === 201) pass('sale setup: shift opened for the audit')
-  else if (opened.status === 200 || opened.status === 422)
+  // The API answers 409 when a store shift is already open (the smoke
+  // script that runs before this audit leaves one open) — that is fine.
+  else if ([200, 409, 422].includes(opened.status))
     pass('sale setup: a shift is already open')
   else
     fail(
@@ -320,7 +322,7 @@ async function run() {
         if (pg !== 'Overview') await navigateAdmin(page, pg)
         await auditPage(page, label, viewport.name)
         await page.screenshot({
-          path: join(artifacts, `${viewport.name}-${label}.png`),
+          path: join(artifacts, `${viewport.name}-${label.replace(/:/g, '-')}.png`),
           fullPage: false,
         })
       } catch (error) {
@@ -379,6 +381,22 @@ async function run() {
         path: join(artifacts, `${viewport.name}-sale-terminal.png`),
       })
 
+      // Shift modal (open/close + dual-currency counting) on a phone.
+      // Must run BEFORE anything is added to the cart: with an open shift
+      // and a non-empty cart the badge deliberately refuses to open the
+      // modal ("complete the order first" toast).
+      const shiftButton = salePage.locator('.shift-status').first()
+      if (await shiftButton.count()) {
+        await shiftButton.click()
+        await salePage.waitForSelector('.shift-modal-body', { timeout: 15000 })
+        await salePage.waitForTimeout(400)
+        await auditPage(salePage, 'sale:shift-modal', viewport.name)
+        await salePage.screenshot({
+          path: join(artifacts, `${viewport.name}-sale-shift-modal.png`),
+        })
+        await closeModals(salePage)
+      }
+
       // Add a real product so the mobile cart dock + sheet are auditable.
       const card = salePage.locator('.product-card').first()
       if (await card.count()) {
@@ -400,18 +418,6 @@ async function run() {
         fail(`[${viewport.name}] sale:cart-panel: no mobile cart dock`)
       }
 
-      // Shift modal (open/close + dual-currency counting) on a phone.
-      const shiftButton = salePage.locator('.shift-status').first()
-      if (await shiftButton.count()) {
-        await shiftButton.click()
-        await salePage.waitForSelector('.shift-modal-body', { timeout: 15000 })
-        await salePage.waitForTimeout(400)
-        await auditPage(salePage, 'sale:shift-modal', viewport.name)
-        await salePage.screenshot({
-          path: join(artifacts, `${viewport.name}-sale-shift-modal.png`),
-        })
-        await closeModals(salePage)
-      }
     } catch (error) {
       fail(`[${viewport.name}] sale terminal: ${error.message}`)
     }

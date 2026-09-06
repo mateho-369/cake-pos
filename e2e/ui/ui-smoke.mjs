@@ -87,7 +87,29 @@ async function api(path, { method = 'GET', body, token } = {}) {
   return { status: res.status, json }
 }
 
+// The API throttles POST /api/login to 5 per minute per IP (RateLimiter
+// 'login' in AppServiceProvider). Every login in this script — Node-side
+// and browser-side — comes from 127.0.0.1, so a sixth attempt inside one
+// minute is refused with 429 and the terminal never renders. Pace the
+// logins here rather than weakening the limiter.
+const LOGIN_LIMIT_PER_MINUTE = 5
+const loginTimes = []
+async function paceLogin() {
+  const now = Date.now()
+  while (loginTimes.length && now - loginTimes[0] > 61_000) loginTimes.shift()
+  if (loginTimes.length >= LOGIN_LIMIT_PER_MINUTE) {
+    const wait = 61_000 - (now - loginTimes[0])
+    console.log(
+      `  (pausing ${Math.ceil(wait / 1000)}s for the login rate limit)`,
+    )
+    await new Promise((resolve) => setTimeout(resolve, wait))
+    loginTimes.shift()
+  }
+  loginTimes.push(Date.now())
+}
+
 async function login(email, password) {
+  await paceLogin()
   const r = await api('/api/login', {
     method: 'POST',
     body: { email, password },
@@ -125,6 +147,19 @@ await page.addInitScript(() => {
     sessionStorage.setItem('atelier.language', 'en')
   } catch {}
 })
+// CI serves each built app from a plain static file server, which has no
+// SPA fallback. The sale terminal's held/pending queues are real paths
+// (window.location.assign('/held')), so mirror what the production host
+// does and answer those paths with the app shell.
+await page.route(
+  (url) =>
+    url.origin === new URL(SALE_URL).origin &&
+    /^\/(held|pending)\/?$/.test(url.pathname),
+  // Rewrite the path but let the request hit the real static server:
+  // a synthetic (fulfilled) document is not "loopback" to Chrome's Local
+  // Network Access check and its API calls to 127.0.0.1 would be refused.
+  (route) => route.continue({ url: `${SALE_URL}/index.html` }),
+)
 page.on('console', (msg) => {
   if (msg.type() === 'error')
     console.log(`  [browser console.error] ${msg.text()}`)
@@ -144,6 +179,7 @@ check('admin login via API returns token', adminToken.length > 10)
 await page.goto(ADMIN_URL, { waitUntil: 'networkidle' })
 await page.getByLabel('Email address').fill(ADMIN_EMAIL)
 await page.getByLabel('Password', { exact: true }).fill(ADMIN_PASS)
+await paceLogin()
 await page.getByRole('button', { name: 'Sign in securely' }).click()
 await page.waitForSelector('text=Net sales', { timeout: 30000 })
 await shot('admin-overview-empty')
@@ -259,9 +295,14 @@ await page
   .click()
 await page.waitForTimeout(600)
 const empText = await page.locator('.page-content').innerText()
+// The seeder ships two staff accounts; a third is only created when
+// SEED_CASHIER_3_* credentials are supplied, so compare with the API.
+const seededStaff = await api('/api/employees', { token: adminToken })
 check(
-  'employees: 3 team members (real seeded count)',
-  empText.includes('3 team members'),
+  'employees: team member count matches the API',
+  seededStaff.status === 200 &&
+    empText.includes(`${seededStaff.json.length} team members`),
+  `${seededStaff.status} ${JSON.stringify(seededStaff.json).slice(0, 120)}`,
 )
 check(
   'employees: 0 clocked in',
@@ -532,6 +573,7 @@ await page.evaluate(() => {
 await page.goto(ADMIN_URL, { waitUntil: 'networkidle' })
 await page.getByLabel('Email address').fill(ADMIN_EMAIL)
 await page.getByLabel('Password', { exact: true }).fill(ADMIN_PASS)
+await paceLogin()
 await page.getByRole('button', { name: 'Sign in securely' }).click()
 await page.waitForSelector('text=Net sales', { timeout: 30000 })
 // Wait until the dashboard reflects the real API sale; the "Net sales"
@@ -641,6 +683,7 @@ await page.getByRole('button', { name: 'Email' }).click()
 await page.waitForTimeout(300)
 await page.getByLabel('Email address').fill(CASHIER_EMAIL)
 await page.getByLabel('Password', { exact: true }).fill(CASHIER_PASS)
+await paceLogin()
 await page.getByRole('button', { name: 'Sign in securely' }).click()
 await page.waitForSelector('text=What are we serving?', { timeout: 30000 })
 await shot('sale-menu')
@@ -720,20 +763,32 @@ await page.waitForSelector('.success-layer', {
   await page.waitForTimeout(300)
   await page.getByLabel('Email address').fill(CASHIER_EMAIL)
   await page.getByLabel('Password', { exact: true }).fill(CASHIER_PASS)
+  await paceLogin()
   await page.getByRole('button', { name: 'Sign in securely' }).click()
   await page.waitForSelector('text=What are we serving?', { timeout: 30000 })
+  // The menu heading renders as soon as the token is accepted; the badge
+  // flips to open one render later, once /api/shifts/current has been
+  // applied. Wait for that state instead of sampling the class immediately.
+  const badgeOpenAfterRelogin = await page
+    .waitForSelector('.shift-status.open', { timeout: 15000 })
+    .then(
+      () => true,
+      () => false,
+    )
   check(
     'shift badge still Open after logout/login (shift survives)',
-    (await page.locator('.shift-status').getAttribute('class')).includes(
-      'open',
-    ),
+    badgeOpenAfterRelogin,
+    await page.locator('.shift-status').getAttribute('class'),
   )
 
   // --- Close the shift through the UI, counting BOTH currency piles ---
   await page.locator('.shift-status').click()
   await page.waitForSelector('.shift-modal-body', { timeout: 10000 })
+  // Read the "Counted cash in drawer" row only: the summary's first line
+  // is the opening float, whose ៛0 would otherwise be picked up as the
+  // expected KHR pile.
   const closeSummary = await page
-    .locator('.shift-close-summary')
+    .locator('.shift-close-summary .expected-row')
     .innerText()
   const expectedUsd = closeSummary.match(/\$([\d,]+\.\d{2})/)?.[1] ?? ''
   const expectedKhr = closeSummary.match(/៛([\d,]+)/)?.[1] ?? '0'
@@ -904,11 +959,22 @@ console.log('\n########## PHASE F — HOLD / PARK AN ORDER, THEN PAY IT ########
     await page.waitForTimeout(300)
     await page.getByLabel('Email address').fill(CASHIER_EMAIL)
     await page.getByLabel('Password', { exact: true }).fill(CASHIER_PASS)
+    await paceLogin()
     await page.getByRole('button', { name: 'Sign in securely' }).click()
     await page.waitForSelector('.product-workspace', { timeout: 30000 })
   }
 
   const product = prod.json // the "Smoke Cake" created in phase B
+  // Phases C–E sold every unit of it; the terminal hides out-of-stock
+  // products, so restock before parking an order against it.
+  const restock = await api('/api/products/' + product.id, {
+    method: 'PUT',
+    token: adminToken,
+    body: { stock: 5 },
+  })
+  check('phase F: restock Smoke Cake', restock.status === 200, `${restock.status}`)
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForSelector('.product-workspace', { timeout: 30000 })
   const before = await api('/api/products', { token: adminToken })
   const stockBefore = before.json.find((p) => p.id === product.id)?.stock
 
@@ -934,15 +1000,23 @@ console.log('\n########## PHASE F — HOLD / PARK AN ORDER, THEN PAY IT ########
       afterHold.json.find((p) => p.id === product.id)?.stock
     }`,
   )
+  // Holding hands the cashier over to the dedicated /held queue page.
+  await page.waitForSelector('.held-panel', { timeout: 15000 })
+  await page
+    .locator('.held-panel', { hasText: 'Dara — pays on collection' })
+    .waitFor({ timeout: 15000 })
+    .catch(() => {})
   const heldText = await page.locator('.held-panel').innerText()
   check(
     'held panel shows the order at the terminal',
     heldText.includes('Dara — pays on collection'),
+    heldText.replace(/\n/g, ' ').slice(0, 200),
   )
 
   // 2. Resume it into the cart: it must STAY held until the sale is paid.
+  // Resuming navigates back to the terminal, which restores the lines.
   await page.locator('.held-resume').first().click()
-  await page.waitForTimeout(800)
+  await page.waitForSelector('.cart-item', { timeout: 20000 }).catch(() => {})
   const stillHeld = await api('/api/orders/held', { token: adminToken })
   check(
     'resuming keeps the hold parked until payment',

@@ -57,7 +57,10 @@ type MenuResponse = {
   storeOpen?: boolean
 }
 type Cart = Record<number, number>
-const statusSteps = ['Pending', 'Confirmed', 'Paid', 'Ready']
+// Held = the shop accepted the order and is holding the items (reserved
+// stock, unpaid until collection). It sits between "received" and
+// "confirmed" so the customer sees the acceptance the bot message announces.
+const statusSteps = ['Pending', 'Held', 'Confirmed', 'Paid', 'Ready']
 const safeNumber = (value: number | null | undefined) =>
   Number.isFinite(value as number) ? (value as number) : 0
 const usd = (value: number | null | undefined) =>
@@ -267,14 +270,14 @@ export default function CustomerApp() {
         webApp.requestContact?.((granted) =>
           granted
             ? resolve()
-            : reject(new Error('Phone sharing was cancelled.')),
+            : reject(new Error(t('errors.cancelled'))),
         ),
       )
       await waitForPhone()
       await submitOrder(true)
     } catch (reason) {
       setError(
-        reason instanceof Error ? reason.message : 'Could not get your phone',
+        reason instanceof Error ? reason.message : t('errors.getPhone'),
       )
     } finally {
       setSending(false)
@@ -465,8 +468,8 @@ export default function CustomerApp() {
       <section className="customer-menu">
         <div className="customer-section-title">
           <div>
-            <span>OUR MENU</span>
-            <h2>Fresh from the kitchen</h2>
+            <span>{t('menu.label')}</span>
+            <h2>{t('menu.title')}</h2>
           </div>
           <small>{visibleProducts.length} treats today</small>
         </div>
@@ -634,8 +637,8 @@ export default function CustomerApp() {
             <i />
             <header>
               <div>
-                <small>YOUR ORDER</small>
-                <h2>Sweet choices</h2>
+                <small>{t('cart.label')}</small>
+                <h2>{t('cart.title')}</h2>
               </div>
               <button onClick={() => setCartOpen(false)}>
                 <X size={19} />
@@ -784,7 +787,7 @@ function OrderStatus({
             <ChevronLeft size={20} />
           </button>
           <div>
-            <small>ORDER</small>
+            <small>{t('status.order')}</small>
             <strong>{order.id}</strong>
           </div>
         </header>
@@ -808,7 +811,7 @@ function OrderStatus({
           <ChevronLeft size={20} />
         </button>
         <div>
-          <small>ORDER</small>
+          <small>{t('status.order')}</small>
           <strong>{order.id}</strong>
         </div>
       </header>
@@ -816,7 +819,7 @@ function OrderStatus({
         <span>
           <Check size={28} />
         </span>
-        <small>ORDER SENT</small>
+        <small>{t('status.sent')}</small>
         <h1>{t('status.title')}</h1>
         <p>{t('status.body')}</p>
         {order.pickupCode && (
@@ -830,7 +833,7 @@ function OrderStatus({
       <section className="status-card">
         <div className="status-card-head">
           <div>
-            <small>ORDER STATUS</small>
+            <small>{t('status.label')}</small>
             <strong>{effectiveStatus}</strong>
           </div>
           <span>{usd(order.total)}</span>
@@ -845,6 +848,7 @@ function OrderStatus({
                   {
                     [
                       t('status.pending'),
+                      t('status.held'),
                       t('status.confirmed'),
                       t('status.paid'),
                       t('status.ready'),

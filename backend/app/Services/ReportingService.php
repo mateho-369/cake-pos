@@ -60,8 +60,10 @@ final class ReportingService
         // For a single-day window (the "today" dashboard preset) the
         // per-day order series still spans the last 7 days so the UI
         // can compare today's pace against the previous six days.
-        $paceRange = $r->from->eq($r->to)
-            ? new DateRange($r->to->subDays(6), $r->to)
+        // from is startOfDay and to is endOfDay, so compare the calendar
+        // day, not the instants (those are never equal).
+        $paceRange = $r->from->isSameDay($r->to)
+            ? new DateRange($r->from->subDays(6), $r->to)
             : $r;
         return [
             'grossSalesCents' => $gross,

@@ -1,0 +1,31 @@
+diff --git a/.github/workflows/test.yml b/.github/workflows/test.yml
+index 9f855dd..16f2fb3 100644
+--- a/.github/workflows/test.yml
++++ b/.github/workflows/test.yml
+@@ -75,6 +75,7 @@ jobs:
+           AWS_PUBLIC_ENDPOINT=http://127.0.0.1:9000
+           AWS_URL=http://127.0.0.1:9000/cake-pos
+           SHOP_TELEGRAM_BOT_TOKEN=123:test-token
++          TELEGRAM_WEBHOOK_SECRET=ci-webhook-secret
+           # Staff notifications are pointed at the local Telegram API stub
+           # started by backend/tests/e2e/queue-verify.sh.
+           STAFF_TELEGRAM_BOT_TOKEN=123:staff-ci-token
+@@ -109,6 +110,18 @@ jobs:
+           chmod +x backend/tests/e2e/queue-verify.sh
+           bash backend/tests/e2e/queue-verify.sh
+ 
++      - name: Concurrency + cross-frontend consistency (8 racing sales, MySQL row locks)
++        env:
++          API_URL: http://127.0.0.1:8080
++          TELEGRAM_WEBHOOK_SECRET: ci-webhook-secret
++        run: |
++          # Restart the dev server with several workers so the racing
++          # requests really overlap instead of being serialised.
++          pkill -f 'artisan serve' || true
++          (cd backend && PHP_CLI_SERVER_WORKERS=8 nohup php artisan serve --host=127.0.0.1 --port=8080 > /tmp/serve-mp.log 2>&1 &)
++          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8080/healthz && break; sleep 1; done
++          bash backend/tests/e2e/concurrency-verify.sh
++
+       - name: PHPUnit contract test suite
+         working-directory: backend
+         run: php artisan test

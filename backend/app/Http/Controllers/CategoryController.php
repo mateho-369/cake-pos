@@ -159,6 +159,18 @@ class CategoryController extends Controller
 
     public function destroy(Category $category)
     {
+        // Same invariant as review()'s reject path: never leave a product
+        // pointing at a dead category.
+        $usedBy = Product::where('category_id', $category->id)
+            ->where('active', true)
+            ->count();
+        if ($usedBy > 0) {
+            throw ValidationException::withMessages([
+                'category' => [
+                    "{$usedBy} active product(s) still use this category — move them to another category first",
+                ],
+            ]);
+        }
         $category->update(['active' => false]);
         return response()->noContent();
     }

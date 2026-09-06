@@ -3,7 +3,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\{ImportProductsRequest, SaveProductRequest};
 use App\Http\Resources\ProductResource;
 use App\Models\Product;
-use App\Services\ProductService;
+use App\Services\{AuditService, ProductService};
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -11,7 +11,10 @@ use Illuminate\Support\Facades\Storage;
 use Throwable;
 class ProductController extends Controller
 {
-    public function __construct(private readonly ProductService $products) {}
+    public function __construct(
+        private readonly ProductService $products,
+        private readonly AuditService $audit,
+    ) {}
     public function index(): JsonResponse
     {
         $products = Product::with('category')
@@ -30,6 +33,12 @@ class ProductController extends Controller
             $request->validated(),
             $request->user(),
         );
+        $this->audit->log($request->user(), 'product.created', null, [
+            'productId' => $product->id,
+            'productName' => $product->name,
+            'priceCents' => $product->price_cents,
+            'stock' => (int) $product->stock,
+        ]);
         return response()->json(
             ProductResource::make($product->load('images'))->resolve(),
             201,
@@ -39,11 +48,27 @@ class ProductController extends Controller
         SaveProductRequest $request,
         Product $product,
     ): JsonResponse {
+        $before = $product->only(['name', 'price_cents', 'stock', 'active', 'category_id']);
         $product = $this->products->update(
             $request->validated(),
             $product,
             $request->user(),
         );
+        $after = $product->only(['name', 'price_cents', 'stock', 'active', 'category_id']);
+        // Deactivation / stock-zeroing already writes its own reasoned
+        // event (product.deactivated / product.stock_zeroed) — don't
+        // double-log those; record every other edit here.
+        $reasoned =
+            ($before['active'] && !$after['active']) ||
+            ($before['stock'] > 0 && (int) $after['stock'] === 0);
+        if ($before != $after && !$reasoned) {
+            $this->audit->log($request->user(), 'product.updated', null, [
+                'productId' => $product->id,
+                'productName' => $product->name,
+                'before' => $before,
+                'after' => $after,
+            ]);
+        }
         return response()->json(
             ProductResource::make($product->fresh('images'))->resolve(),
         );
@@ -64,7 +89,9 @@ class ProductController extends Controller
             );
         }
 
+        $snapshot = ['productId' => $product->id, 'productName' => $product->name];
         $this->deleteProductAndAssets($product);
+        $this->audit->log(request()->user(), 'product.deleted', null, $snapshot);
 
         return response()->json(
             [
