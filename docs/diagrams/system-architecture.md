@@ -5,18 +5,18 @@ Three separate apps — one for shop admins, one for cashiers at the counter, an
 ```mermaid
 flowchart LR
     subgraph Frontends["Three frontend apps"]
-        Admin["apps/admin\n(Owner/manager dashboard)"]
-        Sale["apps/sale\n(Cashier terminal)"]
-        Shop["apps/shop\n(Customer Telegram Mini App)"]
+        Admin["apps/admin<br/>Owner/manager dashboard"]
+        Sale["apps/sale<br/>Cashier terminal"]
+        Shop["apps/shop<br/>Customer Telegram Mini App"]
     end
 
-    Proxy["apps/api-proxy\n(Cloudflare Worker — HTTPS passthrough)"]
+    Proxy["apps/api-proxy<br/>Cloudflare Worker, HTTPS passthrough"]
 
-    Backend["Laravel + Sanctum API\nbackend/"]
+    Backend["Laravel + Sanctum API<br/>backend/"]
 
     DB[("MySQL database")]
 
-    Telegram["Telegram\n(bot messages: staff notifications,\ncustomer order updates)"]
+    Telegram["Telegram<br/>bot messages: staff notifications,<br/>customer order updates"]
 
     Admin -->|HTTPS, staff login token| Proxy
     Sale -->|HTTPS, staff login token| Proxy
