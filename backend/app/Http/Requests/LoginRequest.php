@@ -10,9 +10,9 @@ class LoginRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'email' => ['nullable', 'email'],
-            'password' => ['nullable', 'string'],
-            'pin_code' => ['nullable', 'string'],
+            'email' => ['nullable', 'email', 'max:255'],
+            'password' => ['nullable', 'string', 'max:255'],
+            'pin_code' => ['nullable', 'string', 'max:32'],
         ];
     }
 }
