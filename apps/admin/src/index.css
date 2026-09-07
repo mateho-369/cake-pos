@@ -781,6 +781,7 @@ kbd {
   min-height: 42px;
   margin-bottom: 18px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
@@ -815,6 +816,7 @@ kbd {
 }
 .toolbar-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 7px;
 }
