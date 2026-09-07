@@ -16,7 +16,10 @@ use Illuminate\Support\Facades\{DB, Http};
 use Illuminate\Validation\ValidationException;
 class CustomerOrderService
 {
-    public function __construct(private readonly AuditService $audit) {}
+    public function __construct(
+        private readonly AuditService $audit,
+        private readonly OrderNumberSequence $orderNumbers,
+    ) {}
 
     /**
      * The customer's currently-open (held, unpaid) Telegram order, if any.
@@ -535,9 +538,6 @@ class CustomerOrderService
     }
     private function nextNumber(): int
     {
-        return Order::pluck('id')->reduce(
-            fn($max, $id) => max($max, (int) substr($id, 3)),
-            0,
-        ) + 1;
+        return $this->orderNumbers->next('TG');
     }
 }

@@ -138,14 +138,27 @@ class ShiftService
     {
         // Use the payment row (tendered − change), not the order total: a
         // $9 USD + ៛4,100 split on a $10 sale must count $9 of USD cash and
-        // ៛4,100 of riel, independently. Filter on confirmed_at so a hold
-        // created before this shift still counts when paid during it.
+        // ៛4,100 of riel, independently. Payments are attributed to a shift
+        // unambiguously via shift_id, set at confirmation time — the old
+        // confirmed_at >= opened_at comparison alone could double-count a
+        // payment into two shifts when both timestamps land in the same
+        // wall-clock second (they have only second precision). Rows from
+        // before that column existed (shift_id is null) still fall back to
+        // the timestamp comparison, so historical shifts keep reading the
+        // same totals they always did.
         $row = OrderPayment::query()
             ->where('method', 'cash')
             ->where('status', 'confirmed')
-            ->whereRaw('COALESCE(confirmed_at, created_at) >= ?', [
-                $shift->opened_at,
-            ])
+            ->where(function ($q) use ($shift) {
+                $q->where('shift_id', $shift->id)->orWhere(function ($q) use (
+                    $shift,
+                ) {
+                    $q->whereNull('shift_id')->whereRaw(
+                        'COALESCE(confirmed_at, created_at) >= ?',
+                        [$shift->opened_at],
+                    );
+                });
+            })
             ->selectRaw(
                 'COALESCE(SUM(COALESCE(tendered_usd_cents, amount_usd_cents) - COALESCE(change_usd_cents, 0)), 0) as usd,
                  COALESCE(SUM(COALESCE(tendered_khr, 0) - COALESCE(change_khr, 0)), 0) as khr',

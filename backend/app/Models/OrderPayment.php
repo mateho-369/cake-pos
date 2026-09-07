@@ -5,6 +5,7 @@ class OrderPayment extends Model
 {
     protected $guarded = [];
     protected $casts = [
+        'shift_id' => 'integer',
         'amount_usd_cents' => 'integer',
         'exchange_rate_khr_per_usd' => 'integer',
         'tendered_usd_cents' => 'integer',
