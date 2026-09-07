@@ -42,7 +42,11 @@ type MenuResponse = {
   storeOpen?: boolean
 }
 type Cart = Record<number, number>
-const statusSteps = ['Pending', 'Confirmed', 'Paid', 'Ready']
+// Held = the shop accepted the order and is holding the items (reserved
+// stock, unpaid until collection). It sits between "received" and
+// "confirmed" so the customer sees the acceptance the bot message announces.
+// Kept in sync with apps/shop/src/CustomerApp.tsx's identical timeline.
+const statusSteps = ['Pending', 'Held', 'Confirmed', 'Paid', 'Ready']
 
 export default function CustomerApp() {
   const webApp = window.Telegram?.WebApp

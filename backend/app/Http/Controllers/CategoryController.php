@@ -6,6 +6,7 @@ use App\Jobs\SendStaffCategoryProposedNotification;
 use App\Models\Category;
 use App\Models\Product;
 use App\Services\AuditService;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -50,19 +51,33 @@ class CategoryController extends Controller
             ]);
         }
         $parent = $isAdmin ? $this->resolveParent($requestedParent) : null;
-        $category = Category::create([
-            'name' => trim($request->name),
-            'color' => $request->input('color', '#be185d'),
-            'active' => $request->boolean('active', true),
-            'sort_order' => $request->input(
-                'sortOrder',
-                Category::max('sort_order') + 1,
-            ),
-            'parent_category_id' => $parent?->id,
-            'pending_review' => !$isAdmin,
-            'created_by_employee_id' => $isAdmin ? null : $employee?->id,
-            'created_at' => $isAdmin ? null : now(),
-        ]);
+        try {
+            $category = Category::create([
+                'name' => trim($request->name),
+                'color' => $request->input('color', '#be185d'),
+                'active' => $request->boolean('active', true),
+                'sort_order' => $request->input(
+                    'sortOrder',
+                    Category::max('sort_order') + 1,
+                ),
+                'parent_category_id' => $parent?->id,
+                'pending_review' => !$isAdmin,
+                'created_by_employee_id' => $isAdmin ? null : $employee?->id,
+                'created_at' => $isAdmin ? null : now(),
+            ]);
+        } catch (QueryException $exception) {
+            // SaveCategoryRequest's uniqueness rule is itself a read before
+            // this write: two cashiers proposing the same name in the same
+            // instant can both pass validation before either commits. The
+            // table's own unique index on `name` is the real guard — catch
+            // its violation here and explain it, instead of a raw 500.
+            if ($exception->getCode() === '23000') {
+                throw ValidationException::withMessages([
+                    'name' => ['A category with this name already exists'],
+                ]);
+            }
+            throw $exception;
+        }
         if (!$isAdmin) {
             $this->audit->log($employee, 'category.created_by_cashier', null, [
                 'categoryId' => $category->id,

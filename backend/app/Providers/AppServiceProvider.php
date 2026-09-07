@@ -42,5 +42,14 @@ class AppServiceProvider extends ServiceProvider
                     );
                 });
         });
+        // The Telegram Mini App's customer-facing routes (products, profile,
+        // order placement/status/cancel, the bot webhook) carry no Sanctum
+        // auth — initData HMAC-verifies the customer, but nothing capped how
+        // many requests one source could send. Generous enough for normal
+        // polling/browsing, but stops an unbounded flood from one IP from
+        // tying up PHP workers/DB connections.
+        RateLimiter::for('public', function (Request $request) {
+            return Limit::perMinute(120)->by($request->ip());
+        });
     }
 }

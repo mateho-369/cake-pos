@@ -3,6 +3,7 @@ namespace App\Services;
 
 use App\Models\{Order, Receipt, Setting};
 use App\Http\Resources\OrderResource;
+use Illuminate\Database\QueryException;
 
 class ReceiptService
 {
@@ -31,11 +32,26 @@ class ReceiptService
                 $order->fresh(['cashier', 'customer']),
             )->resolve(),
         ];
-        Receipt::create([
-            'order_id' => $order->id,
-            'snapshot_json' => $snapshot,
-            'created_at' => now(),
-        ]);
+        try {
+            Receipt::create([
+                'order_id' => $order->id,
+                'snapshot_json' => $snapshot,
+                'created_at' => now(),
+            ]);
+        } catch (QueryException $exception) {
+            // A double-tapped "Take Payment"/print can call ensure(..., true)
+            // twice in close succession: both delete, both find nothing, both
+            // try to insert on order_id (the primary key). The loser's insert
+            // hits that unique key — return the winner's already-saved
+            // snapshot instead of a 500 for a sale that actually succeeded.
+            if ($exception->getCode() === '23000') {
+                $saved = Receipt::find($order->id);
+                if ($saved) {
+                    return $saved->snapshot_json;
+                }
+            }
+            throw $exception;
+        }
         return $snapshot;
     }
     private function escapeHtml($value): string

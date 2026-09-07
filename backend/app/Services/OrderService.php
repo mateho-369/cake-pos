@@ -293,6 +293,30 @@ class OrderService
         if ($key && ($old = Order::where('idempotency_key', $key)->first())) {
             return $old;
         }
+        try {
+            return $this->holdInTransaction($input, $employee, $key);
+        } catch (QueryException $exception) {
+            // Same race as createWalkIn: two requests carrying the same key
+            // can both pass the lookup above before either commits. The
+            // unique index on idempotency_key picks the winner; the loser
+            // returns that committed hold instead of surfacing a raw 500.
+            if ($key && $exception->getCode() === '23000') {
+                $original = Order::where('idempotency_key', $key)
+                    ->where('cashier_id', $employee->id)
+                    ->first();
+                if ($original) {
+                    return $original;
+                }
+            }
+            throw $exception;
+        }
+    }
+
+    private function holdInTransaction(
+        array $input,
+        Employee $employee,
+        ?string $key,
+    ): Order {
         return DB::transaction(function () use ($input, $employee, $key) {
             $lines = $this->lockRequestedProducts($input['items'], true);
             $subtotal = collect($lines)->sum(

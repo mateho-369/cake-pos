@@ -11,6 +11,7 @@ use App\Models\{
     Shift,
 };
 use App\Support\Money;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\{DB, Http};
 use Illuminate\Validation\ValidationException;
@@ -86,7 +87,57 @@ class CustomerOrderService
         ) {
             return [$existing, false];
         }
-        [$order, $created] = DB::transaction(function () use (
+        try {
+            [$order, $created] = $this->createInTransaction(
+                $customer,
+                $requestedItems,
+                $requestedTotal,
+                $idempotencyKey,
+            );
+        } catch (QueryException $exception) {
+            // Two double-taps can both pass the lookup above before either
+            // commits. The unique index on idempotency_key picks the winner;
+            // the loser returns that committed order instead of a raw 500.
+            if (
+                $idempotencyKey &&
+                $exception->getCode() === '23000' &&
+                ($original = Order::where(
+                    'idempotency_key',
+                    $idempotencyKey,
+                )->first())
+            ) {
+                return [$original, false];
+            }
+            throw $exception;
+        }
+        if (!$created) {
+            $this->audit->log(null, 'customer_order.updated', $order->id, [
+                'customerId' => $customer->id,
+                'totalCents' => $order->total_cents,
+            ]);
+        }
+        if ($created) {
+            // Confirm receipt to the customer in the same bot chat they
+            // ordered from — the counterpart of the staff notification
+            // below, and the same dispatch cancel()/rejectByStaff() use.
+            // Only on the FIRST placement: adding another cake updates this
+            // same open order in place, and re-sending "we received your
+            // order" for every edit would just be noise.
+            SendCustomerStatusNotification::dispatch($order->id);
+        }
+        return [$order, $created && $this->notifyAdmin($customer, $order)];
+    }
+
+    /**
+     * @return array{0: Order, 1: bool}
+     */
+    private function createInTransaction(
+        Customer $customer,
+        array $requestedItems,
+        mixed $requestedTotal,
+        ?string $idempotencyKey,
+    ): array {
+        return DB::transaction(function () use (
             $customer,
             $requestedItems,
             $requestedTotal,
@@ -167,22 +218,6 @@ class CustomerOrderService
             ]);
             return [$order, true];
         });
-        if (!$created) {
-            $this->audit->log(null, 'customer_order.updated', $order->id, [
-                'customerId' => $customer->id,
-                'totalCents' => $order->total_cents,
-            ]);
-        }
-        if ($created) {
-            // Confirm receipt to the customer in the same bot chat they
-            // ordered from — the counterpart of the staff notification
-            // below, and the same dispatch cancel()/rejectByStaff() use.
-            // Only on the FIRST placement: adding another cake updates this
-            // same open order in place, and re-sending "we received your
-            // order" for every edit would just be noise.
-            SendCustomerStatusNotification::dispatch($order->id);
-        }
-        return [$order, $created && $this->notifyAdmin($customer, $order)];
     }
 
     /**

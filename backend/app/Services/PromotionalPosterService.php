@@ -20,7 +20,7 @@ final class PromotionalPosterService
         $dark = imagecolorallocate($im, 61, 38, 49);
         imagefill($im, 0, 0, $bg);
         $image = null;
-        if ($product->image_url) {
+        if ($product->image_url && $this->isSafeToFetch($product->image_url)) {
             try {
                 $response = Http::timeout(8)->get($product->image_url);
                 if ($response->successful()) {
@@ -89,5 +89,44 @@ final class PromotionalPosterService
         imagedestroy($im);
         Storage::disk(config('filesystems.default'))->put($path, $bytes);
         return Storage::disk(config('filesystems.default'))->url($path);
+    }
+
+    /**
+     * Any employee (not just admins) can set a product's imageUrl to any
+     * https URL when creating a product — deliberately, so a cake-baking
+     * admin can hand product entry to a staff photographer. That means this
+     * server-side GET, triggered by an admin generating a poster, cannot
+     * trust the URL: without this check it is a textbook SSRF (an
+     * attacker-controlled cashier account setting imageUrl to
+     * http://169.254.169.254/... or an internal service address, then
+     * waiting for an admin to press "generate poster"). Require https and
+     * refuse to fetch a host that resolves to a private, loopback,
+     * link-local, or otherwise non-public IP.
+     */
+    private function isSafeToFetch(string $url): bool
+    {
+        $parts = parse_url($url);
+        $host = $parts['host'] ?? null;
+        if (($parts['scheme'] ?? null) !== 'https' || !$host) {
+            return false;
+        }
+        $ips = filter_var($host, FILTER_VALIDATE_IP)
+            ? [$host]
+            : (gethostbynamel($host) ?: []);
+        if (!$ips) {
+            return false;
+        }
+        foreach ($ips as $ip) {
+            if (
+                !filter_var(
+                    $ip,
+                    FILTER_VALIDATE_IP,
+                    FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE,
+                )
+            ) {
+                return false;
+            }
+        }
+        return true;
     }
 }
