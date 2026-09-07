@@ -32,6 +32,14 @@ class ApiContractTest extends TestCase
     }
     private function auth(Employee $employee): array
     {
+        // Sanctum's RequestGuard caches the resolved user for the lifetime
+        // of the guard instance, and that instance is reused across every
+        // postJson() call within one test method (only production's
+        // per-request app boot avoids this — this is a test-only quirk).
+        // Without forgetting it, a second auth() call for a *different*
+        // employee in the same test still resolves $request->user() to
+        // whichever employee was authenticated first.
+        app('auth')->forgetGuards();
         return [
             'Authorization' =>
                 'Bearer ' .
@@ -161,6 +169,12 @@ class ApiContractTest extends TestCase
         $headers = ['Authorization' => 'Bearer ' . $plain];
         $this->postJson('/api/logout', [], $headers)->assertOk();
         $this->assertDatabaseCount('personal_access_tokens', 0);
+        // Sanctum's RequestGuard cached the user it resolved for this token
+        // while handling the logout call itself, and that guard instance is
+        // reused for every request in this test method — production has no
+        // such carryover (a fresh app boot per request), but here the next
+        // call would still authenticate as that employee unless we forget it.
+        app('auth')->forgetGuards();
         $this->getJson('/api/products', $headers)->assertUnauthorized();
     }
     public function test_money_is_stored_and_calculated_only_as_integer_cents(): void
@@ -2141,6 +2155,10 @@ class ApiContractTest extends TestCase
             ['action' => 'approve'],
             $this->auth($cashier),
         )->assertForbidden();
+        // $adminHeaders was captured before the cashier calls above re-cached
+        // the guard for a different employee; forget it so this reused
+        // bearer token is actually re-resolved as the admin again.
+        app('auth')->forgetGuards();
         $this->postJson(
             "/api/categories/{$parent['id']}/review",
             ['action' => 'keep'],

@@ -145,7 +145,7 @@ class OrderResource extends JsonResource
         }
 
         return $this->discount_type === 'percentage'
-            ? $this->discount_value / 100
+            ? (float) $this->discount_value / 100
             : Money::toDecimal($this->discount_value);
     }
 }
