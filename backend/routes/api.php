@@ -22,20 +22,28 @@ use Illuminate\Support\Facades\Route;
 Route::post('/login', [AuthController::class, 'login'])->middleware(
     'throttle:login',
 );
-Route::post('/telegram/webhook', [TelegramController::class, 'webhook']);
-Route::post('/customer-products', [TelegramController::class, 'products']);
-Route::post('/customer-profile', [TelegramController::class, 'profile']);
-Route::post('/customer-orders', [TelegramController::class, 'order']);
-Route::post('/customer-orders/open', [TelegramController::class, 'openOrder']);
-Route::post('/customer-orders/{order}/status', [
-    TelegramController::class,
-    'status',
-]);
-// Customer cancellation before the seller accepts (Pending/Confirmed/Ready).
-Route::post('/customer-orders/{order}/cancel', [
-    TelegramController::class,
-    'cancelOrder',
-]);
+// Unauthenticated: initData HMAC-verifies the customer (or a shared webhook
+// secret verifies Telegram), but nothing else caps request volume from one
+// source — see the 'public' limiter in AppServiceProvider.
+Route::middleware('throttle:public')->group(function () {
+    Route::post('/telegram/webhook', [TelegramController::class, 'webhook']);
+    Route::post('/customer-products', [TelegramController::class, 'products']);
+    Route::post('/customer-profile', [TelegramController::class, 'profile']);
+    Route::post('/customer-orders', [TelegramController::class, 'order']);
+    Route::post('/customer-orders/open', [
+        TelegramController::class,
+        'openOrder',
+    ]);
+    Route::post('/customer-orders/{order}/status', [
+        TelegramController::class,
+        'status',
+    ]);
+    // Customer cancellation before the seller accepts (Pending/Confirmed/Ready).
+    Route::post('/customer-orders/{order}/cancel', [
+        TelegramController::class,
+        'cancelOrder',
+    ]);
+});
 
 Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
