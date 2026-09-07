@@ -2,7 +2,7 @@
 namespace App\Services;
 use App\Jobs\SendCustomerStatusNotification;
 use App\Jobs\SendStaffOrderNotification;
-use App\Models\{Employee, Order, OrderPayment, Product, OrderStatusEvent};
+use App\Models\{Employee, Order, OrderPayment, Product, OrderStatusEvent, Shift};
 use App\Support\CashTender;
 use App\Support\ExchangeRate;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -37,6 +37,7 @@ final class PaymentService
             $this->ensurePayable($order);
             $payment = OrderPayment::create([
                 'order_id' => $order->id,
+                'shift_id' => Shift::where('status', 'Open')->value('id'),
                 'method' => 'qr_manual',
                 'status' => 'confirmed',
                 'amount_usd_cents' => $order->total_cents,
@@ -75,6 +76,7 @@ final class PaymentService
             $tender = CashTender::validate($order->total_cents, $input);
             $payment = OrderPayment::create([
                 'order_id' => $order->id,
+                'shift_id' => Shift::where('status', 'Open')->value('id'),
                 'method' => $method,
                 'status' => 'confirmed',
                 'amount_usd_cents' => $order->total_cents,

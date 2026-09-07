@@ -109,6 +109,19 @@ check "exactly $STOCK of $RACERS racing sales succeeded (no oversell, no underse
 check "every losing racer got a clean 409 (no 5xx / no 200 with silent failure)" \
   "$([ "$OTHER" -eq 0 ] && echo true || echo false)" "other=$OTHER"
 
+# Each winning racer's order id comes from OrderNumberSequence — a
+# row-locked counter, not a MAX(id)+1 scan of the orders table that let two
+# concurrent creations compute the same "next" number. Every winner racing
+# at the same instant must still get a distinct id.
+WINNER_IDS=""
+for i in $(seq 1 "$RACERS"); do
+  [ "$(cat "$OUT/r$i.code")" = 201 ] || continue
+  WINNER_IDS="$WINNER_IDS $(jget id <"$OUT/r$i.body")"
+done
+DUP_IDS="$(printf '%s\n' $WINNER_IDS | sort | uniq -d)"
+check "every winning racer got a distinct order id (no duplicate ids under concurrency)" \
+  "$([ -z "$DUP_IDS" ] && echo true || echo false)" "duplicates:$DUP_IDS ids:$WINNER_IDS"
+
 echo; echo "===== truth after the race ====="
 ADMIN_STOCK="$(api GET /api/products '' "$TOKEN_ADMIN" | python3 -c "import json,sys;print([p['stock'] for p in json.load(sys.stdin) if p['id']==$PID][0])")"
 SALE_STOCK="$(api GET /api/products '' "$TOKEN_CASHIER" | python3 -c "import json,sys;print([p['stock'] for p in json.load(sys.stdin) if p['id']==$PID][0])")"

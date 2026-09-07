@@ -13,6 +13,7 @@ use App\Models\{
     Setting,
     OrderPayment,
     OrderStatusEvent,
+    Shift,
 };
 use App\Support\CashTender;
 use App\Support\ExchangeRate;
@@ -27,6 +28,7 @@ class OrderService
     public function __construct(
         private readonly AuditService $audit,
         private readonly CustomerNotificationService $notifications,
+        private readonly OrderNumberSequence $orderNumbers,
     ) {}
 
     public function createWalkIn(array $input, Employee $employee): CreatedOrder
@@ -156,6 +158,11 @@ class OrderService
                 }
                 OrderPayment::create([
                     'order_id' => $order->id,
+                    // Attributes this payment to whichever shift is open
+                    // right now, unambiguously — see the migration that
+                    // added this column for why confirmed_at >= opened_at
+                    // alone could double-count a payment into two shifts.
+                    'shift_id' => Shift::where('status', 'Open')->value('id'),
                     'method' => $method,
                     'status' => 'confirmed',
                     'amount_usd_cents' => $total,
@@ -787,15 +794,7 @@ class OrderService
 
     private function nextOrderNumber(string $prefix = 'CS'): int
     {
-        return Order::where('id', 'like', "$prefix-%")
-            ->pluck('id')
-            ->reduce(
-                fn($max, $id) => max(
-                    $max,
-                    (int) substr($id, strlen($prefix) + 1),
-                ),
-                0,
-            ) + 1;
+        return $this->orderNumbers->next($prefix);
     }
 
     private function existingIdempotentOrder(

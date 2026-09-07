@@ -15,6 +15,7 @@ use App\Models\{
 };
 use App\Jobs\SendStaffCategoryProposedNotification;
 use App\Services\ObjectUploadService;
+use App\Services\OrderNumberSequence;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\{Cache, DB, Http, Log, Queue, Storage};
@@ -388,6 +389,61 @@ class ApiContractTest extends TestCase
             30 - MoneyForTest::decimal($p->price_cents),
             $closed->json('variance'),
         );
+    }
+    /**
+     * Regression test for the same-second shift-attribution race: a cash
+     * order's payment must record the shift that was actually open when it
+     * was confirmed, not be left to a confirmed_at/opened_at timestamp
+     * comparison that ties when both land in the same second.
+     */
+    public function test_a_cash_payment_records_the_shift_open_when_confirmed(): void
+    {
+        $employee = Employee::where('role', 'cashier')->first();
+        $headers = $this->auth($employee);
+        $shiftId = $this->postJson(
+            '/api/shifts/open',
+            ['openingCash' => '100.00'],
+            $headers,
+        )
+            ->assertCreated()
+            ->json('id');
+        $p = Product::first();
+        $orderId = $this->postJson(
+            '/api/orders',
+            [
+                'payment' => 'Cash',
+                'items' => [['productId' => $p->id, 'quantity' => 1]],
+                'idempotencyKey' => (string) Str::uuid(),
+            ],
+            $headers,
+        )
+            ->assertCreated()
+            ->json('id');
+        $this->assertSame(
+            $shiftId,
+            (int) DB::table('order_payments')
+                ->where('order_id', $orderId)
+                ->value('shift_id'),
+        );
+    }
+    /**
+     * OrderNumberSequence replaced a MAX(id)+1 scan of the orders table
+     * (which let two concurrent order creations compute the same "next"
+     * id) with a row-locked counter. This is direct unit coverage of that
+     * counter; concurrency-verify.sh covers the real race with 8
+     * simultaneous HTTP requests racing for the same product's stock.
+     */
+    public function test_order_number_sequence_never_repeats_a_number(): void
+    {
+        $sequence = app(OrderNumberSequence::class);
+        $first = $sequence->next('CS');
+        $second = $sequence->next('CS');
+        $this->assertSame($first + 1, $second);
+        // A different prefix has its own independent counter, unaffected
+        // by how many numbers 'CS' has already issued.
+        $rfFirst = $sequence->next('RF');
+        $rfSecond = $sequence->next('RF');
+        $this->assertSame($rfFirst + 1, $rfSecond);
     }
     public function test_sale_and_shop_bot_registrations_must_be_distinct(): void
     {
@@ -3904,11 +3960,10 @@ class ApiContractTest extends TestCase
         // it must land in cashShortagesCents, not vanish because the USD
         // variance happened to be zero.
         //
-        // Shift sales are attributed by confirmed_at >= opened_at at second
-        // resolution; step the clock so the first shift's $18 cash sale
-        // cannot also land in this one when the whole test runs inside a
-        // single second.
-        $this->travel(1)->seconds();
+        // Payments are attributed to a shift by shift_id (set at
+        // confirmation time), not by comparing timestamps — the previous
+        // shift's $18 cash sale cannot land in this one even though both
+        // happen inside the same wall-clock second.
         $this->postJson(
             '/api/shifts/open',
             ['openingCash' => '0.00', 'openingCashKhr' => 41000],
