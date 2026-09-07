@@ -1,0 +1,27 @@
+1
+00:00:00,000 --> 00:00:14,000
+វីដេអូនេះសម្រាប់អ្នកបច្ចេកទេស។ នេះជាទំរង់ពិតនៃទិន្នន័យការលក់ក្នុង MySQL ដែលយកពី migration files។ មានតារាង ៩៖ EMPLOYEES, CUSTOMERS, CATEGORIES, PRODUCTS, ORDERS, ORDER_ITEMS, ORDER_PAYMENTS, ORDER_STATUS_EVENTS, SHIFTS។
+
+2
+00:00:14,000 --> 00:00:29,000
+EMPLOYEES រំលង ១-ច្រើនជាមួយ ORDERS (cashier_id), SHIFTS (works), ORDER_PAYMENTS (confirmed_by_employee_id), ORDER_STATUS_EVENTS (employee_id), CATEGORIES (created_by_employee_id)។ CUSTOMERS រំលង ១-ច្រើនជាមួយ ORDERS (customer_id)។ CATEGORIES អាចមាន parent_category_id ចាប់ខ្លួន (១ កម្រិត) ហើយរំលងជាមួយ PRODUCTS (category_id)។
+
+3
+00:00:29,000 --> 00:00:43,000
+PRODUCTS រំលងជាមួយ ORDER_ITEMS (product_id, អាចជា null)។ ORDERS រំលងជាមួយ ORDER_ITEMS (contains), ORDER_PAYMENTS (settled by), ORDER_STATUS_EVENTS (history), និង ORDERS ខ្លួនឯង (parent_order_id សម្រាប់ corrections)។ SHIFTS រំលងជាមួយ ORDER_PAYMENTS (shift_id)។
+
+4
+00:00:43,000 --> 00:00:57,000
+ជួរសំខាន់៖ ORDERS.id ជា PK មានរូបភាព CS-n / TG-n / RF-n; columns មាន pickup_code, cashier_id, customer_id, parent_order_id, idempotency_key (UK), source (walk-in|telegram), subtotal_cents, total_cents, payment (Cash|KHQR), status, payment_status, hold_label, detail_json។ PRODUCTS មាន price_cents, stock, reserved_stock, sold, revenue_cents, made_at, best_before។
+
+5
+00:00:57,000 --> 00:01:11,000
+ORDER_PAYMENTS មាន method (cash|qr_manual), status (confirmed|failed), amount_usd_cents, exchange_rate_khr_per_usd, tendered_usd_cents, tendered_khr, change_usd_cents, change_khr, shift_id, confirmed_by_employee_id, confirmed_at, metadata។ ORDER_STATUS_EVENTS មាន from_status, to_status, employee_id, metadata។
+
+6
+00:01:11,000 --> 00:01:25,000
+មានតារាង ២ ទៀតក្រៅដេក្រាម៖ order_number_sequences និង store_shift_locks (race-safe, គ្មានទិន្នន័យអាជីវកម្ម)។ ពួកវាមានតែមួយជួរក្នុងមួយ prefix ឬជួរតែមួយដែលចាក់សោ ដើម្បីកុំឱ្យការបញ្ជាទិញរត់ប្រកួតគ្នា។
+
+7
+00:01:25,000 --> 00:01:39,000
+ឧទាហរណ៍៖ ការបញ្ជាទិញនំខួបកំណើត — CUSTOMERS ដាក់ ORDERS; ORDERS មាន ORDER_ITEMS ដែលចង្អុលទៅ PRODUCTS; ការទូទាត់ settled ដោយ ORDER_PAYMENTS ភ្ជាប់ជាមួយ SHIFTS និង EMPLOYEES; ប្រវត្តិនៅ ORDER_STATUS_EVENTS។ ទំនាក់ទំនងទាំងអស់នេះ មកពី migrations ពិត មិនមែនការសន្មត់ទេ។
