@@ -2,6 +2,7 @@
 namespace App\Services;
 use App\Models\Employee;
 use App\Models\Product;
+use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -65,7 +66,7 @@ class WasteService
                 'productName' => $product->name,
                 'quantity' => $quantity,
                 'reason' => $reason,
-                'retailValue' => ($unitPrice * $quantity) / 100,
+                'retailValue' => Money::toDecimal($unitPrice * $quantity),
                 'remainingStock' => (int) $product->stock,
             ];
         });
