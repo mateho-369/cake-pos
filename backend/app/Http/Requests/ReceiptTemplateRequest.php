@@ -13,10 +13,10 @@ class ReceiptTemplateRequest extends FormRequest
         return [
             'paperSize' => ['required', Rule::in(['58mm', '80mm', 'A4'])],
             'language' => ['required', Rule::in(['en', 'km'])],
-            'businessName' => ['required', 'string'],
-            'address' => ['nullable', 'string'],
-            'logoUrl' => ['nullable', 'string'],
-            'footerMessage' => ['nullable', 'string'],
+            'businessName' => ['required', 'string', 'max:120'],
+            'address' => ['nullable', 'string', 'max:255'],
+            'logoUrl' => ['nullable', 'string', 'max:2048'],
+            'footerMessage' => ['nullable', 'string', 'max:500'],
         ];
     }
 }
