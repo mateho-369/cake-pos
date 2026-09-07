@@ -11,7 +11,7 @@ sequenceDiagram
     participant DB as MySQL (products, orders, order_items, order_payments)
 
     Cashier->>SaleApp: Add items to cart
-    Note over SaleApp: Cart lives only in the\nbrowser until held or paid
+    Note over SaleApp: Cart lives only in the<br/>browser until held or paid
 
     Cashier->>SaleApp: Tap "Hold order"
     SaleApp->>API: POST /orders/hold
@@ -25,16 +25,16 @@ sequenceDiagram
     Svc->>DB: COMMIT
     deactivate Svc
     API-->>SaleApp: 201 Created (order, status: Held)
-    Note over DB: Reserved units are now invisible\nas "available" stock to every\nother terminal and the shop app
+    Note over DB: Reserved units are now invisible<br/>as available stock to every<br/>other terminal and the shop app
 
-    Cashier->>SaleApp: Later — open "Held orders"
+    Cashier->>SaleApp: Later, open Held orders
     SaleApp->>API: GET /orders/held
     API-->>SaleApp: List of Held orders, oldest first
     Cashier->>SaleApp: Tap the held order (Resume)
-    Note over SaleApp: Cart is rebuilt from the\nheld order's line items
+    Note over SaleApp: Cart is rebuilt from the<br/>held order's line items
 
-    Cashier->>SaleApp: Tap "Take Payment"
-    SaleApp->>API: POST /orders/:id/pay {method, tender}
+    Cashier->>SaleApp: Tap Take Payment
+    SaleApp->>API: POST /orders/:id/pay with method and tender
     API->>Svc: PaymentService::confirm(order, method, input, employee)
     activate Svc
     Svc->>DB: BEGIN TRANSACTION
@@ -42,9 +42,9 @@ sequenceDiagram
     Svc->>DB: INSERT order_payments (status = confirmed, shift_id)
     Svc->>DB: UPDATE orders SET status = Completed
     Svc->>DB: SELECT products FOR UPDATE
-    Svc->>DB: UPDATE products SET stock -= qty, reserved_stock -= qty,\n  sold += qty, revenue_cents += qty's share
+    Svc->>DB: UPDATE products SET stock -= qty, reserved_stock -= qty,<br/>sold += qty, revenue_cents += qty's share
     Svc->>DB: COMMIT
     deactivate Svc
     API-->>SaleApp: 200 OK (order, status: Completed)
-    Note over Svc,DB: The hold is "released" simply by\nthe order leaving Held — there is\nno separate release step, so a\ncrash mid-payment can never leave\nstock reserved with no matching order
+    Note over Svc,DB: The hold is released simply by<br/>the order leaving Held - there is<br/>no separate release step, so a<br/>crash mid-payment can never leave<br/>stock reserved with no matching order
 ```

@@ -4,25 +4,25 @@ This shows the two ways an order is born — a customer ordering through the Tel
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Pending: Customer places a Telegram order\n(POST /customer-orders)
+    [*] --> Pending: Customer places a Telegram order<br/>POST /customer-orders
 
-    Pending --> Confirmed: Staff edits status\n(PATCH /orders/:id, admin only)
-    Confirmed --> Ready: Staff edits status\n(PATCH /orders/:id, admin only)
-    Pending --> Ready: Staff edits status\n(PATCH /orders/:id, admin only)
+    Pending --> Confirmed: Staff edits status<br/>PATCH /orders/:id, admin only
+    Confirmed --> Ready: Staff edits status<br/>PATCH /orders/:id, admin only
+    Pending --> Ready: Staff edits status<br/>PATCH /orders/:id, admin only
 
-    Pending --> Held: Staff accepts the order\n(POST /orders/:id/accept)
-    Confirmed --> Held: Staff accepts the order\n(POST /orders/:id/accept)
-    Ready --> Held: Staff accepts the order\n(POST /orders/:id/accept)
+    Pending --> Held: Staff accepts the order<br/>POST /orders/:id/accept
+    Confirmed --> Held: Staff accepts the order<br/>POST /orders/:id/accept
+    Ready --> Held: Staff accepts the order<br/>POST /orders/:id/accept
 
-    Pending --> Cancelled: Customer cancels in the Mini App\n(POST /customer-orders/:id/cancel)\n— OR — Staff rejects it\n(POST /orders/:id/reject)
-    Confirmed --> Cancelled: Customer cancels — OR — Staff rejects
-    Ready --> Cancelled: Customer cancels — OR — Staff rejects
+    Pending --> Cancelled: Customer cancels via POST /customer-orders/:id/cancel<br/>or Staff rejects via POST /orders/:id/reject
+    Confirmed --> Cancelled: Customer cancels or Staff rejects
+    Ready --> Cancelled: Customer cancels or Staff rejects
 
-    Held --> Cancelled: Staff cancels the held order\n(POST /orders/:id/cancel)
-    Held --> Completed: Staff takes payment\n(POST /orders/:id/pay)\nSystem: settles stock + revenue
+    Held --> Cancelled: Staff cancels the held order<br/>POST /orders/:id/cancel
+    Held --> Completed: Staff takes payment, POST /orders/:id/pay<br/>System settles stock and revenue
 
-    [*] --> Held: Cashier holds a walk-in cart\n(POST /orders/hold)
-    [*] --> Completed: Cashier rings a walk-in sale\npaid immediately (POST /orders)
+    [*] --> Held: Cashier holds a walk-in cart<br/>POST /orders/hold
+    [*] --> Completed: Cashier rings a walk-in sale<br/>paid immediately, POST /orders
 
     Completed --> [*]
     Cancelled --> [*]
