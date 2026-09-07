@@ -51,6 +51,26 @@ req() { # label base method path [json] [token]
   if [ -s "$OUT/last.body" ]; then echo "  body: $(head -c 800 "$OUT/last.body")"; fi
   echo "$code" >"$OUT/last.code"
 }
+# Same call signature as req(), but retries a transient upstream gateway
+# error (502/503/504/522/524) a few times before giving up. deploy-backend.yml
+# rebuilds and restarts the production containers on every push that touches
+# backend/**, and this probe (triggered by the same push) can catch the
+# few-second window where Cloudflare has nothing to proxy to yet — the same
+# reason section 1's healthz check already retries below, generalized for
+# any read used past that point in the script.
+req_retry_gateway() { # label base method path [json] [token]
+  local label="$1" base="$2" method="$3" path="$4" body="${5:-}" token="${6:-}"
+  local attempt
+  for attempt in 1 2 3; do
+    req "$label" "$base" "$method" "$path" "$body" "$token"
+    case "$(cat "$OUT/last.code")" in
+      502 | 503 | 504 | 522 | 524)
+        [ "$attempt" -lt 3 ] && sleep 5
+        ;;
+      *) return ;;
+    esac
+  done
+}
 assert() {
   if [ "$2" = "true" ]; then PASS=$((PASS + 1)); echo "  PASS  $1";
   else
@@ -469,7 +489,7 @@ fi
 
 # ---------- 3. Shift state: never strand production, never fight a cashier ----------
 note "3. Shift state on production"
-req "GET /api/shifts/current (state check)" "$WORKER" GET /api/shifts/current "" "$TOKEN_ADMIN"
+req_retry_gateway "GET /api/shifts/current (state check)" "$WORKER" GET /api/shifts/current "" "$TOKEN_ADMIN"
 CURRENT_CODE="$(cat "$OUT/last.code")"
 CURRENT_BODY="$(cat "$OUT/last.body" | tr -d '[:space:]')"
 echo "  current shift on prod (HTTP $CURRENT_CODE): $CURRENT_BODY"
@@ -556,7 +576,7 @@ echo "  carries zero production risk."
 note "4. Read-only endpoint sweep"
 SWEEP_CODES=""
 for ep in /api/products /api/categories /api/customers /api/orders /api/employees /api/shifts /api/settings/pos-rules /api/settings/receipt-template /api/reports/dashboard /api/reports/revenue-trend /api/reports/products /api/reports/categories /api/reports/payments /api/reports/cashiers /api/reports/peak-hours /api/reports/waste /api/reports/customers; do
-  req "GET $ep" "$WORKER" GET "$ep" "" "$TOKEN_ADMIN"
+  req_retry_gateway "GET $ep" "$WORKER" GET "$ep" "" "$TOKEN_ADMIN"
   expect_code "GET $ep returns 200" 200
   SWEEP_CODES="$SWEEP_CODES $ep=$(cat "$OUT/last.code")"
 done
